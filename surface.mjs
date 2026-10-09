@@ -10,8 +10,8 @@ export function voiceWaveform(levels=[],width=0,height=3){
  const bits=[1,2,4,64];
  return Array.from({length:rows},(_,row)=>samples.map(value=>{
   const level=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;
-  const bar=level<.025?0:Math.max(2,Math.round(level*pixels/2)*2);
-  const top=(pixels-bar)/2,bottom=top+bar;
+  const bar=level<.025?0:Math.max(1,Math.round(Math.pow(level,1.5)*pixels));
+  const top=Math.ceil((pixels-bar)/2),bottom=top+bar;
   let mask=0;
   for(let dy=0;dy<4;dy++){const y=row*4+dy;if(bar?y>=top&&y<bottom:y===Math.floor(pixels/2))mask|=bits[dy];}
   return mask?String.fromCharCode(0x2800+mask):' ';
