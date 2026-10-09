@@ -49,7 +49,6 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       const buttons = [
         { label: technical ? "Вернуться в чат" : "Меню", run: technical ? () => { technical = false; tui.requestRender(); } : actions.menu },
         { label: "Модель", run: actions.model },
-        ...(width >= 66 ? [{ label: "Подробности", run: actions.details }] : []),
         { label: ctx.isIdle() ? (delegate.getText().startsWith("/") ? "Выполнить" : "Отправить") : "Остановить", run: ctx.isIdle() ? submit : () => ctx.abort(), primary: true, disabled: ctx.isIdle() && !delegate.getText().trim() },
       ];
       let row = " ";

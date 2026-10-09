@@ -45,7 +45,7 @@ export function installFriendly(pi, rendering) {
           const mouse=mouseEvent(data),side=tui.terminal.columns>=100?26:18;
           if(mouse && mouse.x<side){
             if(mouse.press&&mouse.button===0){
-              if(mouse.y>=4&&mouse.y<7){inner.handleInput("\x1b");return;}
+              if(tui.terminal.rows>=18&&mouse.y>=4&&mouse.y<7){inner.handleInput("\x1b");return;}
               const release=workspace.holdFrame(lastFrame);inner.handleInput("\x1b");
               setTimeout(async()=>{try{await workspace?.sidebarNavigate(data);}finally{release();}},0);
             }
@@ -227,6 +227,7 @@ export function installFriendly(pi, rendering) {
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
+            exit: safe(ctx, () => ctx.shutdown()),
             errorDetails: raw => safe(ctx,()=>dialog(ctx,()=>choose(ctx,"Подробности ошибки",wrapText(explainError(raw).help+" Причина сервиса: "+raw,50).map(label=>({label})),false,"Текст сервиса · Esc или × Закрыть — обратно")))(),
             details: () => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
           },

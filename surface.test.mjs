@@ -7,7 +7,7 @@ function fixture(w=100,h=30){
  const calls=[];const tui={terminal:{columns:w,rows:h},requestRender(){}};
  const data={scheme:'light',statuses:['Осталось 993 тыс.'],live:{role:'assistant',timestamp:1,content:[{type:'thinking',thinking:'PRIVATE THOUGHT'},{type:'text',text:'Привет! Чем могу помочь?'}]}};
  const ctx={isIdle:()=>true,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>[]}};
- const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails'].map(k=>[k,()=>calls.push(k)]));
+ const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit'].map(k=>[k,()=>calls.push(k)]));
  const delegate={getText:()=>'',render:width=>['─'.repeat(width),'','─'.repeat(width)]};
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
  return{surface,tui,data,calls,ctx,delegate};
@@ -64,4 +64,14 @@ test('wide windows use available chat width and pending writes are not marked su
  const h=fixture(160,40);h.data.live={role:'assistant',content:[{type:'text',text:'Обновляю страницу'},{type:'toolCall',id:'pending',name:'write',arguments:{path:'index.html',content:'hello'}}]};
  const rows=h.surface.render(160).map(strip),row=rows.find(r=>r.includes('Обновляю страницу'));
  assert.ok(row.indexOf('Обновляю страницу')<35);assert.ok(rows.join('\n').includes('· Создаю файл · index.html'));assert.ok(!rows.join('\n').includes('✓ Файл записан'));
+});
+
+test('red exit button stays clickable at the bottom without a details button',()=>{
+ for(const height of [12,18,23,27,35])for(const scheme of ['light','dark']){
+  const h=fixture(100,height);h.data.scheme=scheme;
+  const raw=h.surface.render(100),rows=raw.map(strip),y=rows.findIndex(r=>r.includes('Выйти')),x=rows[y].indexOf('Выйти');
+  assert.ok(y>=height/2);assert.ok(!rows.join('').includes('Подробности'));
+  assert.ok(raw[y].includes(scheme==='dark'?'255;186;186':'157;35;42'));
+  h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['exit']);
+ }
 });
