@@ -43,14 +43,16 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         put(4,fg(clean(subtitle),p.muted));
         put(6,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
         const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
-        const step=height>=22?2:1,capacity=Math.max(1,Math.floor((height-10)/step));
+        const step=height>=18?3:1,capacity=Math.max(1,Math.floor((height-10)/step));
         offset=Math.max(0,Math.min(offset,Math.max(0,list.length-capacity)));
         if(selected<offset)offset=selected;
         if(selected>=offset+capacity)offset=selected-capacity+1;
         for(let i=offset;i<Math.min(list.length,offset+capacity);i++){
           const y=8+(i-offset)*step,item=list[i];
-          put(y,(i===selected?' › ':'   ')+clean(item.label),i===selected?p.bubble:p.canvas);
-          targets.push({y,x:left,end:left+cw,index:i});
+          const bg=i===selected?p.bubble:p.sidebar;
+          put(y,(i===selected?' › ':'   ')+clean(item.label),bg);
+          if(step===3)put(y+1,fg('   '+clean(item.description||'Нажмите, чтобы выбрать'),p.muted),bg);
+          for(let n=0;n<(step===3?2:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
         }
         if(!list.length)put(8,'Ничего не найдено');
         put(height-2,fg('↑↓ выбор · Enter открыть · Esc закрыть'+(list.length>capacity?` · ${selected+1}/${list.length}`:''),p.muted));

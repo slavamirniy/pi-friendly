@@ -7,10 +7,10 @@ function fixture(w=100,h=30){
  const calls=[];const tui={terminal:{columns:w,rows:h},requestRender(){}};
  const data={scheme:'light',statuses:['Осталось 993 тыс.'],live:{role:'assistant',timestamp:1,content:[{type:'thinking',thinking:'PRIVATE THOUGHT'},{type:'text',text:'Привет! Чем могу помочь?'}]}};
  const ctx={isIdle:()=>true,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>[]}};
- const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit'].map(k=>[k,()=>calls.push(k)]));
+ const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails'].map(k=>[k,()=>calls.push(k)]));
  const delegate={getText:()=>'',render:width=>['─'.repeat(width),'','─'.repeat(width)]};
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
- return{surface,tui,data,calls};
+ return{surface,tui,data,calls,ctx,delegate};
 }
 test('light chat hides thinking, shows answer and quota, commands button is absent',()=>{
  const h=fixture();const rows=h.surface.render(100).map(strip);const text=rows.join('\n');
@@ -25,10 +25,22 @@ test('all rendered rows fit viewport, sidebar targets do not overlap at short he
 });
 test('dark theme, tool progress and errors remain readable',()=>{
  const h=fixture();h.data.scheme='dark';h.data.widgets=[['Генерация · 12 с']];h.data.live.errorMessage='Connection failed';
- const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;26;29;33/);
+ const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Не удалось связаться с сервисом'));assert.ok(!text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;26;29;33/);
 });
 test('live assistant replaces matching saved message instead of duplicating it',()=>{
  const old={role:'assistant',timestamp:1,content:[{type:'text',text:'old'}]};const live={...old,content:[{type:'text',text:'new'}]};
  assert.deepEqual(chatMessages({sessionManager:{getBranch:()=>[{type:'message',message:old}]}},live),[live]);
  assert.equal(messageText({content:[{type:'thinking',thinking:'hidden'},{type:'image'}]}),'[Прикреплено изображение]');
+});
+
+test('errors stay visible over progress and open technical details',()=>{
+ const h=fixture();h.data.error={raw:'HTTP 429 too many requests'};h.data.widgets=[['Progress is running']];
+ const rows=h.surface.render(100).map(strip);assert.ok(rows.join('\n').includes('Слишком много запросов'));
+ const y=rows.findIndex(r=>r.includes('Подробнее'));h.surface.onMouse(`\x1b[<0;30;${y+1}M`);assert.deepEqual(h.calls,['errorDetails']);
+ for(const w of [44,60,100])for(const height of [12,20,30]){const f=fixture(w,height);f.data.error={raw:'HTTP 503 unavailable'};const r=f.surface.render(w).map(strip);assert.equal(r.length,height);assert.ok(r.every(l=>l.length===w));assert.ok(r.join('\n').includes('Подробнее'));}
+});
+test('three-row send target and real activity rows are usable',()=>{
+ for(const delta of [-1,0,1]){const h=fixture();h.delegate.getText=()=> 'Привет';const rows=h.surface.render(100).map(strip);const y=rows.findIndex(r=>r.includes('Отправить'));const x=rows[y].indexOf('Отправить');h.surface.onMouse(`\x1b[<0;${x+1};${y+1+delta}M`);assert.deepEqual(h.calls,['submit']);}
+ const h=fixture();h.data.running=true;h.data.started=Date.now()-12000;h.data.steps=[{label:'Создаю файл · index.html',status:'done'},{label:'Проверяю сборку',status:'running'}];
+ const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('✓ Создаю файл'));assert.ok(text.includes('Проверяю сборку'));assert.ok(text.includes('Работаю · 12 с'));
 });

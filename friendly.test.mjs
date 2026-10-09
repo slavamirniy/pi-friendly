@@ -108,12 +108,12 @@ test("menu routes new conversation through native command", async () => {
   h.choices.push("Новый разговор"); await h.open();
   assert.equal(h.ctx.ui.getEditorText(), "/new");
 });
-test("history groups projects and switches selected session through host API", async () => {
+test("history opens chats in one click with project context", async () => {
   const h = harness({ sessions: [
     { cwd: "/projects/Bakery", name: "Сайт пекарни", path: "/sessions/bakery.jsonl", modified: new Date(), messageCount: 4 },
     { cwd: "/projects/Shop", name: "Магазин", path: "/sessions/shop.jsonl", modified: new Date(), messageCount: 2 },
   ] }); await h.emit("session_start");
-  h.choices.push("Bakery", "Сайт пекарни"); await h.open("history");
+  h.choices.push("Сайт пекарни"); await h.open("history");
   assert.deepEqual(h.calls, ["/sessions/bakery.jsonl"]);
 });
 test("RPC/print modes stay untouched and competing footer can be retained", async () => {
@@ -149,5 +149,5 @@ test("popular commands and other commands are separate, dynamic plugin commands 
   h.menu.handleInput(`\x1b[<0;${x+1};2M`);assert.deepEqual(h.results,[undefined]);
   const k=panel({panel:true,palette:palettes.light,searchable:true,measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)});
   const items=k.menu.render(62).map(strip);const y=items.findIndex(r=>r.includes('Модель 0'));const ix=items[y].indexOf('Модель 0');
-  k.menu.handleInput(`\x1b[<0;${ix+1};${y+1}M`);assert.equal(k.results[0].label,'Модель 0');
+  k.menu.handleInput(`\x1b[<0;${ix+1};${y+2}M`);assert.equal(k.results[0].label,'Модель 0');
  });

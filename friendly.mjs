@@ -1,5 +1,7 @@
 import { createMenu, clean, mouseEvent } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
+import { startActivity, finishActivity } from "./activity.mjs";
+import { wrapText, explainError } from "./errors.mjs";
 import { palettes } from "./surface.mjs";
 
 export function groupProjects(sessions) {
@@ -15,7 +17,7 @@ export function groupProjects(sessions) {
 export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
-  let restoreUI = () => {}, noticeTimer;
+  let restoreUI = () => {}, noticeTimer, activityTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
   pi.registerFlag("friendly-keep-footer", { description: "Сохранить footer другого расширения (без кликабельных slash-подсказок)", type: "boolean", default: false });
@@ -26,18 +28,22 @@ export function installFriendly(pi, rendering) {
 
   async function choose(ctx, title, items, searchable = false, subtitle = "") {
     return ctx.ui.custom((tui, theme, _keys, done) => {
+      let lastFrame;
       const inner = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
       activeMenu = !workspace ? inner : {
         invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
         render(width) {
           const side=width>=100?26:18;
           const background=workspace.renderSurface(width), pane=inner.render(width-side);
-          return pane.map((row,i)=>rendering.truncate(background[i]||'',side,'')+row);
+          lastFrame=pane.map((row,i)=>rendering.truncate(background[i]||'',side,'')+row);workspace.clearHeldFrame();return lastFrame;
         },
         handleInput(data) {
           const mouse=mouseEvent(data),side=tui.terminal.columns>=100?26:18;
           if(mouse && mouse.x<side){
-            if(mouse.press&&mouse.button===0){inner.handleInput("\x1b");setTimeout(()=>workspace?.sidebarMouse(data),0);}
+            if(mouse.press&&mouse.button===0){
+              const release=workspace.holdFrame(lastFrame);inner.handleInput("\x1b");
+              setTimeout(async()=>{try{await workspace?.sidebarNavigate(data);}finally{release();}},0);
+            }
             return;
           }
           inner.handleInput(mouse ? `\x1b[<${mouse.button};${mouse.x-side+1};${mouse.y+1}${mouse.press?'M':'m'}` : data);
@@ -72,24 +78,17 @@ export function installFriendly(pi, rendering) {
     const selected = await dialog(ctx, async () => {
       const sessions = await rendering.listSessions();
       if (!sessions.length) { ctx.ui.notify("История пока пуста. Начните новый разговор.", "info"); return; }
-      const projects = groupProjects(sessions);
-      let project;
-      while (!stopped) {
-        if (!project) {
-          project = await choose(ctx, "История · выберите проект", projects.map(group => ({ ...group, label: group.cwd.split(/[\\/]/).filter(Boolean).at(-1) || group.cwd, description: `${group.items.length} разговоров · ${group.cwd}` })), true, "Ваши разговоры сгруппированы по папкам проектов");
-          if (!project) return;
-        }
-        const session = await choose(ctx, "История разговоров", project.items.map(item => ({ session: item,
-          label: item.name || clean(item.firstMessage).slice(0, 80) || "Без названия",
-          description: `${new Date(item.modified).toLocaleDateString("ru-RU")} · ${item.messageCount} сообщений`,
-        })), true, project.cwd);
-        if (session) return session.session;
-        project = undefined;
-      }
+      const chats=[...sessions].sort((a,b)=>+new Date(b.modified)-+new Date(a.modified));
+      const choice=await choose(ctx,"История разговоров",chats.map(item=>({session:item,
+        label:item.name||clean(item.firstMessage).slice(0,80)||"Без названия",
+        description:`${(item.cwd||'Без проекта').split(/[\\/]/).filter(Boolean).at(-1)} · ${new Date(item.modified).toLocaleDateString('ru-RU')} · ${item.messageCount??0} сообщений`,
+      })),true,"Все чаты · поиск по названию и проекту");
+      return choice?.session;
     });
     if (selected) {
       if (ctx.ui.getEditorText().trim() && !await ctx.ui.confirm("Открыть другой разговор?", "Неотправленный текст в поле ввода будет потерян.")) return;
-      await ctx.switchSession(selected.path);
+      if(ctx.switchSession) await ctx.switchSession(selected.path);
+      else await command(ctx,"/friendly open "+encodeURIComponent(selected.path));
     }
   }
   async function commands(ctx) {
@@ -136,12 +135,12 @@ export function installFriendly(pi, rendering) {
     if (action?.id === "new") await command(ctx, "/new");
     if (action?.id === "history") await command(ctx, "/friendly history");
   }
-  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
+  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.startsWith("open ") ? ctx.switchSession(decodeURIComponent(args.slice(5))) : args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
   pi.registerShortcut("f2", { description: "Открыть меню Просто pi", handler: ctx => safe(ctx, () => menu(ctx))() });
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     restoreUI(); clearTimeout(noticeTimer);
-    view.live = undefined; view.notice = ""; view.activity = "";
+    view.live = undefined; view.notice = ""; view.activity = ""; view.error = undefined; view.steps=[]; view.running=false; clearInterval(activityTimer);
     stopped = false;
     ctx.ui.setToolsExpanded(false);
     ctx.ui.setTheme?.(view.scheme);
@@ -151,7 +150,7 @@ export function installFriendly(pi, rendering) {
       else {if(content)widgets.set(key,content);else widgets.delete(key);originalWidget.call(ui,key,content,options);}
       workspace?.redraw();
     };
-    const noticeBridge=(message,type)=>{view.notice=clean(message);clearTimeout(noticeTimer);if(type!=="error")noticeTimer=setTimeout(()=>{view.notice="";workspace?.redraw();},6000);originalNotify.call(ui,message,type);workspace?.redraw();};
+    const noticeBridge=(message,type)=>{view.notice=type==="error"?"":clean(message);if(type==="error")view.error={raw:clean(message)};clearTimeout(noticeTimer);if(type!=="error")noticeTimer=setTimeout(()=>{view.notice="";workspace?.redraw();},6000);originalNotify.call(ui,message,type);workspace?.redraw();};
     ui.setWidget=widgetBridge;ui.notify=noticeBridge;
     restoreUI=()=>{if(ui.setWidget===widgetBridge)ui.setWidget=originalWidget;if(ui.notify===noticeBridge)ui.notify=originalNotify;};
     ctx.ui.setHeader(() => ({ render: () => ["", ""], invalidate() {} }));
@@ -171,10 +170,11 @@ export function installFriendly(pi, rendering) {
           cleanView: true, viewState: () => ({...view, widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
-            newChat: safe(ctx, () => command(ctx,"/new")), history: safe(ctx, () => command(ctx,"/friendly history")),
+            newChat: safe(ctx, () => command(ctx,"/new")), history: safe(ctx, () => history(ctx)),
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
+            errorDetails: raw => safe(ctx,()=>dialog(ctx,()=>choose(ctx,"Подробности ошибки",wrapText(explainError(raw).help+" Причина сервиса: "+raw,50).map(label=>({label})),false,"Текст сервиса · Esc или × Закрыть — обратно")))(),
             details: () => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
           },
         });
@@ -188,11 +188,11 @@ export function installFriendly(pi, rendering) {
     if(event.message?.role === "assistant" || event.message?.role === "user") view.live=event.message;
     workspace?.redraw();
   });
-  pi.on("agent_start",()=>{view.notice="";view.activity="Помощник готовит ответ…";workspace?.redraw();});
-  pi.on("agent_end",()=>{view.activity="";workspace?.redraw();});
-  pi.on("tool_execution_start",()=>{view.activity="Выполняю задачу…";workspace?.redraw();});
-  pi.on("tool_execution_end",event=>{if(event.isError)view.notice="Не удалось выполнить действие. Откройте технический вид для подробностей.";workspace?.redraw();});
+  pi.on("agent_start",()=>{view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";clearInterval(activityTimer);activityTimer=setInterval(()=>workspace?.redraw(),1000);activityTimer.unref?.();workspace?.redraw();});
+  pi.on("agent_end",()=>{view.activity="";view.running=false;clearInterval(activityTimer);workspace?.redraw();});
+  pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
+  pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", () => {
-    stopped = true; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; clearInterval(activityTimer); clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }

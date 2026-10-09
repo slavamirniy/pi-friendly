@@ -1,7 +1,8 @@
 import { clean, mouseEvent } from './menu.mjs';
+import {explainError,wrapText} from './errors.mjs';
 export const palettes = {
- light:{canvas:'255;255;255',sidebar:'247;248;250',text:'31;41;51',muted:'79;92;105',button:'237;241;243',accent:'0;102;81',onAccent:'255;255;255',bubble:'232;241;237',border:'182;194;202'},
- dark:{canvas:'26;29;33',sidebar:'33;38;43',text:'239;243;247',muted:'177;188;199',button:'49;58;65',accent:'117;223;185',onAccent:'18;39;31',bubble:'41;59;54',border:'96;115;128'},
+ light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
+ dark:{canvas:'26;29;33',sidebar:'33;38;43',text:'239;243;247',muted:'177;188;199',button:'49;58;65',accent:'117;223;185',onAccent:'18;39;31',bubble:'41;59;54',border:'96;115;128',error:'255;186;186',errorBg:'67;36;40'},
 };
 export function chatMessages(ctx, live) {
  const branch=ctx.sessionManager?.getBranch?.() ?? ctx.sessionManager?.getEntries?.() ?? [];
@@ -29,10 +30,10 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const side=width>=100?26:18,main=width-side,pad=Math.max(2,Math.floor((main-78)/2)),cw=main-2*pad;
   const left=Array(height).fill(paint('',side,p.sidebar));
   const right=Array(height).fill(paint('',main));
-  const put=(y,text,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<height)right[y]=paint(' '.repeat(pad)+text,main,bg,fg);};
+  const put=(y,text,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<height)right[y]=paint('',pad)+paint(text,cw,bg,fg)+paint('',main-pad-cw);};
   const bold=text=>`\x1b[1m${text}\x1b[22m`;
   const center=(text,w)=>' '.repeat(Math.max(0,Math.floor((w-measure(text))/2)))+text;
-  left[1]=paint('  '+bold('pi')+(side>=24?'  /  помощник':''),side,p.sidebar,p.text);
+  left[1]=paint('  '+bold('Просто pi'),side,p.sidebar,p.text);
   const button=(y,label,run,primary=false)=>{
    if(y<3||y+2>=height-2)return;
    const w=side-4,bg=primary?p.bubble:p.sidebar,fg=primary?p.accent:p.text;
@@ -43,10 +44,13 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   button(4,side<24?'Новый чат':'Новый разговор',actions.newChat,true);
   if(height>=23)button(8,'История',actions.history);
   const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme],['Подробности',actions.technical]];
-  if(height>=27)utilities.forEach(([label,run],i)=>button(height-13+i*3,label,run));
+  if(height>=29)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));
+  else if(height>=27)utilities.forEach(([label,run],i)=>button(12+i*3,label,run));
   else if(height>=23){button(12,'Модель',actions.model);button(height-6,'Ещё',actions.more);}
   else button(height-6,'Ещё',actions.more);
-  left[height-2]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
+  left[height-3]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
+  const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
+  if(quota)left[height-2]=paint('  '+clean(quota),side,p.sidebar,p.muted);
   put(1,chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
   const editorWidth=Math.max(4,cw-4);
   let editorAll=delegate.render(editorWidth);
@@ -57,7 +61,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const cursorLine=editorAll.findIndex(line=>line.includes("\x1b_pi:c\x07"));
   const editorStart=Math.min(Math.max(0,cursorLine-editorLimit+2),Math.max(0,editorAll.length-editorLimit));
   const editorLines=editorAll.slice(editorStart,editorStart+editorLimit);
-  const editorTop=height-Math.max(1,editorLines.length)-6;
+  const editorTop=height-Math.max(1,editorLines.length)-(height>=20?8:6);
   put(editorTop,'╭'+'─'.repeat(cw-2)+'╮',p.canvas,p.border);
   const inside=(y,text)=>{right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint(text,editorWidth)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);};
   editorLines.forEach((line,i)=>inside(editorTop+1+i,line.replace(/\x1b\[[0-9;]*m/g,'')));
@@ -65,18 +69,21 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   inside(actionY,'');
   const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
   const sendW=measure(send)+2, enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
-  right[actionY]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint('',Math.max(0,cw-sendW-4))+paint(' '+send+' ',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
-  if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:1,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
-  put(actionY+1,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
+  const sendHeight=height>=20?3:1;
+  for(let n=0;n<sendHeight;n++)right[actionY+n]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint('',Math.max(0,cw-sendW-4))+paint(n===Math.floor(sendHeight/2)?' '+send+' ':'',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
+  if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:sendHeight,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
+  put(actionY+sendHeight,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
   if(!delegate.getText())put(editorTop-1,'Сообщение',p.canvas,p.muted);
   let info=s.notice||s.activity||'';
   const widgetLines=[];
   for(const widget of s.widgets??[]) {try {widgetLines.push(...(Array.isArray(widget)?widget:widget.render(cw)));}catch{}}
   if(widgetLines.length && !s.notice)info=clean(widgetLines.at(-1));
   if(info)put(editorTop-1,truncate(clean(info),cw,''),p.canvas,s.notice?p.accent:p.muted);
-  const status=(s.statuses??[]).map(clean).join(' · ');
+  const status=(s.statuses??[]).filter(v=>v!==quota).map(clean).join(' · ');
   if(status)put(height-1,truncate(status,cw,''),p.canvas,p.muted);
-  const items=s.suggestions??[];
+  const messages=chatMessages(ctx,s.live),last=messages.at(-1);
+  const failure=s.error || (last?.role==='assistant' && (last.errorMessage||last.stopReason==='error') ? {raw:last.errorMessage||'Сервис завершил запрос с ошибкой'} : undefined);
+  const items=failure?[]:s.suggestions??[];
   const count=Math.min(items.length,5,Math.max(0,editorTop-5));
   let contentBottom=editorTop-2;
   if(count){
@@ -87,25 +94,51 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
     targets.push({x:side+pad,y,w:cw,h:1,run:()=>actions.complete(item)});
    }
   }
+  if(failure){
+   const friendly=explainError(failure.raw,failure.kind),space=Math.max(3,editorTop-3);
+   const detailLines=wrapText(friendly.help,cw-4),titleLines=wrapText('! '+friendly.title,cw-4);
+   const body=[...titleLines,...detailLines];
+   const lines=body.slice(0,Math.max(1,space-2)),top=editorTop-lines.length-3;
+   lines.forEach((line,n)=>put(top+n,'  '+line,p.errorBg,p.error));
+   const label=' Подробнее › ',y=top+lines.length;
+   put(y,label,p.errorBg,p.error);
+   targets.push({x:side+pad,y,w:cw,h:1,run:()=>actions.errorDetails?.(failure.raw)});
+   contentBottom=top-1;
+  }
+  if(!failure && s.running && height>=20){
+   const maxRows=Math.max(1,Math.min(3,editorTop-8));
+   const steps=(s.steps??[]).slice(-maxRows),elapsed=Math.max(0,Math.floor((Date.now()-(s.started??Date.now()))/1000));
+   const rows=steps.length?steps.map(step=>(step.status==='done'?'✓ ':step.status==='error'?'! ':'◌ ')+step.label):['◌ Обдумываю задачу'];
+   const top=editorTop-rows.length-3;
+   put(top,'  Работаю · '+elapsed+' с',p.bubble,p.accent);
+   rows.forEach((row,i)=>put(top+1+i,'  '+row,p.sidebar,p.text));
+   contentBottom=top-1;
+  }
   let content=[];
-  for(const message of chatMessages(ctx,s.live)){
+  for(const message of messages){
    const text=messageText(message);
    if(!text && !message.errorMessage)continue;
-   content.push({text:message.role==='user'?'Вы':'Помощник',muted:true});
-   const lines=rendering.markdown?rendering.markdown(safeText(text),cw,p):safeText(text).split('\n').flatMap(l=>{const out=[];while(l.length){out.push(l.slice(0,cw));l=l.slice(cw);}return out.length?out:[''];});
-   for(const line of lines)content.push({text:line,user:message.role==='user'});
-   if(message.errorMessage)content.push({text:'Не удалось получить ответ: '+clean(message.errorMessage)});
+   const user=message.role==='user',blockWidth=user?Math.max(12,Math.floor(cw*.8)):cw;
+   const inset=user?cw-blockWidth:0;
+   content.push({text:user?'Вы':'Помощник',muted:true,inset,blockWidth});
+   const lines=rendering.markdown?rendering.markdown(safeText(text),blockWidth-4,p):safeText(text).split('\n').flatMap(l=>wrapText(l,blockWidth-4));
+   if(text){
+    content.push({text:'',user,inset,blockWidth,card:true});
+    for(const line of lines)content.push({text:'  '+line,user,inset,blockWidth,card:true});
+    content.push({text:'',user,inset,blockWidth,card:true});
+   }
+   if(message.errorMessage)content.push({text:'! '+explainError(message.errorMessage).title,error:true});
    content.push({text:''});
   }
   const capacity=Math.max(0,contentBottom-3);
   scroll=Math.min(scroll,Math.max(0,content.length-capacity));
   const start=Math.max(0,content.length-capacity-scroll);
-  if(!content.length && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold('С чего начнём?'),cw));put(y+2,center('Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
-  content.slice(start,start+capacity).forEach((line,n)=>put(3+n,line.text,line.user?p.bubble:p.canvas,line.muted?p.muted:p.text));
+  if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold('Чем могу помочь?'),cw));put(y+2,center('Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
+  content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   return left.map((line,i)=>line+right[i]);
  }
- return {render,invalidate(){},onMouse(data){
+ return {render,invalidate(){},navigate(data){const e=mouseEvent(data);const hit=e&&targets.find(t=>e.x>=t.x&&e.x<t.x+t.w&&e.y>=t.y&&e.y<t.y+t.h);return hit?.run();},onMouse(data){
   const event=mouseEvent(data);if(!event)return false;
   if(dimensions!==`${tui.terminal.columns}:${tui.terminal.rows}`){tui.requestRender();return true;}
   if(event.press&&event.button===0){const hit=targets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(hit)void hit.run();}

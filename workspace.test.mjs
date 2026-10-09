@@ -5,7 +5,7 @@ import { acquireMouse } from './mouse.mjs';
 const theme = { fg: (_c,s)=>s, bg: (_c,s)=>s, bold:s=>s };
 const rendering = { truncate:(s,w)=>s.slice(0,w), measure:s=>s.length, matchesKey:(s,k)=>s===k };
 const tick=()=>new Promise(r=>setImmediate(r));
-function harness() {
+function harness(cleanView=false) {
   const overlays=[],writes=[],calls=[],submitted=[]; let input,text='',focus,idle=true,autocomplete;
   const tui={terminal:{rows:24,columns:90,write:s=>writes.push(s)},requestRender(){},getFocusedComponent:()=>focus,
     showOverlay:(component,options)=>{const item={component,options,hidden:false};overlays.push(item);return{hide:()=>{item.hidden=true;}};},
@@ -15,7 +15,7 @@ function harness() {
     setAutocompleteProvider:p=>{autocomplete=p;}, customMethod:()=>42};
   const ctx={isIdle:()=>idle,abort:()=>calls.push('stop')};
   const actions={menu:()=>calls.push('menu'),model:()=>calls.push('model'),commands:()=>calls.push('commands'),details:()=>calls.push('details')};
-  const w=createWorkspace({delegate,tui,theme,rendering,ctx,actions});focus=w.editor;
+  const w=createWorkspace({delegate,tui,theme,rendering,ctx,actions,cleanView});focus=w.editor;
   const provider={getSuggestions:async()=>({prefix:text,items:[{value:'model',label:'model',description:'Model'},{value:'new-plugin',label:'new-plugin',description:'Installed plugin'}]}),
     applyCompletion:(_l,_r,_c,item)=>({lines:['/'+item.value+' '],cursorLine:0,cursorCol:item.value.length+2})};
   w.editor.setAutocompleteProvider(provider);
@@ -55,4 +55,12 @@ test('busy submit does not enqueue text; dock stop works and cleanup removes lis
 test('nested mouse leases restore original mode only after last owner',()=>{
   const writes=[],terminal={write:s=>writes.push(s)};const first=acquireMouse(terminal),second=acquireMouse(terminal);
   first();assert.equal(writes.length,1);second();assert.equal(writes.length,2);second();assert.equal(writes.length,2);
+});
+
+test('navigation retains the last pane until its replacement and ignores stale release',()=>{
+ const h=harness(true),screen=h.overlays[0].component;
+ const history=Array(24).fill('history'),models=Array(24).fill('models');
+ const releaseHistory=h.w.holdFrame(history);assert.deepEqual(screen.render(90),history);
+ const releaseModels=h.w.holdFrame(models);releaseHistory();assert.deepEqual(screen.render(90),models);
+ releaseModels();assert.notDeepEqual(screen.render(90),models);h.w.dispose();
 });
