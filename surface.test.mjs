@@ -101,3 +101,18 @@ test('recognition stays inside composer, installation stays only in sidebar',()=
   }
  }
 });
+
+test('microphone remains clickable during download and highlights only the setup area for its hint',()=>{
+ const h=fixture(120,36);h.data.voice={phase:'downloading',percent:42};let rows=h.surface.render(120).map(strip),y=rows.findIndex(row=>row.includes('🎤')),x=rows[y].indexOf('🎤');
+ assert.ok(y>=0);h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
+ h.data.voiceHintUntil=Date.now()+3000;const raw=h.surface.render(120);rows=raw.map(strip);
+ assert.ok(rows.join('\n').includes('← Для голосового ввода'));assert.ok(rows.join('\n').includes('дождитесь загрузки голосовой модели'));
+ const loading=raw.find(row=>row.includes('Модель 42%'));assert.ok(loading.includes('48;2;215;232;250'));
+ h.data.voiceHintUntil=0;assert.ok(!h.surface.render(120).map(strip).join('').includes('← Для голосового ввода'));
+});
+
+test('audio trace fills from the right and advances old samples left without inventing sound',async()=>{
+ const {voiceWaveform}=await import('./surface.mjs');
+ assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····█');
+ assert.equal(voiceWaveform([1,0],6),'····█·');assert.equal(voiceWaveform([1,0,1],2),'·█');assert.equal(voiceWaveform([1],0),'');
+});

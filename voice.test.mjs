@@ -53,3 +53,11 @@ test('interrupted model download resumes from its saved byte offset',async t=>{
  globalThis.fetch=async(_url,options)=>{assert.equal(options.headers.Range,'bytes=3-');return new Response('def',{status:206,headers:{'content-range':'bytes 3-5/6','content-length':'3'}});};
  await download('https://example.test/model',path,sha);assert.equal(await readFile(path,'utf8'),'abcdef');
 });
+
+test('wave history follows real samples, stays bounded and resets for each recording',async()=>{
+ const h=fixture();await h.voice.start();h.event({type:'ready'});h.voice.toggle('a');let id=h.sent.at(-1).id;
+ for(let i=0;i<520;i++)h.event({type:'recording',id,level:i/520,seconds:52});
+ assert.equal(h.voice.state.levels.length,512);assert.equal(h.voice.state.levels[0],8/520);assert.equal(h.voice.state.levels.at(-1),519/520);
+ h.voice.toggle('a');h.event({type:'ready'});h.voice.toggle('a');id=h.sent.at(-1).id;
+ h.event({type:'recording',id,level:.5,seconds:0});assert.deepEqual(h.voice.state.levels,[.5]);h.voice.dispose();
+});

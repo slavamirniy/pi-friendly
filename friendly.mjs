@@ -21,7 +21,7 @@ export function groupProjects(sessions) {
 export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
-  const projects=rendering.projects; let pendingDraft,voice,voiceContext;
+  const projects=rendering.projects; let pendingDraft,voice,voiceContext,voiceHintTimer;
   const hasProject=ctx=>!projects||(projects.isProject?.(ctx.cwd)??!projects.isHub(ctx.cwd));
   let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
@@ -203,10 +203,10 @@ export function installFriendly(pi, rendering) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     restoreUI(); clearTimeout(noticeTimer);
-    voice?.cancel();voiceContext=ctx;
+    voice?.cancel();voiceContext=ctx;clearTimeout(voiceHintTimer);view.voiceHintUntil=0;
     if(!voice&&rendering.createVoice){
       voice=rendering.createVoice({
-        onState:state=>{view.voice=state;workspace?.redraw();},
+        onState:state=>{view.voice=state;if(state.phase==='ready'){clearTimeout(voiceHintTimer);view.voiceHintUntil=0;}workspace?.redraw();},
         onError:message=>{if(voiceContext&&!stopped)voiceContext.ui.notify(message,'warning');},
         onText:(text,context)=>{
           if(stopped||context!==voiceContext)return;
@@ -215,7 +215,7 @@ export function installFriendly(pi, rendering) {
           workspace?.redraw();
         },
       });
-      void voice.start();
+      view.voice=voice.state;void voice.start();
     }
     view.live = undefined; view.notice = ""; view.activity = ""; view.error = undefined; view.steps=[]; view.running=false;
     stopped = false;
@@ -251,7 +251,13 @@ export function installFriendly(pi, rendering) {
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
-            voice:()=>{if(ctx.isIdle()||voice?.state.phase==='recording')voice?.toggle(ctx);},
+            voice:()=>{
+              if(voice&&['installing','downloading','loading','error'].includes(voice.state.phase)){
+                view.voiceHintUntil=Date.now()+3000;clearTimeout(voiceHintTimer);
+                voiceHintTimer=setTimeout(()=>{view.voiceHintUntil=0;workspace?.redraw();},3000);workspace?.redraw();
+                if(voice.state.phase==='error')voice.toggle(ctx);
+              }else if(ctx.isIdle()||voice?.state.phase==='recording')voice?.toggle(ctx);
+            },
             exit: safe(ctx, () => requestExit(ctx,()=>dialog(ctx,()=>ctx.ui.custom((tui,_theme,_keys,done)=>{
               activeMenu=createExitDialog({...rendering,tui,done,palette:palettes[view.scheme],background:width=>workspace.renderSurface(width)});return activeMenu;
             },{overlay:true,overlayOptions:{width:'100%',maxHeight:'100%',row:0,col:0,margin:0}})))),
@@ -274,6 +280,6 @@ export function installFriendly(pi, rendering) {
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", () => {
-    stopped = true; voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; clearTimeout(voiceHintTimer);voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }

@@ -10,7 +10,7 @@ function setupError(error){
 }
 export function appendDictation(draft,text){return text.trim()?draft+(draft&&!/\s$/.test(draft)?' ':'')+text.trim():draft;}
 export function createVoiceService({root,onState=()=>{},onText=()=>{},onError=()=>{},prepare=prepareVoice,spawnWorker=spawn}){
- let state={phase:'installing',label:'Подготовка голоса…'},child,controller,starting,disposed=false,sequence=0,recordingId,recordingContext;
+ let state={phase:'installing',label:'Подготовка голоса…'},child,controller,starting,disposed=false,sequence=0,recordingId,recordingContext,levels=[];
  const update=next=>{state=next;if(!disposed)onState(state);};
  const send=data=>{if(child?.stdin.writable)child.stdin.write(JSON.stringify(data)+'\n');};
  async function start(){
@@ -39,13 +39,16 @@ export function createVoiceService({root,onState=()=>{},onText=()=>{},onError=()
   if(message.type==='ready')update({phase:'ready',label:'Голос готов'});
   else if(message.type==='error')onError(message.message);
   else if(message.type==='text'&&message.id===recordingId){onText(message.text,recordingContext);recordingId=undefined;recordingContext=undefined;}
-  else if(message.id===recordingId&&['recording','transcribing'].includes(message.type))update({phase:message.type,label:message.type==='recording'?'Слушаю…':'Распознаю…',seconds:message.seconds,level:message.level,percent:message.type==='transcribing'?(message.percent??0):undefined});
+  else if(message.id===recordingId&&['recording','transcribing'].includes(message.type)){
+   if(message.type==='recording'&&Number.isFinite(message.level))levels=[...levels.slice(-511),Math.max(0,Math.min(1,message.level))];
+   update({phase:message.type,label:message.type==='recording'?'Слушаю…':'Распознаю…',seconds:message.seconds,levels,percent:message.type==='transcribing'?(message.percent??0):undefined});
+  }
  }
  return {get state(){return state;},start,
   toggle(context){
    if(state.phase==='error'){void start();return;}
    if(state.phase==='ready'){
-    recordingId=String(++sequence);recordingContext=context;update({phase:'starting',label:'Включаю микрофон…'});send({type:'start',id:recordingId});
+    levels=[];recordingId=String(++sequence);recordingContext=context;update({phase:'starting',label:'Включаю микрофон…'});send({type:'start',id:recordingId});
    }else if(state.phase==='recording'){update({phase:'transcribing',label:'Распознаю…',percent:0});send({type:'stop',id:recordingId});}
   },
   cancel(){if(recordingId){send({type:'cancel',id:recordingId});recordingId=undefined;recordingContext=undefined;}},

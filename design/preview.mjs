@@ -16,7 +16,7 @@ const messages=[{role:'user',content:'Сделай сайт для моей пе
 messages.push({role:'assistant',content:[{type:'text',text:'Добавляю главную страницу и стили:'},{type:'toolCall',id:'page',name:'write',arguments:{path:'index.html',content:'<html>\n<body>Пекарня</body>\n</html>'}},{type:'toolCall',id:'css',name:'write',arguments:{path:'styles.css',content:'body {\n  color: #123;\n}'}}]},{role:'toolResult',toolCallId:'page',isError:false},{role:'toolResult',toolCallId:'css',isError:false});
 const ctx={isIdle:()=>!data.running,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>messages.map(message=>({type:'message',message}))}};
 const surface=createSurface({tui,delegate:{getText:()=>'',render:w=>['─'.repeat(w),'','─'.repeat(w)]},rendering,ctx,actions:{},state:()=>data});
-for(const mode of ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download']){
+for(const mode of ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download','voice-hint']){
  if(mode==='error'){data.running=false;data.error={raw:'HTTP 429 too many requests'};}
  data.paneOpen=['history','chats','form'].includes(mode);
  let rows=surface.render(120);
@@ -35,7 +35,8 @@ for(const mode of ['work','error','history','chats','form','exit','project-choic
  }
  if(mode.startsWith('voice-')){
   data.error=undefined;data.paneOpen=false;data.running=false;
-  data.voice=mode==='voice-recording'?{phase:'recording',seconds:92,level:.8}:mode==='voice-progress'?{phase:'transcribing',percent:64}:{phase:'downloading',percent:42,label:'GigaAM · 225 МБ'};
+  data.voice=mode==='voice-recording'?{phase:'recording',seconds:92,levels:Array.from({length:65},(_,i)=>i%17<4?0:(Math.sin(i*2.3)+1)/2*.8)}:mode==='voice-progress'?{phase:'transcribing',percent:64}:{phase:'downloading',percent:42,label:'GigaAM · 225 МБ'};
+  data.voiceHintUntil=mode==='voice-hint'?Date.now()+3000:0;
   rows=surface.render(120);
  }
  writeFileSync(new URL(`preview-${mode}.json`,import.meta.url),JSON.stringify(rows));
