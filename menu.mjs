@@ -1,4 +1,4 @@
-import {centered,navigationRows} from './buttons.mjs';
+import {centered,navigationRows,buttonRows} from './buttons.mjs';
 import { acquireMouse } from "./mouse.mjs";
 // A full-width, top-left overlay: mouse coordinates never depend on chat scrollback.
 export function clean(value) {
@@ -16,7 +16,8 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
   const terminal = tui.terminal;
   // Save and restore terminal mouse modes; only capture mouse while this dialog is open.
   const releaseMouse = acquireMouse(terminal);
-  const filtered = () => items.filter(item => clean(`${item.label} ${item.description ?? ""}`).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const backItem=panel?items.find(item=>item.kind==='back'):undefined;
+  const filtered = () => items.filter(item => item!==backItem).filter(item => clean(`${item.label} ${item.description ?? ""}`).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const close = value => { if (!disposed) { component.dispose(); done(value); } };
   const component = {
     invalidate() {},
@@ -39,6 +40,11 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         const put=(y,text,bg=p.canvas)=>{if(y<height)rows[y]=paint('',left)+paint(text,cw,bg)+paint('',width-left-cw);};
         const nav=navigationRows(width,p,truncate,measure);
         nav.rows.forEach((row,y)=>{rows[y]=row;targets.push({y,x:width-nav.width-2,end:width-2,index:-1});});
+        if(backItem){
+          const bw=Math.min(20,width-nav.width-6),back=buttonRows('← Все проекты',bw,truncate,measure);
+          // Rebuild both controls explicitly so ANSI byte lengths never determine placement.
+          back.forEach((row,y)=>{rows[y]=paint('  ',2)+paint(row,bw,p.button)+paint('',width-bw-nav.width-4)+paint(buttonRows('× Закрыть',nav.width,truncate,measure)[y],nav.width,p.button)+paint('  ',2);targets.push({y,x:2,end:2+bw,index:-2});});
+        }
         const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
         const step=height>=18?5:1,capacity=Math.max(1,Math.floor((height-10)/step));
         const shift=bottom?Math.max(0,height-10-Math.min(list.length,capacity)*step):0;
@@ -114,7 +120,7 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         if (mouse.button === 64 || mouse.button === 65) selected = Math.max(0, Math.min(list.length - 1, selected + (mouse.button === 64 ? -1 : 1)));
         else if (mouse.button === 0) {
           const hit = targets.find(t => t.y === mouse.y && mouse.x >= t.x && mouse.x < t.end);
-          if (hit) close(hit.index === -1 ? undefined : list[hit.index]);
+          if (hit) close(hit.index === -1 ? undefined : hit.index === -2 ? backItem : list[hit.index]);
         }
       } else if (matchesKey(data, "escape")) close(undefined);
       else if (matchesKey(data, "up") || matchesKey(data, "shift+tab")) selected = (selected - 1 + list.length) % (list.length || 1);

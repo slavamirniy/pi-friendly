@@ -35,7 +35,7 @@ export function installFriendly(pi, rendering) {
   async function choose(ctx, title, items, searchable = false, subtitle = "", form = false, bottom = false) {
     return ctx.ui.custom((tui, theme, _keys, done) => {
       let lastFrame;
-      const finish=value=>{if(value?.navigation&&lastFrame)workspace?.holdFrame(lastFrame);done(value);};
+      const finish=value=>{if((value?.navigation||value?.session||value?.id==='new'||value?.id==='current')&&lastFrame)workspace?.holdFrame(lastFrame);done(value);};
       const inner = form ? createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}) : createMenu({ ...rendering, tui, theme, done:finish, title, subtitle, items, searchable, bottom, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
       activeMenu = !workspace ? inner : {
         invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
@@ -279,7 +279,8 @@ export function installFriendly(pi, rendering) {
   pi.on("agent_end",()=>{view.activity="";view.running=false;workspace?.redraw();});
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", event => {
+    if(["resume","new","fork"].includes(event?.reason))workspace?.freezeForTransition();
     stopped = true; clearTimeout(voiceHintTimer);voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }

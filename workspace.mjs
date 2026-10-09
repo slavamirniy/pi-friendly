@@ -7,6 +7,17 @@ import { createSurface } from "./surface.mjs";
 export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions, footerHeight = () => 1, slashEnabled = true, viewState = () => ({}), cleanView = false }) {
   const { truncate, measure, matchesKey } = rendering;
   let technical = false, heldFrame;
+  const transitionKey=Symbol.for('pi-friendly.transition');
+  const transitions=globalThis[transitionKey]??=new Map();
+  function freezeForTransition(){
+    transitions.get(tui)?.();
+    const rows=heldFrame?.rows?.length?heldFrame.rows:surface.render(tui.terminal.columns);
+    const shield=tui.showOverlay({invalidate(){},render:width=>rows.map(row=>rendering.truncate(row,width,''))},{row:0,col:0,width:'100%',maxHeight:'100%',nonCapturing:true});
+    // The host removes the top overlay during resetExtensionUI; keep the shield below it.
+    const cap=tui.showOverlay({invalidate(){},render:()=>[]},{nonCapturing:true});
+    const release=()=>{clearTimeout(timer);shield.hide();cap.hide();if(transitions.get(tui)===release)transitions.delete(tui);tui.requestRender();};
+    const timer=setTimeout(release,15000);timer.unref?.();transitions.set(tui,release);
+  }
   let proxy, provider, suggestions = [], selected = 0, query = "", suppressed = "", request, disposed = false;
   let topTargets = [], listTargets = [], topSize = "", listSize = "";
   const releaseMouse = acquireMouse(tui.terminal);
@@ -87,7 +98,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     state: () => ({ ...viewState(), suggestions: slash() ? suggestions : [], selected }),
     actions: { ...actions, submit, complete, technical: () => { technical = true; tui.requestRender(); }, more: actions.more || actions.menu },
   });
-  const surfaceHandle = tui.showOverlay({invalidate:()=>surface.invalidate(),render:width=>heldFrame && heldFrame.width===width && heldFrame.rows.length===tui.terminal.rows ? heldFrame.rows : surface.render(width)}, { row: 0, col: 0, width: "100%", maxHeight: "100%", nonCapturing: true, visible: () => cleanView && !technical && focused() });
+  const surfaceHandle = tui.showOverlay({invalidate:()=>surface.invalidate(),render:width=>{const rows=heldFrame && heldFrame.width===width && heldFrame.rows.length===tui.terminal.rows ? heldFrame.rows : surface.render(width);const release=transitions.get(tui);if(release)queueMicrotask(release);return rows;}}, { row: 0, col: 0, width: "100%", maxHeight: "100%", nonCapturing: true, visible: () => cleanView && !technical && focused() });
   const topHandle = tui.showOverlay(toolbar, { row: 0, col: 0, width: "100%", nonCapturing: true, visible: () => (!cleanView || technical) && focused() });
   // The host footer is below the editor. Reserve dropdown rows in editor.render
   // so this overlay cannot hide the user's input or the router status.
@@ -151,7 +162,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     get(target, key) { if (key in overrides) return overrides[key]; const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value; },
     set(target, key, value) { return Reflect.set(target, key, value); },
   });
-  return { editor: proxy, submit, refresh, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), sidebarNavigate: data => surface.navigate(data), clearHeldFrame: () => {heldFrame=undefined;}, holdFrame: rows => {const held={rows:rows??[],width:tui.terminal.columns};heldFrame=held;return ()=>{if(heldFrame===held)heldFrame=undefined;tui.requestRender();};}, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
+  return { editor: proxy, submit, refresh, freezeForTransition, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), sidebarNavigate: data => surface.navigate(data), clearHeldFrame: () => {heldFrame=undefined;}, holdFrame: rows => {const held={rows:rows??[],width:tui.terminal.columns};heldFrame=held;return ()=>{if(heldFrame===held)heldFrame=undefined;tui.requestRender();};}, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
     if (disposed) return;
     disposed = true; request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
   } };

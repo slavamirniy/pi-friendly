@@ -173,7 +173,7 @@ test('projects and chats are separate screens, with back navigation and no folde
  assert.deepEqual(h.calls,['/b']);assert.ok(!h.screens[0].includes('Главная'));assert.ok(!h.screens[0].includes('Открыть папку'));assert.ok(h.screens[1].includes('Главная'));assert.ok(!h.screens[1].includes('Каталог'));
 });
 
-test('top left has no action and close exits the picker',async()=>{
+test('project navigation is separate from chat list and close exits the picker',async()=>{
  const {palettes}=await import('./surface.mjs');
  const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
  for(const label of ['Закрыть']){
@@ -181,7 +181,7 @@ test('top left has no action and close exits the picker',async()=>{
   const h=panel({panel:true,palette:palettes.dark,items:[back,{label:'Чат'}],measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)});
   const rows=h.menu.render(90).map(strip),y=rows.findIndex(r=>r.includes(label)),x=rows[y].indexOf(label);
   assert.ok(!rows.slice(0,3).join('').includes('Назад'));
-  h.menu.handleInput('\x1b[<0;5;2M');assert.equal(h.results.length,0);
+  assert.ok(rows.slice(0,3).join('').includes('Все проекты'));assert.ok(!rows.slice(3).join('').includes('Все проекты'));
   h.menu.handleInput(`\x1b[<0;${x+1};${y+1}M`);
   assert.deepEqual(h.results,[undefined]);
  }
@@ -200,4 +200,12 @@ test('native input outside a project is handled before the agent starts and reta
  assert.equal(h.ctx.ui.getEditorText(),'Сделай сайт');
  await new Promise(resolve=>setTimeout(resolve,10));assert.ok(h.screens[0].includes('Сначала выберите проект'));assert.deepEqual(h.calls,[]);await h.emit('session_shutdown');
  const rpc=harness({mode:'rpc',projects});assert.equal(await rpc.emit('input',{text:'API task',source:'rpc'}),undefined);
+});
+
+test('project navigation button returns to projects while Enter selects new chat',async()=>{
+ const {palettes}=await import('./surface.mjs');const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
+ const back={id:'back',kind:'back',label:'Все проекты'},fresh={id:'new',kind:'primary',label:'Новый чат'};
+ const options={panel:true,palette:palettes.light,items:[back,fresh,{label:'Чат'}],measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)};
+ const h=panel(options);h.menu.render(90);h.menu.handleInput('enter');assert.deepEqual(h.results,[fresh]);
+ const b=panel(options);b.menu.render(90);b.menu.handleInput('\x1b[<0;5;2M');assert.deepEqual(b.results,[back]);
 });

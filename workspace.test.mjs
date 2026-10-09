@@ -82,3 +82,12 @@ test('Enter stops recording once, starts transcription and never submits the dra
  h.w.editor.handleInput('enter');assert.deepEqual(h.calls,['voice']);assert.deepEqual(h.submitted,[]);
  state.voice.phase='transcribing';h.w.editor.handleInput('enter');assert.deepEqual(h.calls,['voice']);assert.deepEqual(h.submitted,[]);assert.equal(h.getText(),'Текст до диктовки');h.w.dispose();
 });
+
+test('session transition shield survives host top-overlay reset until replacement renders',async()=>{
+ const h=harness(true);h.render();h.w.freezeForTransition();
+ const shield=h.overlays.at(-2),cap=h.overlays.at(-1);h.w.dispose();cap.hidden=true;
+ assert.equal(shield.hidden,false);assert.equal(shield.component.render(90).length,24);
+ const next=createWorkspace({delegate:h.delegate,tui:h.tui,theme,rendering,ctx:{isIdle:()=>true},actions:{},cleanView:true});
+ h.setFocus(next.editor);const surface=h.overlays.at(-2);surface.component.render(90);await tick();
+ assert.equal(shield.hidden,true);next.dispose();assert.equal(globalThis[Symbol.for('pi-friendly.transition')].size,0);
+});
