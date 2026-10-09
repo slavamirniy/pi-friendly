@@ -43,7 +43,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    targets.push({x:2,y,w,h:3,run});
   };
   button(4,side<24?'Новый чат':'Новый разговор',actions.newChat,true);
-  if(height>=23)button(8,'История',actions.history);
+  if(height>=23)button(8,'Проекты',actions.history);
   const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme],['Подробности',actions.technical]];
   if(height>=29)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));
   else if(height>=27)utilities.forEach(([label,run],i)=>button(12+i*3,label,run));
@@ -52,7 +52,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   left[height-3]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
   const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
   if(quota)left[height-2]=paint('  '+clean(quota),side,p.sidebar,p.muted);
-  put(1,chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
+  put(1,s.needsProject?'Ваши проекты':s.projectName?'Проект: '+clean(s.projectName):chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
   const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
   const sendW=measure(send)+2,enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
   const sendHeight=height>=20?3:1,inlineSend=cw>=40;
@@ -151,7 +151,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const capacity=Math.max(0,contentBottom-3);
   scroll=Math.min(scroll,Math.max(0,content.length-capacity));
   const start=Math.max(0,content.length-capacity-scroll);
-  if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold('Чем могу помочь?'),cw));put(y+2,center('Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
+  if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold(s.needsProject?'С чего начнём?':'Чем могу помочь?'),cw));put(y+2,center(s.needsProject?'Новый проект — отдельная папка для вашей задачи.':'Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
   content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   return left.map((line,i)=>line+right[i]);

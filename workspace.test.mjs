@@ -5,7 +5,7 @@ import { acquireMouse } from './mouse.mjs';
 const theme = { fg: (_c,s)=>s, bg: (_c,s)=>s, bold:s=>s };
 const rendering = { truncate:(s,w)=>s.slice(0,w), measure:s=>s.length, matchesKey:(s,k)=>s===k };
 const tick=()=>new Promise(r=>setImmediate(r));
-function harness(cleanView=false) {
+function harness(cleanView=false,viewState=()=>({})) {
   const overlays=[],writes=[],calls=[],submitted=[]; let input,text='',focus,idle=true,autocomplete;
   const tui={terminal:{rows:24,columns:90,write:s=>writes.push(s)},requestRender(){},getFocusedComponent:()=>focus,
     showOverlay:(component,options)=>{const item={component,options,hidden:false};overlays.push(item);return{hide:()=>{item.hidden=true;}};},
@@ -14,8 +14,8 @@ function harness(cleanView=false) {
     handleInput:data=>{if(data==='\r'){submitted.push(text);text='';}else{text+=data;}},
     setAutocompleteProvider:p=>{autocomplete=p;}, customMethod:()=>42};
   const ctx={isIdle:()=>idle,abort:()=>calls.push('stop')};
-  const actions={menu:()=>calls.push('menu'),model:()=>calls.push('model'),commands:()=>calls.push('commands'),details:()=>calls.push('details')};
-  const w=createWorkspace({delegate,tui,theme,rendering,ctx,actions,cleanView});focus=w.editor;
+  const actions={newChat:()=>calls.push('newChat'),menu:()=>calls.push('menu'),model:()=>calls.push('model'),commands:()=>calls.push('commands'),details:()=>calls.push('details')};
+  const w=createWorkspace({delegate,tui,theme,rendering,ctx,actions,cleanView,viewState});focus=w.editor;
   const provider={getSuggestions:async()=>({prefix:text,items:[{value:'model',label:'model',description:'Model'},{value:'new-plugin',label:'new-plugin',description:'Installed plugin'}]}),
     applyCompletion:(_l,_r,_c,item)=>({lines:['/'+item.value+' '],cursorLine:0,cursorCol:item.value.length+2})};
   w.editor.setAutocompleteProvider(provider);
@@ -63,4 +63,10 @@ test('navigation retains the last pane until its replacement and ignores stale r
  const releaseHistory=h.w.holdFrame(history);assert.deepEqual(screen.render(90),history);
  const releaseModels=h.w.holdFrame(models);releaseHistory();assert.deepEqual(screen.render(90),models);
  releaseModels();assert.notDeepEqual(screen.render(90),models);h.w.dispose();
+});
+
+test('project hub blocks both Enter and send until a project is chosen, preserving draft',()=>{
+ const h=harness(true,()=>({needsProject:true}));h.w.editor.setText('Создай сайт');h.w.editor.handleInput('enter');h.w.submit();
+ assert.equal(h.submitted.length,0);assert.equal(h.getText(),'Создай сайт');assert.deepEqual(h.calls,['newChat','newChat']);
+ h.w.editor.setText('/reload');h.w.submit();assert.deepEqual(h.submitted,['/reload']);h.w.dispose();
 });

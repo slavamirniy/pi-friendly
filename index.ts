@@ -1,6 +1,8 @@
 import { CustomEditor, SessionManager, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Markdown, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { createProjectStore } from "./projects.mjs";
 import { join } from "node:path";
 import { installFriendly } from "./friendly.mjs";
 export default function friendly(pi: ExtensionAPI) {
@@ -8,6 +10,7 @@ export default function friendly(pi: ExtensionAPI) {
   installFriendly(pi, { matchesKey, truncate: truncateToWidth, measure: visibleWidth,
     makeEditor: (tui, theme, keys) => new CustomEditor(tui, theme, keys),
     listSessions: () => SessionManager.listAll(),
+    projects: createProjectStore({root:join(homedir(),"Documents","AI DIY Projects"),registry:join(getAgentDir(),"friendly-projects.jsonl"),SessionManager}),
     loadPrefs: () => { try { return JSON.parse(readFileSync(preferencePath, "utf8")); } catch { return {}; } },
     savePrefs: prefs => writeFileSync(preferencePath, JSON.stringify(prefs), "utf8"),
     markdown: (text, width, palette) => {

@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,writeFileSync,readFileSync,rmSync,realpathSync,existsSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,dirname,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createProjectStore} from './projects.mjs';
+const pkg=process.argv[2];if(!pkg)throw new Error('Pass installed pi package directory');
+const {SessionManager}=await import(pathToFileURL(join(pkg,'dist/core/session-manager.js')));
+const {AgentSessionRuntime}=await import(pathToFileURL(join(pkg,'dist/core/agent-session-runtime.js')));
+const {createWriteTool,createReadTool}=await import(pathToFileURL(join(pkg,'dist/core/tools/index.js')));
+const tmp=mkdtempSync(join(tmpdir(),'pi-friendly-project-smoke-'));
+try{
+ const store=createProjectStore({root:join(tmp,'projects'),registry:join(tmp,'registry.jsonl'),sessionDir:join(tmp,'sessions'),SessionManager});
+ const a=store.create('Bakery'),b=store.create('Shop');
+ const aFile=store.createChat(a.cwd),aSecond=store.createChat(a.cwd),bFile=store.createChat(b.cwd);
+ const runner={hasHandlers:()=>false,emit:async()=>{},invalidate(){}};
+ const factory=async({cwd,sessionManager})=>({services:{cwd,agentDir:tmp},diagnostics:[],session:{sessionManager,sessionFile:sessionManager.getSessionFile(),extensionRunner:runner,abort:async()=>{},dispose(){},createReplacedSessionContext:()=>({cwd})}});
+ const first=await factory({cwd:a.cwd,sessionManager:SessionManager.open(aFile)});
+ const runtime=new AgentSessionRuntime(first.session,first.services,factory);
+ await createWriteTool(runtime.cwd).execute('a',{path:'same.txt',content:'Bakery'});
+ let callbackCwd;
+ await runtime.switchSession(bFile,{withSession:async fresh=>{callbackCwd=fresh.cwd;}});
+ assert.equal(callbackCwd,b.cwd);assert.equal(runtime.cwd,b.cwd);assert.ok(!existsSync(join(b.cwd,'same.txt')));
+ await createWriteTool(runtime.cwd).execute('b',{path:'same.txt',content:'Shop'});
+ assert.equal(readFileSync(join(a.cwd,'same.txt'),'utf8'),'Bakery');assert.equal(readFileSync(join(b.cwd,'same.txt'),'utf8'),'Shop');
+ await runtime.switchSession(aSecond);assert.equal(runtime.cwd,a.cwd);assert.equal(runtime.session.sessionManager.getBranch().length,0);
+ const read=await createReadTool(runtime.cwd).execute('read',{path:'same.txt'});assert.ok(read.content.some(c=>c.text?.includes('Bakery')));
+ const listed=await SessionManager.list(a.cwd,join(tmp,'sessions'));assert.equal(listed.length,2);assert.ok(listed.every(s=>s.cwd===a.cwd));assert.equal((await SessionManager.list(b.cwd,join(tmp,'sessions'))).length,1);
+ console.log('PASS: native pi session switching changes cwd; native write/read tools use separate project folders; a second chat shares only its project files.');
+}finally{assert.equal(dirname(realpathSync(tmp)),realpathSync(tmpdir()));rmSync(tmp,{recursive:true,force:true});}

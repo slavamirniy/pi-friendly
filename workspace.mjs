@@ -37,6 +37,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
   }
   function submit() {
     if (!ctx.isIdle() || !delegate.getText().trim()) return;
+    if(viewState().needsProject && !delegate.getText().startsWith("/")){void actions.newChat();return;}
     clear(); suppressed = delegate.getText();
     delegate.handleInput("\r"); // Host submission: commands, pasted text and images retain native semantics.
     tui.requestRender();
@@ -130,6 +131,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
         if (matchesKey(data, "enter") || matchesKey(data, "tab")) { complete(suggestions[selected]); return; }
         if (matchesKey(data, "escape")) { suppressed = delegate.getText(); clear(); return; }
       }
+      if(viewState().needsProject && matchesKey(data,"enter") && !delegate.getText().startsWith("/")){void actions.newChat();return;}
       delegate.handleInput(data); void refresh();
     },
     setText(text) { delegate.setText(text); suppressed = ""; void refresh(); },

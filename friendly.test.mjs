@@ -45,7 +45,7 @@ test("terminal controls in external labels are removed", () => {
   assert.equal(mouseEvent("not mouse"), undefined);
 });
 
-function harness({ mode = "tui", flags = {}, sessions = [] } = {}) {
+function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
   const events = new Map(), commands = new Map(), shortcuts = new Map(), statuses = new Map(), widgets = new Map();
   const choices = [], notifications = [], models = [], calls = [];
   let draft = "", footer, header, idle = true, expanded = true;
@@ -84,7 +84,7 @@ function harness({ mode = "tui", flags = {}, sessions = [] } = {}) {
       },
     },
   };
-  installFriendly(pi, { ...rendering, listSessions: async () => sessions });
+  installFriendly(pi, { ...rendering, listSessions: async () => sessions, projects });
   const emit = async (name, event = {}) => { for (const fn of events.get(name) ?? []) await fn(event, ctx); };
   return { pi, ctx, emit, choices, notifications, calls, models, statuses, widgets,
     open: (args = "") => commands.get("friendly").handler(args, ctx),
@@ -151,3 +151,16 @@ test("popular commands and other commands are separate, dynamic plugin commands 
   const items=k.menu.render(62).map(strip);const y=items.findIndex(r=>r.includes('Модель 0'));const ix=items[y].indexOf('Модель 0');
   k.menu.handleInput(`\x1b[<0;${ix+1};${y+2}M`);assert.equal(k.results[0].label,'Модель 0');
  });
+
+test('new conversation explicitly chooses shared project files or a separate project',async()=>{
+ const created=[],started=[];const projects={isHub:()=>false,name:()=> 'Пекарня',create:n=>{created.push(n);return{cwd:'/projects/'+n};},createChat:cwd=>{started.push(cwd);return cwd+'/chat.jsonl';}};
+ const h=harness({projects});h.ctx.ui.input=async()=> 'Магазин';h.choices.push('Новый проект');await h.open('new');
+ assert.deepEqual(created,['Магазин']);assert.deepEqual(started,['/projects/Магазин']);assert.deepEqual(h.calls,['/projects/Магазин/chat.jsonl']);
+ h.choices.push('В проекте');await h.open('new');assert.equal(started.at(-1),'/project');
+ const n=started.length;await h.open('new');assert.equal(started.length,n);
+});
+test('switching chats restores a draft through the new session context',async()=>{
+ const h=harness();h.ctx.ui.setEditorText('Мой черновик');let restored;
+ h.ctx.switchSession=async(path,options)=>{assert.equal(path,'/chat.jsonl');await options.withSession({ui:{setEditorText:text=>{restored=text;}}});return{cancelled:false};};
+ await h.open('open '+encodeURIComponent('/chat.jsonl'));assert.equal(restored,'Мой черновик');
+});
