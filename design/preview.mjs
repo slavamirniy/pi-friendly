@@ -16,7 +16,7 @@ const messages=[{role:'user',content:'Сделай сайт для моей пе
 messages.push({role:'assistant',content:[{type:'text',text:'Добавляю главную страницу и стили:'},{type:'toolCall',id:'page',name:'write',arguments:{path:'index.html',content:'<html>\n<body>Пекарня</body>\n</html>'}},{type:'toolCall',id:'css',name:'write',arguments:{path:'styles.css',content:'body {\n  color: #123;\n}'}}]},{role:'toolResult',toolCallId:'page',isError:false},{role:'toolResult',toolCallId:'css',isError:false});
 const ctx={isIdle:()=>!data.running,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>messages.map(message=>({type:'message',message}))}};
 const surface=createSurface({tui,delegate:{getText:()=>'',render:w=>['─'.repeat(w),'','─'.repeat(w)]},rendering,ctx,actions:{},state:()=>data});
-for(const mode of ['work','error','history','chats','form','exit']){
+for(const mode of ['work','error','history','chats','form','exit','project-choice']){
  if(mode==='error'){data.running=false;data.error={raw:'HTTP 429 too many requests'};}
  data.paneOpen=['history','chats','form'].includes(mode);
  let rows=surface.render(120);
@@ -28,5 +28,10 @@ for(const mode of ['work','error','history','chats','form','exit']){
  }
 
  if(mode==='exit'){data.error=undefined;data.paneOpen=false;const popup=createExitDialog({...rendering,tui,done(){},palette:palettes.light,background:w=>surface.render(w)});rows=popup.render(120);popup.dispose();}
+ if(mode==='project-choice'){
+  data.error=undefined;data.paneOpen=true;rows=surface.render(120);
+  const menu=createMenu({...rendering,tui,theme:{},done(){},palette:palettes.light,panel:true,bottom:true,title:'Сначала выберите проект',subtitle:'Каждый проект — отдельная папка. Ваш текст сохранён.',items:[{kind:'primary',label:'Новый проект',description:'Отдельная папка для новой задачи'},{label:'Выбрать проект',description:'Открыть существующий проект и его чаты'}]});
+  rows=menu.render(94).map((row,i)=>truncateToWidth(rows[i],26,'')+row);menu.dispose();
+ }
  writeFileSync(new URL(`preview-${mode}.json`,import.meta.url),JSON.stringify(rows));
 }

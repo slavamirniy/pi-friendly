@@ -31,11 +31,11 @@ export function installFriendly(pi, rendering) {
   const notifyError = (ctx, error) => { if (!stopped) ctx.ui.notify(`Не удалось выполнить действие: ${clean(error?.message ?? error)}`, "error"); };
   const safe = (ctx, fn) => async () => { try { await fn(); } catch (error) { notifyError(ctx, error); } };
 
-  async function choose(ctx, title, items, searchable = false, subtitle = "", form = false) {
+  async function choose(ctx, title, items, searchable = false, subtitle = "", form = false, bottom = false) {
     return ctx.ui.custom((tui, theme, _keys, done) => {
       let lastFrame;
       const finish=value=>{if(value?.navigation&&lastFrame)workspace?.holdFrame(lastFrame);done(value);};
-      const inner = form ? createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}) : createMenu({ ...rendering, tui, theme, done:finish, title, subtitle, items, searchable, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
+      const inner = form ? createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}) : createMenu({ ...rendering, tui, theme, done:finish, title, subtitle, items, searchable, bottom, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
       activeMenu = !workspace ? inner : {
         invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
         render(width) {
@@ -110,7 +110,7 @@ export function installFriendly(pi, rendering) {
       ...(current?[{id:'current',label:'В проекте «'+projects.name(ctx.cwd)+'»',description:'Те же файлы · новая переписка'}]:[]),
       {id:'create',navigation:true,kind:'primary',label:'Новый проект',description:'Отдельная папка для новой задачи'},
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
-    ],false,current?'Чаты и файлы сохранятся. Черновик — в новый чат.':'Каждый проект — отдельная папка. Ваш текст сохранён.'));
+    ],false,current?'Чаты и файлы сохранятся. Черновик — в новый чат.':'Каждый проект — отдельная папка. Ваш текст сохранён.',false,true));
     if(choice?.id==='current')await startChat(ctx,ctx.cwd);
     if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx));
     if(choice?.id==='projects')await history(ctx);

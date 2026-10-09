@@ -11,7 +11,7 @@ export function mouseEvent(data) {
   return m ? { button: Number(m[1]), x: Number(m[2]) - 1, y: Number(m[3]) - 1, press: m[4] === "M" } : undefined;
 }
 
-export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey, palette, panel = false }) {
+export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey, palette, panel = false, bottom = false }) {
   let query = "", selected = 0, offset = 0, targets = [], dimensions = "", disposed = false;
   const terminal = tui.terminal;
   // Save and restore terminal mouse modes; only capture mouse while this dialog is open.
@@ -39,16 +39,17 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         const put=(y,text,bg=p.canvas)=>{if(y<height)rows[y]=paint('',left)+paint(text,cw,bg)+paint('',width-left-cw);};
         const nav=navigationRows(width,p,truncate,measure);
         nav.rows.forEach((row,y)=>{rows[y]=row;targets.push({y,x:width-nav.width-2,end:width-2,index:-1});});
-        put(3,fg(clean(title),p.accent));
-        put(4,fg(clean(subtitle),p.muted));
-        put(6,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
         const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
         const step=height>=18?5:1,capacity=Math.max(1,Math.floor((height-10)/step));
+        const shift=bottom?Math.max(0,height-10-Math.min(list.length,capacity)*step):0;
+        put(3+shift,fg(clean(title),p.accent));
+        put(4+shift,fg(clean(subtitle),p.muted));
+        put(6+shift,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
         offset=Math.max(0,Math.min(offset,Math.max(0,list.length-capacity)));
         if(selected<offset)offset=selected;
         if(selected>=offset+capacity)offset=selected-capacity+1;
         for(let i=offset;i<Math.min(list.length,offset+capacity);i++){
-          const y=8+(i-offset)*step,item=list[i];
+          const y=8+shift+(i-offset)*step,item=list[i];
           const primary=item.kind==='primary',bg=primary?p.accent:i===selected?(p.selection||p.bubble):item.kind==='back'?p.button:p.sidebar;
           const color=primary?p.onAccent:p.text;
           if(step===5){
