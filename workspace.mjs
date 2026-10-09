@@ -46,6 +46,13 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     clear(); delegate.setText(result.lines.join("\n"));
     suppressed = delegate.getText(); tui.requestRender();
   }
+  async function executeCommand(text){
+    if(disposed)throw new Error('Окно чата уже закрыто.');
+    if(typeof delegate.onSubmit!=='function')throw new Error('Обработчик команд ещё не готов. Попробуйте снова.');
+    clear();suppressed=text;
+    // Internal navigation must not go through editor completion or the voice send guard.
+    await delegate.onSubmit(text);
+  }
   function submit() {
     if (!ctx.isIdle() || !delegate.getText().trim() || ['starting','recording','transcribing'].includes(viewState().voice?.phase)) return;
     if(viewState().needsProject && !delegate.getText().startsWith("/")){void actions.newChat();return;}
@@ -162,7 +169,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     get(target, key) { if (key in overrides) return overrides[key]; const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value; },
     set(target, key, value) { return Reflect.set(target, key, value); },
   });
-  return { editor: proxy, submit, refresh, freezeForTransition, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), sidebarNavigate: data => surface.navigate(data), clearHeldFrame: () => {heldFrame=undefined;}, holdFrame: rows => {const held={rows:rows??[],width:tui.terminal.columns};heldFrame=held;return ()=>{if(heldFrame===held)heldFrame=undefined;tui.requestRender();};}, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
+  return { editor: proxy, submit, executeCommand, refresh, freezeForTransition, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), sidebarNavigate: data => surface.navigate(data), clearHeldFrame: () => {heldFrame=undefined;}, holdFrame: rows => {const held={rows:rows??[],width:tui.terminal.columns};heldFrame=held;return ()=>{if(heldFrame===held)heldFrame=undefined;tui.requestRender();};}, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
     if (disposed) return;
     disposed = true; request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
   } };

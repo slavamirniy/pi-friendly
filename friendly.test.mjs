@@ -209,3 +209,9 @@ test('project navigation button returns to projects while Enter selects new chat
  const h=panel(options);h.menu.render(90);h.menu.handleInput('enter');assert.deepEqual(h.results,[fresh]);
  const b=panel(options);b.menu.render(90);b.menu.handleInput('\x1b[<0;5;2M');assert.deepEqual(b.results,[back]);
 });
+
+test('project input uses active session folder rather than launch folder',async()=>{
+ const projects={isProject:cwd=>cwd==='/actual-project',isHub:()=>false,name:()=> 'Проект'};
+ const h=harness({projects});h.ctx.cwd='/launch-folder';h.ctx.sessionManager={getCwd:()=>'/actual-project'};
+ assert.equal(await h.emit('input',{text:'Создай сайт',source:'interactive'}),undefined);
+});

@@ -22,7 +22,8 @@ export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
   const projects=rendering.projects; let pendingDraft,voice,voiceContext,voiceHintTimer;
-  const hasProject=ctx=>!projects||(projects.isProject?.(ctx.cwd)??!projects.isHub(ctx.cwd));
+  const currentFolder=ctx=>ctx.sessionManager?.getCwd?.()||ctx.cwd;
+  const hasProject=ctx=>!projects||(projects.isProject?.(currentFolder(ctx))??!projects.isHub(currentFolder(ctx)));
   let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
@@ -89,7 +90,10 @@ export function installFriendly(pi, rendering) {
         if(result?.cancelled&&draft)ctx.ui.setEditorText(draft);
       } catch(error) {if(draft){try{ctx.ui.setEditorText(draft);}catch{}}throw error;}
     }else{
-      pendingDraft=draft;ctx.ui.setEditorText('/friendly open '+encodeURIComponent(path));workspace?.submit();
+      pendingDraft=draft;
+      if(!workspace)throw new Error('Окно чата ещё не готово. Попробуйте снова.');
+      try{await workspace.executeCommand('/friendly open '+encodeURIComponent(path));}
+      finally{workspace?.clearHeldFrame();workspace?.redraw();}
     }
   }
   async function startChat(ctx,cwd){
@@ -108,11 +112,11 @@ export function installFriendly(pi, rendering) {
     if(!projects){await command(ctx,'/new');return;}
     const current=hasProject(ctx);
     const choice=await dialog(ctx,()=>choose(ctx,current?'Новый разговор':'Сначала выберите проект',[
-      ...(current?[{id:'current',label:'В проекте «'+projects.name(ctx.cwd)+'»',description:'Те же файлы · новая переписка'}]:[]),
+      ...(current?[{id:'current',label:'В проекте «'+projects.name(currentFolder(ctx))+'»',description:'Те же файлы · новая переписка'}]:[]),
       {id:'create',navigation:true,kind:'primary',label:'Новый проект',description:'Отдельная папка для новой задачи'},
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
     ],false,current?'Чаты и файлы сохранятся. Черновик — в новый чат.':'Каждый проект — отдельная папка. Ваш текст сохранён.',false,true));
-    if(choice?.id==='current')await startChat(ctx,ctx.cwd);
+    if(choice?.id==='current')await startChat(ctx,currentFolder(ctx));
     if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx));
     if(choice?.id==='projects')await history(ctx);
   }
@@ -121,7 +125,7 @@ export function installFriendly(pi, rendering) {
     const choice=await dialog(ctx,async()=>{
       const sessions=await rendering.listSessions();
       if(!projects){return choose(ctx,'История разговоров',sessions.map(session=>({session,label:session.name||clean(session.firstMessage)||'Без названия',description:session.cwd})),true);}
-      const catalog=projectCatalog(sessions,projects.list(),projects.isHub(ctx.cwd)?undefined:ctx.cwd);
+      const catalog=projectCatalog(sessions,projects.list(),projects.isHub(currentFolder(ctx))?undefined:currentFolder(ctx));
       let project;
       while(!stopped){
         if(!project){
@@ -244,7 +248,7 @@ export function installFriendly(pi, rendering) {
         workspace?.dispose();
         const delegate = previousFactory ? previousFactory(tui, editorTheme, keys) : rendering.makeEditor(tui, editorTheme, keys);
         workspace = createWorkspace({ delegate, tui, theme: ctx.ui.theme, rendering, ctx,
-          cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:hasProject(ctx)?projects?.name(ctx.cwd):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
+          cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:hasProject(ctx)?projects?.name(currentFolder(ctx)):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
             newChat: safe(ctx, () => newConversation(ctx)), history: safe(ctx, () => history(ctx)),

@@ -91,3 +91,10 @@ test('session transition shield survives host top-overlay reset until replacemen
  h.setFocus(next.editor);const surface=h.overlays.at(-2);surface.component.render(90);await tick();
  assert.equal(shield.hidden,true);next.dispose();assert.equal(globalThis[Symbol.for('pi-friendly.transition')].size,0);
 });
+
+test('internal chat navigation bypasses recording guard and editor completion, awaiting the host',async()=>{
+ const h=harness(true,()=>({needsProject:true,voice:{phase:'transcribing'}}));h.w.editor.setText('Мой черновик');
+ let completed=false;h.delegate.onSubmit=async text=>{assert.equal(text,'/friendly open project-chat');await tick();completed=true;};
+ h.delegate.handleInput=()=>{throw new Error('must not emulate Enter for navigation');};
+ await h.w.executeCommand('/friendly open project-chat');assert.equal(completed,true);assert.equal(h.getText(),'Мой черновик');h.w.dispose();
+});
