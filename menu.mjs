@@ -38,7 +38,7 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         const cw=Math.min(72,width-6),left=Math.max(2,Math.floor((width-cw)/2));
         const put=(y,text,bg=p.canvas)=>{if(y<height)rows[y]=paint('',left)+paint(text,cw,bg)+paint('',width-left-cw);};
         const nav=navigationRows(width,p,truncate,measure);
-        nav.rows.forEach((row,y)=>{rows[y]=row;targets.push({y,x:2,end:2+nav.width,index:-2},{y,x:width-nav.width-2,end:width-2,index:-1});});
+        nav.rows.forEach((row,y)=>{rows[y]=row;targets.push({y,x:width-nav.width-2,end:width-2,index:-1});});
         put(3,fg(clean(title),p.accent));
         put(4,fg(clean(subtitle),p.muted));
         put(6,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
@@ -113,7 +113,7 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         if (mouse.button === 64 || mouse.button === 65) selected = Math.max(0, Math.min(list.length - 1, selected + (mouse.button === 64 ? -1 : 1)));
         else if (mouse.button === 0) {
           const hit = targets.find(t => t.y === mouse.y && mouse.x >= t.x && mouse.x < t.end);
-          if (hit) close(hit.index === -2 ? items.find(item=>item.kind==='back') : hit.index === -1 ? undefined : list[hit.index]);
+          if (hit) close(hit.index === -1 ? undefined : list[hit.index]);
         }
       } else if (matchesKey(data, "escape")) close(undefined);
       else if (matchesKey(data, "up") || matchesKey(data, "shift+tab")) selected = (selected - 1 + list.length) % (list.length || 1);

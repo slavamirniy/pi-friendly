@@ -10,8 +10,8 @@ export function buttonRows(label,width,truncate,measure){
 }
 
 export function navigationRows(width,p,truncate,measure){
- const w=Math.min(16,Math.floor((width-5)/2)),gap=width-4-2*w;
+ const w=Math.min(16,Math.floor((width-5)/2));
  const paint=(text,bg,fg)=>`\x1b[48;2;${bg}m\x1b[38;2;${fg}m${text}\x1b[0m`;
- const back=buttonRows('← Назад',w,truncate,measure),close=buttonRows('× Закрыть',w,truncate,measure);
- return {width:w,rows:back.map((row,i)=>paint('  ',p.canvas,p.text)+paint(row,p.selection,p.text)+paint(' '.repeat(gap),p.canvas,p.text)+paint(close[i],p.button,p.text)+paint('  ',p.canvas,p.text))};
+ const close=buttonRows('× Закрыть',w,truncate,measure);
+ return {width:w,rows:close.map(row=>paint(' '.repeat(width-w-2),p.canvas,p.text)+paint(row,p.button,p.text)+paint('  ',p.canvas,p.text))};
 }

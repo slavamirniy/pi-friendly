@@ -27,7 +27,7 @@ export function createProjectForm({tui,done,palette:p,makeInput,truncate,measure
   targets=[{x:left,y:5,w,h:3,run:()=>{focus=0;input.focused=true;}},{x:left,y,w:half,h:3,run:submit},{x:left+half+2,y,w:w-half-2,h:3,run:()=>close(undefined)}];
   const nav=navigationRows(width,p,truncate,measure);
   nav.rows.forEach((row,y)=>rows[y]=row);
-  targets.push({x:2,y:0,w:nav.width,h:3,run:()=>close({back:true,navigation:true})},{x:width-nav.width-2,y:0,w:nav.width,h:3,run:()=>close(undefined)});
+  targets.push({x:width-nav.width-2,y:0,w:nav.width,h:3,run:()=>close(undefined)});
   return rows;
  },handleInput(data){if(disposed)return;const mouse=mouseEvent(data);
   if(mouse){if(size!==`${tui.terminal.columns}:${tui.terminal.rows}`){tui.requestRender();return;}if(mouse.press&&mouse.button===0)targets.find(t=>mouse.x>=t.x&&mouse.x<t.x+t.w&&mouse.y>=t.y&&mouse.y<t.y+t.h)?.run();}

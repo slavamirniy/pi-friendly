@@ -173,14 +173,16 @@ test('projects and chats are separate screens, with back navigation and no folde
  assert.deepEqual(h.calls,['/b']);assert.ok(!h.screens[0].includes('Главная'));assert.ok(!h.screens[0].includes('Открыть папку'));assert.ok(h.screens[1].includes('Главная'));assert.ok(!h.screens[1].includes('Каталог'));
 });
 
-test('top back returns to parent while close exits the picker',async()=>{
+test('top left has no action and close exits the picker',async()=>{
  const {palettes}=await import('./surface.mjs');
  const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
- for(const label of ['Назад','Закрыть']){
+ for(const label of ['Закрыть']){
   const back={id:'back',kind:'back',navigation:true,label:'Все проекты'};
   const h=panel({panel:true,palette:palettes.dark,items:[back,{label:'Чат'}],measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)});
   const rows=h.menu.render(90).map(strip),y=rows.findIndex(r=>r.includes(label)),x=rows[y].indexOf(label);
+  assert.ok(!rows.slice(0,3).join('').includes('Назад'));
+  h.menu.handleInput('\x1b[<0;5;2M');assert.equal(h.results.length,0);
   h.menu.handleInput(`\x1b[<0;${x+1};${y+1}M`);
-  assert.deepEqual(h.results,[label==='Назад'?back:undefined]);
+  assert.deepEqual(h.results,[undefined]);
  }
 });
