@@ -39,10 +39,10 @@ test('errors stay visible over progress and open technical details',()=>{
  const y=rows.findIndex(r=>r.includes('Подробнее'));h.surface.onMouse(`\x1b[<0;30;${y+1}M`);assert.deepEqual(h.calls,['errorDetails']);
  for(const w of [44,60,100])for(const height of [12,20,30]){const f=fixture(w,height);f.data.error={raw:'HTTP 503 unavailable'};const r=f.surface.render(w).map(strip);assert.equal(r.length,height);assert.ok(r.every(l=>l.length===w));assert.ok(r.join('\n').includes('Подробнее'));}
 });
-test('three-row send target and real activity rows are usable',()=>{
+test('three-row send target is usable without the bottom activity panel',()=>{
  for(const delta of [-1,0,1]){const h=fixture();h.delegate.getText=()=> 'Привет';const rows=h.surface.render(100).map(strip);const y=rows.findIndex(r=>r.includes('Отправить'));const x=rows[y].indexOf('Отправить');h.surface.onMouse(`\x1b[<0;${x+1};${y+1+delta}M`);assert.deepEqual(h.calls,['submit']);}
  const h=fixture();h.data.running=true;h.data.started=Date.now()-12000;h.data.steps=[{label:'Создаю файл · index.html',status:'done'},{label:'Проверяю сборку',status:'running'}];
- const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('✓ Создаю файл'));assert.ok(text.includes('Проверяю сборку'));assert.ok(text.includes('Работаю · 12 с'));
+ const text=h.surface.render(100).map(strip).join('\n');assert.ok(!text.includes('✓ Создаю файл'));assert.ok(!text.includes('Проверяю сборку'));assert.ok(!text.includes('Работаю ·'));
 });
 
 test('saved file actions survive reload, failures stay distinct and assistant headings do not repeat',()=>{

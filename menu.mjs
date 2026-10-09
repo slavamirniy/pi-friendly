@@ -1,3 +1,4 @@
+import {centered} from './buttons.mjs';
 import { acquireMouse } from "./mouse.mjs";
 // A full-width, top-left overlay: mouse coordinates never depend on chat scrollback.
 export function clean(value) {
@@ -43,16 +44,21 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         put(4,fg(clean(subtitle),p.muted));
         put(6,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
         const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
-        const step=height>=18?3:1,capacity=Math.max(1,Math.floor((height-10)/step));
+        const step=height>=18?5:1,capacity=Math.max(1,Math.floor((height-10)/step));
         offset=Math.max(0,Math.min(offset,Math.max(0,list.length-capacity)));
         if(selected<offset)offset=selected;
         if(selected>=offset+capacity)offset=selected-capacity+1;
         for(let i=offset;i<Math.min(list.length,offset+capacity);i++){
           const y=8+(i-offset)*step,item=list[i];
           const primary=item.kind==='primary',bg=primary?p.accent:i===selected?(p.selection||p.bubble):item.kind==='back'?p.button:p.sidebar;
-          put(y,fg((i===selected?' › ':'   ')+clean(item.label),primary?p.onAccent:p.text),bg);
-          if(step===3)put(y+1,fg('   '+clean(item.description||'Нажмите, чтобы выбрать'),primary?p.onAccent:p.muted),bg);
-          for(let n=0;n<(step===3?2:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
+          const color=primary?p.onAccent:p.text;
+          if(step===5){
+            put(y,fg('╭'+'─'.repeat(cw-2)+'╮',color),bg);
+            put(y+1,fg('│'+centered(clean(item.label),cw-2,truncate,measure)+'│',color),bg);
+            put(y+2,fg('│'+centered(clean(item.description||'Нажмите, чтобы выбрать'),cw-2,truncate,measure)+'│',primary?p.onAccent:p.muted),bg);
+            put(y+3,fg('╰'+'─'.repeat(cw-2)+'╯',color),bg);
+          }else put(y,fg(centered(clean(item.label),cw,truncate,measure),color),bg);
+          for(let n=0;n<(step===5?4:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
         }
         if(!list.length)put(8,'Ничего не найдено');
         put(height-2,fg('↑↓ выбор · Enter открыть · Esc закрыть'+(list.length>capacity?` · ${selected+1}/${list.length}`:''),p.muted));
@@ -73,12 +79,12 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
       for (let i = offset; i < Math.min(list.length, offset + capacity); i++) {
         const item = list[i];
         const paint = text => {
-          const fitted = truncate(text, contentWidth, "");
+          const fitted = centered(text.trim(), contentWidth, truncate, measure);
           const padded = fitted + " ".repeat(Math.max(0, contentWidth - measure(fitted)));
           return inset + theme.bg(i === selected ? "selectedBg" : "userMessageBg", i === selected ? theme.fg("accent", theme.bold(padded)) : padded);
         };
         for (let n = 0; n < cardHeight; n++) targets.push({ y: rows.length + n, x: left, end: left + contentWidth, index: i });
-        rows.push(paint(` ${i === selected ? "›" : " "} ${clean(item.label)}${cardHeight === 1 && item.description ? " · " + clean(item.description) : ""}`));
+        rows.push(paint(` ${clean(item.label)}${cardHeight === 1 && item.description ? " · " + clean(item.description) : ""}`));
         if (cardHeight === 2) {
           rows.push(paint(`   ${clean(item.description || "Нажмите, чтобы открыть")}`));
         }

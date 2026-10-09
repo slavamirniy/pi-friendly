@@ -1,3 +1,4 @@
+import {centered,buttonRows} from './buttons.mjs';
 import { clean, mouseEvent } from './menu.mjs';
 import { activityLabel } from './activity.mjs';
 import {explainError,wrapText} from './errors.mjs';
@@ -38,7 +39,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const button=(y,label,run,primary=false)=>{
    if(y<3||y+2>=height-2)return;
    const w=side-4,bg=primary?p.bubble:p.sidebar,fg=primary?p.accent:p.text;
-   const rows=primary?['╭'+'─'.repeat(w-2)+'╮','│'+center(label,w-2).padEnd(w-2)+'│','╰'+'─'.repeat(w-2)+'╯']:['', '  '+label+'  ›',''];
+   const rows=buttonRows(label,w,truncate,measure);
    for(let dy=0;dy<3;dy++)left[y+dy]=paint('  ',2,p.sidebar)+paint(rows[dy],w,bg,fg)+paint('  ',2,p.sidebar);
    targets.push({x:2,y,w,h:3,run});
   };
@@ -54,7 +55,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(quota)left[height-2]=paint('  '+clean(quota),side,p.sidebar,p.muted);
   put(1,s.needsProject?'Ваши проекты':s.projectName?'Проект: '+clean(s.projectName):chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
   const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
-  const sendW=measure(send)+2,enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
+  const sendW=measure(send)+4,enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
   const sendHeight=height>=20?3:1,inlineSend=cw>=40;
   const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+2:0));
   let editorAll=delegate.render(editorWidth);
@@ -72,7 +73,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const y=editorTop+1+i,hasSend=y>=actionY&&y<actionY+sendHeight;
    const text=(editorLines[i]??'').replace(/\x1b\[[0-9;]*m/g,'');
    const input=inlineSend?paint(text,editorWidth)+paint('',2):paint(text,hasSend?cw-sendW-4:cw-4);
-   const button=hasSend?paint(y===actionY+Math.floor(sendHeight/2)?' '+send+' ':'',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
+   const button=hasSend?paint(sendHeight===3?buttonRows(send,sendW,truncate,measure)[y-actionY]:centered(send,sendW,truncate,measure),sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
    right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+input+button+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
   }
   if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:sendHeight,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
@@ -105,17 +106,8 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const lines=body.slice(0,Math.max(1,space-2)),top=editorTop-lines.length-3;
    lines.forEach((line,n)=>put(top+n,'  '+line,p.errorBg,p.error));
    const label=' Подробнее › ',y=top+lines.length;
-   put(y,label,p.errorBg,p.error);
+   put(y,centered(label,cw,truncate,measure),p.errorBg,p.error);
    targets.push({x:side+pad,y,w:cw,h:1,run:()=>actions.errorDetails?.(failure.raw)});
-   contentBottom=top-1;
-  }
-  if(!failure && s.running && height>=20){
-   const maxRows=Math.max(1,Math.min(3,editorTop-8));
-   const steps=(s.steps??[]).slice(-maxRows),elapsed=Math.max(0,Math.floor((Date.now()-(s.started??Date.now()))/1000));
-   const rows=steps.length?steps.map(step=>(step.status==='done'?'✓ ':step.status==='error'?'! ':'◌ ')+step.label):['◌ Обдумываю задачу'];
-   const top=editorTop-rows.length-3;
-   put(top,'  Работаю · '+elapsed+' с',p.bubble,p.accent);
-   rows.forEach((row,i)=>put(top+1+i,'  '+row,p.sidebar,p.text));
    contentBottom=top-1;
   }
   let content=[],previousRole;

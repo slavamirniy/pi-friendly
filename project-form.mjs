@@ -1,3 +1,4 @@
+import {buttonRows} from './buttons.mjs';
 import {mouseEvent,clean} from './menu.mjs';
 import {acquireMouse} from './mouse.mjs';
 import {validateProjectName} from './projects.mjs';
@@ -20,8 +21,10 @@ export function createProjectForm({tui,done,palette:p,makeInput,truncate,measure
   put(8,error?'Название: до 60 символов, без / \\ : * ?':'Например: Сайт пекарни',p.canvas,error?p.error:p.muted);
   put(10,'Будет создана отдельная папка.',p.canvas,p.muted);
   const y=Math.min(12,h-3),half=Math.floor((w-2)/2);
-  for(let n=0;n<2;n++)rows[y+n]=paint('',left)+paint(n===0?(focus===1?'› ':'  ')+'Создать проект':'',half,p.accent,p.onAccent)+paint('',2)+paint(n===0?(focus===2?'› ':'  ')+'Отмена':'',w-half-2,p.button)+paint('',width-left-w);
-  targets=[{x:left,y:5,w,h:3,run:()=>{focus=0;input.focused=true;}},{x:left,y,w:half,h:2,run:submit},{x:left+half+2,y,w:w-half-2,h:2,run:()=>close(undefined)}];
+  const primary=buttonRows('Создать проект',half,truncate,measure),secondary=buttonRows('Отмена',w-half-2,truncate,measure);
+  for(let n=0;n<3;n++)rows[y+n]=paint('',left)+paint(primary[n],half,p.accent,p.onAccent)+paint('',2)+paint(secondary[n],w-half-2,focus===2?p.selection:p.button,focus===2?p.accent:p.text)+paint('',width-left-w);
+  if(focus===1)rows[y+1]=rows[y+1].replace('Создать проект','\x1b[1mСоздать проект\x1b[22m');
+  targets=[{x:left,y:5,w,h:3,run:()=>{focus=0;input.focused=true;}},{x:left,y,w:half,h:3,run:submit},{x:left+half+2,y,w:w-half-2,h:3,run:()=>close(undefined)}];
   return rows;
  },handleInput(data){if(disposed)return;const mouse=mouseEvent(data);
   if(mouse){if(size!==`${tui.terminal.columns}:${tui.terminal.rows}`){tui.requestRender();return;}if(mouse.press&&mouse.button===0)targets.find(t=>mouse.x>=t.x&&mouse.x<t.x+t.w&&mouse.y>=t.y&&mouse.y<t.y+t.h)?.run();}

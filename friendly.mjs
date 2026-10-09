@@ -20,7 +20,7 @@ export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
   const projects=rendering.projects; let pendingDraft;
-  let restoreUI = () => {}, noticeTimer, activityTimer;
+  let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
   pi.registerFlag("friendly-keep-footer", { description: "Сохранить footer другого расширения (без кликабельных slash-подсказок)", type: "boolean", default: false });
@@ -191,7 +191,7 @@ export function installFriendly(pi, rendering) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     restoreUI(); clearTimeout(noticeTimer);
-    view.live = undefined; view.notice = ""; view.activity = ""; view.error = undefined; view.steps=[]; view.running=false; clearInterval(activityTimer);
+    view.live = undefined; view.notice = ""; view.activity = ""; view.error = undefined; view.steps=[]; view.running=false;
     stopped = false;
     ctx.ui.setToolsExpanded(false);
     ctx.ui.setTheme?.(view.scheme);
@@ -239,11 +239,11 @@ export function installFriendly(pi, rendering) {
     if(event.message?.role === "assistant" || event.message?.role === "user") view.live=event.message;
     workspace?.redraw();
   });
-  pi.on("agent_start",()=>{view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";clearInterval(activityTimer);activityTimer=setInterval(()=>workspace?.redraw(),1000);activityTimer.unref?.();workspace?.redraw();});
-  pi.on("agent_end",()=>{view.activity="";view.running=false;clearInterval(activityTimer);workspace?.redraw();});
+  pi.on("agent_start",()=>{view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";workspace?.redraw();});
+  pi.on("agent_end",()=>{view.activity="";view.running=false;workspace?.redraw();});
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", () => {
-    stopped = true; clearInterval(activityTimer); clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }
