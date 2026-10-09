@@ -18,11 +18,19 @@ test('runner collides on ground, clears obstacles in air and freezes after colli
  const a=newRunner();a.x=5;stepRunner(a);assert.equal(a.over,true);const old=a.x;stepRunner(a);assert.equal(a.x,old);
  const b=newRunner();b.x=5;b.v=2.6;stepRunner(b);assert.equal(b.over,false);b.x=0;stepRunner(b,()=>0);assert.equal(b.score,1);
 });
-test('game panel is centered, supports mouse selection and closes without touching generation',()=>{
+test('games cover full viewport, preserve sidebar and have large clickable controls',()=>{
  const state={},strip=s=>s.replace(/\x1b\[[0-9;]*m/g,''),writes=[];let closed=0;
  const tui={terminal:{columns:120,rows:36,write:s=>writes.push(s)},requestRender(){}};
- const g=createGames({tui,state,done:()=>closed++,palette:palettes.light,truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k,status:()=>({running:true,summary:'Создаю файл'})});
- let rows=g.render(64);assert.equal(rows.length,23);assert.ok(rows.every(r=>strip(r).length===64));
- g.handleInput('\x1b[<0;34;15M');assert.equal(state.kind,'mines');rows=g.render(64);assert.ok(rows.some(r=>r.includes('Сапёр')));
- g.handleInput('escape');assert.equal(closed,1);g.dispose();assert.ok(writes.at(-1).includes('1000l'));
+ const g=createGames({tui,state,done:()=>closed++,palette:palettes.light,background:()=>Array(36).fill('S'.repeat(26)+'NATIVE CONTENT'.padEnd(94)),truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k,status:()=>({running:true,summary:'Создаю файл'})});
+ let rows=g.render(120).map(strip);assert.equal(rows.length,36);assert.ok(rows.every(r=>r.length===120));assert.ok(rows.every(r=>r.startsWith('S'.repeat(26))));assert.ok(!rows.join('').includes('NATIVE CONTENT'));
+ g.handleInput('\x1b[<0;55;12M');assert.equal(state.kind,'mines');rows=g.render(120).map(strip);assert.ok(rows.some(r=>r.includes('Сапёр')));assert.ok(rows.some(r=>r.includes('Заново')));
+ g.handleInput('\x1b[<0;50;3M');assert.equal(closed,1);g.dispose();assert.ok(writes.at(-1).includes('1000l'));
+});
+test('all games fit short and wide viewports without leaking background',()=>{
+ const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
+ for(const width of [60,80,120,160])for(const height of [20,25,36,45])for(const kind of ['menu','mines','puzzle','runner']){
+ const tui={terminal:{columns:width,rows:height,write(){}},requestRender(){}},state={kind,mines:newMines(),puzzle:newPuzzle(),runner:newRunner()};
+ const g=createGames({tui,state,done(){},palette:palettes.dark,truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k,status:()=>({running:false})});
+ const rows=g.render(width).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(r=>r.length===width),`${width} ${height} ${kind}`);g.dispose();
+ }
 });

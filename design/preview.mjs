@@ -43,8 +43,8 @@ for(const mode of ['work','error','history','chats','form','exit','project-choic
  if(mode.startsWith('games-')){
   data.running=true;data.voice=undefined;data.voiceHintUntil=0;data.gamesHintUntil=Date.now()+6000;data.error=undefined;rows=surface.render(120);
   const state={kind:mode.slice(6),mines:newMines(),puzzle:newPuzzle(()=>.37),runner:newRunner()};
-  const game=createGames({...rendering,tui,state,done(){},palette:palettes.light,status:()=>({running:true,summary:'Создаю файл · index.html'})});
-  const panel=game.render(64);panel.forEach((row,i)=>{rows[6+i]=truncateToWidth(rows[6+i],28,'')+row+'\x1b[48;2;255;255;255m'+' '.repeat(28)+'\x1b[0m';});game.dispose();
+  const game=createGames({...rendering,tui,state,done(){},palette:palettes.light,background:w=>surface.render(w),status:()=>({running:true,summary:'Создаю файл · index.html'})});
+  data.paneOpen=true;rows=game.render(120);game.dispose();
  }
  writeFileSync(new URL(`preview-${mode}.json`,import.meta.url),JSON.stringify(rows));
 }

@@ -257,8 +257,8 @@ export function installFriendly(pi, rendering) {
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
             games:safe(ctx,()=>dialog(ctx,()=>ctx.ui.custom((tui,_theme,_keys,done)=>{
-              activeMenu=createGames({...rendering,tui,done,palette:palettes[view.scheme],state:gameState,status:()=>({running:!ctx.isIdle(),summary:view.steps?.length?view.steps.at(-1).label:view.activity})});return activeMenu;
-            },{overlay:true,overlayOptions:{anchor:'center',width:64,maxHeight:23}}))),
+              activeMenu=createGames({...rendering,tui,done,palette:palettes[view.scheme],state:gameState,background:width=>workspace.renderSurface(width),status:()=>({running:!ctx.isIdle(),summary:view.steps?.length?view.steps.at(-1).label:view.activity})});return activeMenu;
+            },{overlay:true,overlayOptions:{row:0,col:0,width:'100%',maxHeight:'100%',margin:0}}))),
             voice:()=>{
               if(voice&&['installing','downloading','loading','error'].includes(voice.state.phase)){
                 view.voiceHintUntil=Date.now()+3000;clearTimeout(voiceHintTimer);
