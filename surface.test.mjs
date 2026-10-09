@@ -12,11 +12,10 @@ function fixture(w=100,h=30){
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
  return{surface,tui,data,calls};
 }
-test('light chat hides thinking, shows answer and quota, commands only appear at composer',()=>{
+test('light chat hides thinking, shows answer and quota, commands button is absent',()=>{
  const h=fixture();const rows=h.surface.render(100).map(strip);const text=rows.join('\n');
  assert.ok(text.includes('Привет!'));assert.ok(text.includes('Осталось 993 тыс.'));assert.ok(!text.includes('PRIVATE THOUGHT'));assert.ok(!text.includes('Частые команды'));
- const row=rows.findIndex(r=>r.includes('Команды'));assert.ok(row>20);
- h.surface.onMouse(`\x1b[<0;30;${row+1}M`);assert.deepEqual(h.calls,['commands']);
+ assert.ok(!text.includes('Команды'));
  assert.match(h.surface.render(100)[0],/48;2;255;255;255/);
 });
 test('all rendered rows fit viewport, sidebar targets do not overlap at short heights',()=>{

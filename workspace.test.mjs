@@ -48,7 +48,8 @@ test('late completion cannot resurrect dropdown after editor changes',async()=>{
 });
 test('busy submit does not enqueue text; dock stop works and cleanup removes listeners',()=>{
   const h=harness();h.w.editor.setText('hello');h.setIdle(false);h.render();h.w.submit();assert.equal(h.submitted.length,0);
-  h.input('\x1b[<0;48;1M');assert.deepEqual(h.calls,['stop']);h.w.dispose();h.w.dispose();
+  const toolbar=h.overlays.find(o=>o.options.row===0 && !o.options.maxHeight).component.render(90)[0];
+  h.input(`\x1b[<0;${toolbar.indexOf('Остановить')+1};1M`);assert.deepEqual(h.calls,['stop']);h.w.dispose();h.w.dispose();
   assert.equal(h.input('\x1b[<0;4;1M'),undefined);assert.ok(h.overlays.every(o=>o.hidden));
 });
 test('nested mouse leases restore original mode only after last owner',()=>{

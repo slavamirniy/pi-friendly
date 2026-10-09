@@ -139,3 +139,15 @@ test("popular commands and other commands are separate, dynamic plugin commands 
  h.ctx.ui.setEditorText("");h.choices.push("Другие команды","/new-plugin");await h.open("commands");assert.equal(h.ctx.ui.getEditorText(),"/new-plugin");
  await h.emit("session_shutdown");
 });
+
+ test('right pane close button and choices use rendered coordinates', async()=>{
+  const {palettes}=await import('./surface.mjs');
+  const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
+  const h=panel({panel:true,palette:palettes.light,searchable:true,measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)});
+  const rows=h.menu.render(62).map(strip);
+  const x=rows[1].indexOf('×');assert.ok(x>0);
+  h.menu.handleInput(`\x1b[<0;${x+1};2M`);assert.deepEqual(h.results,[undefined]);
+  const k=panel({panel:true,palette:palettes.light,searchable:true,measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w)});
+  const items=k.menu.render(62).map(strip);const y=items.findIndex(r=>r.includes('Модель 0'));const ix=items[y].indexOf('Модель 0');
+  k.menu.handleInput(`\x1b[<0;${ix+1};${y+1}M`);assert.equal(k.results[0].label,'Модель 0');
+ });

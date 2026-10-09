@@ -10,7 +10,7 @@ export function mouseEvent(data) {
   return m ? { button: Number(m[1]), x: Number(m[2]) - 1, y: Number(m[3]) - 1, press: m[4] === "M" } : undefined;
 }
 
-export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey, palette }) {
+export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey, palette, panel = false }) {
   let query = "", selected = 0, offset = 0, targets = [], dimensions = "", disposed = false;
   const terminal = tui.terminal;
   // Save and restore terminal mouse modes; only capture mouse while this dialog is open.
@@ -30,6 +30,32 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
       targets = [];
       const line = text => truncate(text, Math.max(1, width), "");
       if (height < 9 || width < 24) return [line("Увеличьте окно. Esc — назад.")];
+      if(panel && palette) {
+        const p=palette, fg=(text,color=p.text)=>`\x1b[38;2;${color}m${text}\x1b[39m`;
+        const paint=(text,w,bg=p.canvas)=>`\x1b[48;2;${bg}m`+fg(truncate(text,w,''))+' '.repeat(Math.max(0,w-measure(truncate(text,w,''))))+'\x1b[0m';
+        const rows=Array(height).fill(paint('',width));
+        const cw=Math.min(72,width-6),left=Math.max(2,Math.floor((width-cw)/2));
+        const put=(y,text,bg=p.canvas)=>{if(y<height)rows[y]=paint('',left)+paint(text,cw,bg)+paint('',width-left-cw);};
+        const closeText=' × Закрыть ';
+        rows[1]=paint('',Math.max(0,width-measure(closeText)-2))+paint(closeText,measure(closeText),p.button)+paint('',2);
+        targets.push({y:1,x:width-measure(closeText)-2,end:width-2,index:-1});
+        put(3,fg(clean(title),p.accent));
+        put(4,fg(clean(subtitle),p.muted));
+        put(6,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
+        const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
+        const step=height>=22?2:1,capacity=Math.max(1,Math.floor((height-10)/step));
+        offset=Math.max(0,Math.min(offset,Math.max(0,list.length-capacity)));
+        if(selected<offset)offset=selected;
+        if(selected>=offset+capacity)offset=selected-capacity+1;
+        for(let i=offset;i<Math.min(list.length,offset+capacity);i++){
+          const y=8+(i-offset)*step,item=list[i];
+          put(y,(i===selected?' › ':'   ')+clean(item.label),i===selected?p.bubble:p.canvas);
+          targets.push({y,x:left,end:left+cw,index:i});
+        }
+        if(!list.length)put(8,'Ничего не найдено');
+        put(height-2,fg('↑↓ выбор · Enter открыть · Esc закрыть'+(list.length>capacity?` · ${selected+1}/${list.length}`:''),p.muted));
+        return rows;
+      }
       const contentWidth = Math.min(width - 4, searchable ? 76 : 48);
       const left = Math.max(2, Math.floor((width - contentWidth) / 2));
       const inset = " ".repeat(left);

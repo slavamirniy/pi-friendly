@@ -48,7 +48,6 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       const buttons = [
         { label: technical ? "Вернуться в чат" : "Меню", run: technical ? () => { technical = false; tui.requestRender(); } : actions.menu },
         { label: "Модель", run: actions.model },
-        { label: "/ Команды", run: () => { if (!delegate.getText().trim()) { proxy.setText("/"); } else actions.commands(); } },
         ...(width >= 66 ? [{ label: "Подробности", run: actions.details }] : []),
         { label: ctx.isIdle() ? (delegate.getText().startsWith("/") ? "Выполнить" : "Отправить") : "Остановить", run: ctx.isIdle() ? submit : () => ctx.abort(), primary: true, disabled: ctx.isIdle() && !delegate.getText().trim() },
       ];
@@ -147,7 +146,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     get(target, key) { if (key in overrides) return overrides[key]; const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value; },
     set(target, key, value) { return Reflect.set(target, key, value); },
   });
-  return { editor: proxy, submit, refresh, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
+  return { editor: proxy, submit, refresh, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
     if (disposed) return;
     disposed = true; request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
   } };

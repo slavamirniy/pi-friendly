@@ -1,6 +1,6 @@
 import { clean, mouseEvent } from './menu.mjs';
 export const palettes = {
- light:{canvas:'255;255;255',sidebar:'243;245;247',text:'31;41;51',muted:'79;92;105',button:'226;232;237',accent:'0;102;81',onAccent:'255;255;255',bubble:'232;241;237',border:'182;194;202'},
+ light:{canvas:'255;255;255',sidebar:'247;248;250',text:'31;41;51',muted:'79;92;105',button:'237;241;243',accent:'0;102;81',onAccent:'255;255;255',bubble:'232;241;237',border:'182;194;202'},
  dark:{canvas:'26;29;33',sidebar:'33;38;43',text:'239;243;247',muted:'177;188;199',button:'49;58;65',accent:'117;223;185',onAccent:'18;39;31',bubble:'41;59;54',border:'96;115;128'},
 };
 export function chatMessages(ctx, live) {
@@ -26,40 +26,49 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const value=truncate(text,w,'');return base+value.replace(/\x1b\[(?:0)?m/g,base).replace(/\x1b\[39m/g,`\x1b[38;2;${fg}m`).replace(/\x1b\[49m/g,`\x1b[48;2;${bg}m`)+' '.repeat(Math.max(0,w-measure(value)))+'\x1b[0m';
   };
   if(width<44||height<12)return [paint('Увеличьте окно. F2 — меню.',width),...Array(Math.max(0,height-1)).fill(paint('',width))];
-  const side=width>=84?24:18,main=width-side,pad=main>=50?4:2,cw=main-2*pad;
+  const side=width>=100?26:18,main=width-side,pad=Math.max(2,Math.floor((main-78)/2)),cw=main-2*pad;
   const left=Array(height).fill(paint('',side,p.sidebar));
   const right=Array(height).fill(paint('',main));
   const put=(y,text,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<height)right[y]=paint(' '.repeat(pad)+text,main,bg,fg);};
-  left[1]=paint('  Просто pi',side,p.sidebar,p.accent);
+  const bold=text=>`\x1b[1m${text}\x1b[22m`;
+  const center=(text,w)=>' '.repeat(Math.max(0,Math.floor((w-measure(text))/2)))+text;
+  left[1]=paint('  '+bold('pi')+(side>=24?'  /  помощник':''),side,p.sidebar,p.text);
   const button=(y,label,run,primary=false)=>{
-   if(y+1>=height-3)return;
-   const bg=primary?p.accent:p.button,fg=primary?p.onAccent:p.text;
-   for(let dy=0;dy<2;dy++)left[y+dy]=paint(' ',1,p.sidebar)+paint(dy===0?' '+label:'',side-2,bg,fg)+paint(' ',1,p.sidebar);
-   targets.push({x:1,y,w:side-2,h:2,run});
+   if(y<3||y+2>=height-2)return;
+   const w=side-4,bg=primary?p.bubble:p.sidebar,fg=primary?p.accent:p.text;
+   const rows=primary?['╭'+'─'.repeat(w-2)+'╮','│'+center(label,w-2).padEnd(w-2)+'│','╰'+'─'.repeat(w-2)+'╯']:['', '  '+label+'  ›',''];
+   for(let dy=0;dy<3;dy++)left[y+dy]=paint('  ',2,p.sidebar)+paint(rows[dy],w,bg,fg)+paint('  ',2,p.sidebar);
+   targets.push({x:2,y,w,h:3,run});
   };
-  const buttons=[['Новый разговор',actions.newChat,true],['История',actions.history],['Модель',actions.model],
-   [s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme],['Технический вид',actions.technical]];
-  const slots=Math.max(1,Math.floor((height-5)/3));
-  const visible=buttons.length>slots?[...buttons.slice(0,slots-1),['Ещё…',actions.more]]:buttons;
-  visible.forEach(([label,run,primary],i)=>button(3+i*3,label,run,primary));
+  button(4,side<24?'Новый чат':'Новый разговор',actions.newChat,true);
+  if(height>=23)button(8,'История',actions.history);
+  const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme],['Подробности',actions.technical]];
+  if(height>=27)utilities.forEach(([label,run],i)=>button(height-13+i*3,label,run));
+  else if(height>=23){button(12,'Модель',actions.model);button(height-6,'Ещё',actions.more);}
+  else button(height-6,'Ещё',actions.more);
   left[height-2]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
-  put(1,'Разговор',p.canvas,p.muted);
-  const commandW=12;
-  const editorAll=delegate.render(cw-commandW), editorLimit=Math.min(6,Math.max(3,height-8));
+  put(1,chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
+  const editorWidth=Math.max(4,cw-4);
+  let editorAll=delegate.render(editorWidth);
+  // Keep the native editor/cursor, replace only its horizontal rules with our frame.
+  const rule=line=>/^[─━╌┄\s]+$/.test(clean(line));
+  if(editorAll.length>=3&&rule(editorAll[0])&&rule(editorAll.at(-1)))editorAll=editorAll.slice(1,-1);
+  const editorLimit=Math.min(5,Math.max(1,height-10));
   const cursorLine=editorAll.findIndex(line=>line.includes("\x1b_pi:c\x07"));
   const editorStart=Math.min(Math.max(0,cursorLine-editorLimit+2),Math.max(0,editorAll.length-editorLimit));
   const editorLines=editorAll.slice(editorStart,editorStart+editorLimit);
-  const editorTop=height-editorLines.length-3;
-  for(let i=0;i<editorLines.length;i++){
-   const control=i<2?paint(i===0?' Команды ':'',commandW-1,p.button):paint('',commandW-1);
-   right[editorTop+i]=paint('',pad)+control+paint(' ',1)+paint(editorLines[i].replace(/\x1b\[[0-9;]*m/g,''),cw-commandW)+paint('',pad);
-  }
-  targets.push({x:side+pad,y:editorTop,w:commandW-1,h:2,run:actions.commands});
-  if(!delegate.getText())put(editorTop-1,'Напишите сообщение…',p.canvas,p.muted);
-  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить'):'Остановить';
-  const sendW=measure(send)+4,sendX=width-pad-sendW;
-  right[height-2]=paint(' '.repeat(main-pad-sendW),main-pad-sendW)+paint('  '+send+'  ',sendW,p.accent,p.onAccent)+paint('',pad);
-  if(!ctx.isIdle()||delegate.getText().trim())targets.push({x:sendX,y:height-2,w:sendW,h:1,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
+  const editorTop=height-Math.max(1,editorLines.length)-6;
+  put(editorTop,'╭'+'─'.repeat(cw-2)+'╮',p.canvas,p.border);
+  const inside=(y,text)=>{right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint(text,editorWidth)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);};
+  editorLines.forEach((line,i)=>inside(editorTop+1+i,line.replace(/\x1b\[[0-9;]*m/g,'')));
+  const actionY=editorTop+1+editorLines.length;
+  inside(actionY,'');
+  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
+  const sendW=measure(send)+2, enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
+  right[actionY]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint('',Math.max(0,cw-sendW-4))+paint(' '+send+' ',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
+  if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:1,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
+  put(actionY+1,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
+  if(!delegate.getText())put(editorTop-1,'Сообщение',p.canvas,p.muted);
   let info=s.notice||s.activity||'';
   const widgetLines=[];
   for(const widget of s.widgets??[]) {try {widgetLines.push(...(Array.isArray(widget)?widget:widget.render(cw)));}catch{}}
@@ -91,7 +100,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const capacity=Math.max(0,contentBottom-3);
   scroll=Math.min(scroll,Math.max(0,content.length-capacity));
   const start=Math.max(0,content.length-capacity-scroll);
-  if(!content.length){put(5,'Чем могу помочь?',p.canvas,p.accent);put(7,'Опишите задачу своими словами.',p.canvas,p.muted);}
+  if(!content.length && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold('С чего начнём?'),cw));put(y+2,center('Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
   content.slice(start,start+capacity).forEach((line,n)=>put(3+n,line.text,line.user?p.bubble:p.canvas,line.muted?p.muted:p.text));
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   return left.map((line,i)=>line+right[i]);

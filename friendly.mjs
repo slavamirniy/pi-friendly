@@ -1,4 +1,4 @@
-import { createMenu, clean } from "./menu.mjs";
+import { createMenu, clean, mouseEvent } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
 import { palettes } from "./surface.mjs";
 
@@ -24,9 +24,25 @@ export function installFriendly(pi, rendering) {
   const notifyError = (ctx, error) => { if (!stopped) ctx.ui.notify(`Не удалось выполнить действие: ${clean(error?.message ?? error)}`, "error"); };
   const safe = (ctx, fn) => async () => { try { await fn(); } catch (error) { notifyError(ctx, error); } };
 
-  async function choose(ctx, title, items, searchable = false, subtitle = ctx.cwd) {
+  async function choose(ctx, title, items, searchable = false, subtitle = "") {
     return ctx.ui.custom((tui, theme, _keys, done) => {
-      activeMenu = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
+      const inner = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
+      activeMenu = !workspace ? inner : {
+        invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
+        render(width) {
+          const side=width>=100?26:18;
+          const background=workspace.renderSurface(width), pane=inner.render(width-side);
+          return pane.map((row,i)=>rendering.truncate(background[i]||'',side,'')+row);
+        },
+        handleInput(data) {
+          const mouse=mouseEvent(data),side=tui.terminal.columns>=100?26:18;
+          if(mouse && mouse.x<side){
+            if(mouse.press&&mouse.button===0){inner.handleInput("\x1b");setTimeout(()=>workspace?.sidebarMouse(data),0);}
+            return;
+          }
+          inner.handleInput(mouse ? `\x1b[<${mouse.button};${mouse.x-side+1};${mouse.y+1}${mouse.press?'M':'m'}` : data);
+        },
+      };
       return activeMenu;
     }, { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", row: 0, col: 0, margin: 0 } });
   }
@@ -97,11 +113,11 @@ export function installFriendly(pi, rendering) {
   }
   async function more(ctx) {
     const item = await dialog(ctx, () => choose(ctx, "Действия", [
-      {label: "Модель", id:"model"}, {label:"Команды",id:"commands"},
+      {label: "Модель", id:"model"}, {label:"История",id:"history"},
       {label:"Сменить тему",id:"theme"}, {label:"Меню",id:"menu"},
     ], true));
     if(item?.id === "model") await selectModel(ctx);
-    if(item?.id === "commands") await commands(ctx);
+    if(item?.id === "history") await command(ctx,"/friendly history");
     if(item?.id === "menu") await menu(ctx);
     if(item?.id === "theme") changeTheme(ctx);
   }
