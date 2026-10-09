@@ -122,7 +122,10 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       return [...delegate.render(width), ...Array(listHeight()).fill("")];
     },
     handleInput(data) {
-      if(matchesKey(data,'enter')&&['starting','recording','transcribing'].includes(viewState().voice?.phase))return;
+      if(matchesKey(data,'enter')&&['starting','recording','transcribing'].includes(viewState().voice?.phase)){
+        if(viewState().voice?.phase==='recording')actions.voice?.();
+        return;
+      }
       if (suggestions.length && slash()) {
         if (matchesKey(data, "down") || matchesKey(data, "up")) {
           selected = (selected + (matchesKey(data, "down") ? 1 : -1) + suggestions.length) % suggestions.length;

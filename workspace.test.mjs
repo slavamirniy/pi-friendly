@@ -14,7 +14,7 @@ function harness(cleanView=false,viewState=()=>({})) {
     handleInput:data=>{if(data==='\r'){submitted.push(text);text='';}else{text+=data;}},
     setAutocompleteProvider:p=>{autocomplete=p;}, customMethod:()=>42};
   const ctx={isIdle:()=>idle,abort:()=>calls.push('stop')};
-  const actions={newChat:()=>calls.push('newChat'),menu:()=>calls.push('menu'),model:()=>calls.push('model'),commands:()=>calls.push('commands'),details:()=>calls.push('details')};
+  const actions={voice:()=>calls.push('voice'),newChat:()=>calls.push('newChat'),menu:()=>calls.push('menu'),model:()=>calls.push('model'),commands:()=>calls.push('commands'),details:()=>calls.push('details')};
   const w=createWorkspace({delegate,tui,theme,rendering,ctx,actions,cleanView,viewState});focus=w.editor;
   const provider={getSuggestions:async()=>({prefix:text,items:[{value:'model',label:'model',description:'Model'},{value:'new-plugin',label:'new-plugin',description:'Installed plugin'}]}),
     applyCompletion:(_l,_r,_c,item)=>({lines:['/'+item.value+' '],cursorLine:0,cursorCol:item.value.length+2})};
@@ -75,4 +75,10 @@ test('recording and transcription never auto-send a partially dictated message',
  for(const phase of ['starting','recording','transcribing']){
   const h=harness(true,()=>({voice:{phase}}));h.w.editor.setText('мой черновик');h.w.submit();h.w.editor.handleInput('enter');assert.deepEqual(h.submitted,[]);assert.equal(h.getText(),'мой черновик');h.w.dispose();
  }
+});
+
+test('Enter stops recording once, starts transcription and never submits the draft',()=>{
+ const state={voice:{phase:'recording'}};const h=harness(true,()=>state);h.w.editor.setText('Текст до диктовки');
+ h.w.editor.handleInput('enter');assert.deepEqual(h.calls,['voice']);assert.deepEqual(h.submitted,[]);
+ state.voice.phase='transcribing';h.w.editor.handleInput('enter');assert.deepEqual(h.calls,['voice']);assert.deepEqual(h.submitted,[]);assert.equal(h.getText(),'Текст до диктовки');h.w.dispose();
 });

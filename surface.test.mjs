@@ -86,7 +86,7 @@ test('voice control fits narrow and wide windows and microphone toggles from its
   const h=fixture(width,height);h.data.voice={phase,percent:42,seconds:65,level:.7};h.delegate.getText=()=> 'черновик';
   const rows=h.surface.render(width).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(row=>row.length===width),`${width} ${height} ${phase}`);
   if(width>=100&&phase==='ready'){
-   const y=rows.findIndex(row=>row.includes('Микрофон')),x=rows[y].indexOf('Микрофон');h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
+   const y=rows.findIndex(row=>row.includes('🎤')),x=rows[y].indexOf('🎤');assert.ok(x<rows[y].indexOf('Отправить'));assert.ok(x>width/2);h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
   }
  }
 });
