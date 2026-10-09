@@ -1,4 +1,5 @@
 import { clean, mouseEvent } from './menu.mjs';
+import { activityLabel } from './activity.mjs';
 import {explainError,wrapText} from './errors.mjs';
 export const palettes = {
  light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
@@ -9,7 +10,7 @@ export function chatMessages(ctx, live) {
  const messages=branch.filter(e=>e.type==='message').map(e=>e.message);
  if(live && !messages.some(m=>m===live || (m.role===live.role && m.timestamp===live.timestamp))) messages.push(live);
  else if(live) {const index=messages.findLastIndex(m=>m.role===live.role&&m.timestamp===live.timestamp);if(index>=0)messages[index]=live;}
- return messages.filter(m=>m.role==='user'||m.role==='assistant'||(m.role==='custom'&&m.display!==false));
+ return messages.filter(m=>m.role==='user'||m.role==='assistant'||m.role==='toolResult'||(m.role==='custom'&&m.display!==false));
 }
 export function messageText(message) {
  if(typeof message.content==='string')return message.content;
@@ -27,7 +28,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const value=truncate(text,w,'');return base+value.replace(/\x1b\[(?:0)?m/g,base).replace(/\x1b\[39m/g,`\x1b[38;2;${fg}m`).replace(/\x1b\[49m/g,`\x1b[48;2;${bg}m`)+' '.repeat(Math.max(0,w-measure(value)))+'\x1b[0m';
   };
   if(width<44||height<12)return [paint('Увеличьте окно. F2 — меню.',width),...Array(Math.max(0,height-1)).fill(paint('',width))];
-  const side=width>=100?26:18,main=width-side,pad=Math.max(2,Math.floor((main-78)/2)),cw=main-2*pad;
+  const side=width>=100?26:18,main=width-side,pad=2,cw=main-2*pad;
   const left=Array(height).fill(paint('',side,p.sidebar));
   const right=Array(height).fill(paint('',main));
   const put=(y,text,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<height)right[y]=paint('',pad)+paint(text,cw,bg,fg)+paint('',main-pad-cw);};
@@ -52,27 +53,30 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
   if(quota)left[height-2]=paint('  '+clean(quota),side,p.sidebar,p.muted);
   put(1,chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
-  const editorWidth=Math.max(4,cw-4);
+  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
+  const sendW=measure(send)+2,enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
+  const sendHeight=height>=20?3:1,inlineSend=cw>=40;
+  const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+2:0));
   let editorAll=delegate.render(editorWidth);
-  // Keep the native editor/cursor, replace only its horizontal rules with our frame.
   const rule=line=>/^[─━╌┄\s]+$/.test(clean(line));
   if(editorAll.length>=3&&rule(editorAll[0])&&rule(editorAll.at(-1)))editorAll=editorAll.slice(1,-1);
   const editorLimit=Math.min(5,Math.max(1,height-10));
   const cursorLine=editorAll.findIndex(line=>line.includes("\x1b_pi:c\x07"));
   const editorStart=Math.min(Math.max(0,cursorLine-editorLimit+2),Math.max(0,editorAll.length-editorLimit));
   const editorLines=editorAll.slice(editorStart,editorStart+editorLimit);
-  const editorTop=height-Math.max(1,editorLines.length)-(height>=20?8:6);
+  const innerHeight=inlineSend?Math.max(editorLines.length,sendHeight):editorLines.length+sendHeight;
+  const editorTop=height-innerHeight-4;
+  const actionY=editorTop+1+(inlineSend?innerHeight-sendHeight:editorLines.length);
   put(editorTop,'╭'+'─'.repeat(cw-2)+'╮',p.canvas,p.border);
-  const inside=(y,text)=>{right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint(text,editorWidth)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);};
-  editorLines.forEach((line,i)=>inside(editorTop+1+i,line.replace(/\x1b\[[0-9;]*m/g,'')));
-  const actionY=editorTop+1+editorLines.length;
-  inside(actionY,'');
-  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
-  const sendW=measure(send)+2, enabled=!ctx.isIdle()||Boolean(delegate.getText().trim());
-  const sendHeight=height>=20?3:1;
-  for(let n=0;n<sendHeight;n++)right[actionY+n]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+paint('',Math.max(0,cw-sendW-4))+paint(n===Math.floor(sendHeight/2)?' '+send+' ':'',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted)+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
+  for(let i=0;i<innerHeight;i++){
+   const y=editorTop+1+i,hasSend=y>=actionY&&y<actionY+sendHeight;
+   const text=(editorLines[i]??'').replace(/\x1b\[[0-9;]*m/g,'');
+   const input=inlineSend?paint(text,editorWidth)+paint('',2):paint(text,hasSend?cw-sendW-4:cw-4);
+   const button=hasSend?paint(y===actionY+Math.floor(sendHeight/2)?' '+send+' ':'',sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
+   right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+input+button+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
+  }
   if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:sendHeight,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
-  put(actionY+sendHeight,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
+  put(editorTop+innerHeight+1,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
   if(!delegate.getText())put(editorTop-1,'Сообщение',p.canvas,p.muted);
   let info=s.notice||s.activity||'';
   const widgetLines=[];
@@ -114,18 +118,32 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    rows.forEach((row,i)=>put(top+1+i,'  '+row,p.sidebar,p.text));
    contentBottom=top-1;
   }
-  let content=[];
+  let content=[],previousRole;
+  const results=new Map(messages.filter(m=>m.role==='toolResult').map(m=>[m.toolCallId,m]));
   for(const message of messages){
+   if(message.role==='toolResult')continue;
+   const tools=Array.isArray(message.content)?message.content.filter(c=>c.type==='toolCall'):[];
    const text=messageText(message);
-   if(!text && !message.errorMessage)continue;
+   if(!text.trim() && !tools.length && !message.errorMessage)continue;
    const user=message.role==='user',blockWidth=user?Math.max(12,Math.floor(cw*.8)):cw;
    const inset=user?cw-blockWidth:0;
-   content.push({text:user?'Вы':'Помощник',muted:true,inset,blockWidth});
+   if(user||previousRole!==message.role)content.push({text:user?'Вы':'Помощник',muted:true,inset,blockWidth});
+   previousRole=message.role;
    const lines=rendering.markdown?rendering.markdown(safeText(text),blockWidth-4,p):safeText(text).split('\n').flatMap(l=>wrapText(l,blockWidth-4));
    if(text){
-    content.push({text:'',user,inset,blockWidth,card:true});
     for(const line of lines)content.push({text:'  '+line,user,inset,blockWidth,card:true});
-    content.push({text:'',user,inset,blockWidth,card:true});
+   }
+   for(const call of tools){
+    const result=results.get(call.id),step=(s.steps??[]).find(step=>step.id===call.id);
+    const status=result?(result.isError?'error':'done'):step?.status;
+    const marker=status==='done'?'✓':status==='error'?'!':status==='running'?'◌':'·';
+    const args=call.arguments??{};
+    let label=activityLabel(call.name,args);
+    if(status==='done')label=label.replace('Создаю файл','Файл записан').replace('Обновляю файл','Файл изменён').replace('Читаю файл','Файл прочитан');
+    const file=clean(args.path||args.file_path||'');
+    if(file)label=label.replace(file.split(/[\\/]/).at(-1),file);
+    if(call.name==='write'&&typeof args.content==='string')label+=' · строк: '+args.content.replace(/\n$/,'').split('\n').length;
+    for(const row of wrapText(marker+' '+label,cw-4))content.push({text:'  '+row,card:true,tool:true,error:status==='error'});
    }
    if(message.errorMessage)content.push({text:'! '+explainError(message.errorMessage).title,error:true});
    content.push({text:''});
@@ -134,7 +152,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   scroll=Math.min(scroll,Math.max(0,content.length-capacity));
   const start=Math.max(0,content.length-capacity-scroll);
   if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold('Чем могу помочь?'),cw));put(y+2,center('Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
-  content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
+  content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   return left.map((line,i)=>line+right[i]);
  }

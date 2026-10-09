@@ -44,3 +44,24 @@ test('three-row send target and real activity rows are usable',()=>{
  const h=fixture();h.data.running=true;h.data.started=Date.now()-12000;h.data.steps=[{label:'Создаю файл · index.html',status:'done'},{label:'Проверяю сборку',status:'running'}];
  const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('✓ Создаю файл'));assert.ok(text.includes('Проверяю сборку'));assert.ok(text.includes('Работаю · 12 с'));
 });
+
+test('saved file actions survive reload, failures stay distinct and assistant headings do not repeat',()=>{
+ const h=fixture(140,40);h.data.live=undefined;
+ const messages=[
+  {role:'assistant',content:[{type:'text',text:'Общие стили:'},{type:'toolCall',id:'w',name:'write',arguments:{path:'src/styles.css',content:'a\nb\n'}}]},
+  {role:'toolResult',toolCallId:'w',toolName:'write',isError:false,content:[{type:'text',text:'raw tool response'}]},
+  {role:'assistant',content:[{type:'toolCall',id:'e',name:'edit',arguments:{path:'src/app.js'}}]},
+  {role:'toolResult',toolCallId:'e',toolName:'edit',isError:true,content:[{type:'text',text:'raw failure'}]},
+  {role:'assistant',content:[{type:'thinking',thinking:'hidden'}]},
+ ];
+ h.ctx.sessionManager.getBranch=()=>messages.map(message=>({type:'message',message}));
+ const text=h.surface.render(140).map(strip).join('\n');
+ assert.ok(text.includes('✓ Файл записан · src/styles.css · строк: 2'));
+ assert.ok(text.includes('! Обновляю файл · src/app.js'));assert.equal(text.match(/Помощник/g)?.length,1);
+ assert.ok(!text.includes('raw tool response'));assert.ok(!text.includes('raw failure'));assert.ok(!text.includes('hidden'));
+});
+test('wide windows use available chat width and pending writes are not marked successful',()=>{
+ const h=fixture(160,40);h.data.live={role:'assistant',content:[{type:'text',text:'Обновляю страницу'},{type:'toolCall',id:'pending',name:'write',arguments:{path:'index.html',content:'hello'}}]};
+ const rows=h.surface.render(160).map(strip),row=rows.find(r=>r.includes('Обновляю страницу'));
+ assert.ok(row.indexOf('Обновляю страницу')<35);assert.ok(rows.join('\n').includes('· Создаю файл · index.html'));assert.ok(!rows.join('\n').includes('✓ Файл записан'));
+});
