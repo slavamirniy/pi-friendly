@@ -1,3 +1,4 @@
+import {requestExit,createExitDialog} from './exit-dialog.mjs';
 import { createMenu, clean, mouseEvent } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
 import { startActivity, finishActivity } from "./activity.mjs";
@@ -227,7 +228,9 @@ export function installFriendly(pi, rendering) {
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
-            exit: safe(ctx, () => ctx.shutdown()),
+            exit: safe(ctx, () => requestExit(ctx,()=>dialog(ctx,()=>ctx.ui.custom((tui,_theme,_keys,done)=>{
+              activeMenu=createExitDialog({...rendering,tui,done,palette:palettes[view.scheme],background:width=>workspace.renderSurface(width)});return activeMenu;
+            },{overlay:true,overlayOptions:{width:'100%',maxHeight:'100%',row:0,col:0,margin:0}})))),
             errorDetails: raw => safe(ctx,()=>dialog(ctx,()=>choose(ctx,"Подробности ошибки",wrapText(explainError(raw).help+" Причина сервиса: "+raw,50).map(label=>({label})),false,"Текст сервиса · Esc или × Закрыть — обратно")))(),
             details: () => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
           },

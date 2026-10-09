@@ -36,12 +36,12 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const bold=text=>`\x1b[1m${text}\x1b[22m`;
   const center=(text,w)=>' '.repeat(Math.max(0,Math.floor((w-measure(text))/2)))+text;
   left[1]=paint('  '+bold('Просто pi'),side,p.sidebar,p.text);
-  const button=(y,label,run,primary=false,danger=false)=>{
+  const button=(y,label,run,primary=false,danger=false,disabled=false)=>{
    if(y<3||y+2>=height-2)return;
-   const w=side-4,bg=danger?p.errorBg:primary?(s.paneOpen?p.selection:p.bubble):p.sidebar,fg=danger?p.error:primary?(s.paneOpen?p.text:p.accent):p.text;
+   const w=side-4,bg=disabled?p.button:danger?p.errorBg:primary?(s.paneOpen?p.selection:p.bubble):p.sidebar,fg=disabled?p.muted:danger?p.error:primary?(s.paneOpen?p.text:p.accent):p.text;
    const rows=buttonRows(label,w,truncate,measure);
    for(let dy=0;dy<3;dy++)left[y+dy]=paint('  ',2,p.sidebar)+paint(rows[dy],w,bg,fg)+paint('  ',2,p.sidebar);
-   targets.push({x:2,y,w,h:3,run});
+   if(!disabled)targets.push({x:2,y,w,h:3,run});
   };
   if(height>=18)button(4,s.paneOpen?(side<24?'← В чат':'Вернуться к чату'):side<24?'Новый чат':'Новый разговор',actions.newChat,true);
   if(height>=23)button(8,'Проекты',actions.history);
@@ -49,7 +49,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(height>=27)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));
   else if(height>=23)button(12,'Ещё',actions.more);
   else if(height>=18)button(height-11,'Ещё',actions.more);
-  button(height-7,'Выйти',actions.exit,false,true);
+  button(height-7,'Выйти',actions.exit,false,true,!ctx.isIdle());
   left[height-3]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
   const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
   if(quota)left[height-2]=paint('  '+clean(quota),side,p.sidebar,p.muted);

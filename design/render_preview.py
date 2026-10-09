@@ -3,7 +3,7 @@ import json,re,sys
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 root=Path(__file__).parent
-for mode in ['work','error','history','chats','form']:
+for mode in ['work','error','history','chats','form','exit']:
  rows=json.loads((root/f'preview-{mode}.json').read_text(encoding='utf-8'));cw,ch=12,24
  im=Image.new('RGB',(120*cw,len(rows)*ch),'white');d=ImageDraw.Draw(im)
  fonts=[ImageFont.truetype('C:/Windows/Fonts/consola.ttf',20),ImageFont.truetype('C:/Windows/Fonts/consolab.ttf',20)]

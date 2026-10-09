@@ -75,3 +75,8 @@ test('red exit button stays clickable at the bottom without a details button',()
   h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['exit']);
  }
 });
+
+test('busy exit button has no click target',()=>{
+ const h=fixture();h.ctx.isIdle=()=>false;const rows=h.surface.render(100).map(strip),y=rows.findIndex(r=>r.includes('Выйти')),x=rows[y].indexOf('Выйти');
+ h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,[]);
+});
