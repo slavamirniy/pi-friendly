@@ -2,6 +2,7 @@ import { createMenu, clean, mouseEvent } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
 import { startActivity, finishActivity } from "./activity.mjs";
 import { wrapText, explainError } from "./errors.mjs";
+import { createProjectForm } from "./project-form.mjs";
 import { projectCatalog } from "./projects.mjs";
 import { palettes } from "./surface.mjs";
 
@@ -28,10 +29,11 @@ export function installFriendly(pi, rendering) {
   const notifyError = (ctx, error) => { if (!stopped) ctx.ui.notify(`Не удалось выполнить действие: ${clean(error?.message ?? error)}`, "error"); };
   const safe = (ctx, fn) => async () => { try { await fn(); } catch (error) { notifyError(ctx, error); } };
 
-  async function choose(ctx, title, items, searchable = false, subtitle = "") {
+  async function choose(ctx, title, items, searchable = false, subtitle = "", form = false) {
     return ctx.ui.custom((tui, theme, _keys, done) => {
       let lastFrame;
-      const inner = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
+      const finish=value=>{if(value?.navigation&&lastFrame)workspace?.holdFrame(lastFrame);done(value);};
+      const inner = form ? createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}) : createMenu({ ...rendering, tui, theme, done:finish, title, subtitle, items, searchable, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
       activeMenu = !workspace ? inner : {
         invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
         render(width) {
@@ -92,7 +94,7 @@ export function installFriendly(pi, rendering) {
     await switchChat(ctx,projects.createChat(cwd));
   }
   async function createProject(ctx){
-    const name=await ctx.ui.input('Как назвать проект?','Например: Сайт пекарни');
+    const name=await dialog(ctx,()=>choose(ctx,'Новый проект',[],false,'',true));
     if(!name?.trim())return;
     const project=projects.create(name);await startChat(ctx,project.cwd);
   }
@@ -102,7 +104,7 @@ export function installFriendly(pi, rendering) {
     const current=!projects.isHub(ctx.cwd);
     const choice=await dialog(ctx,()=>choose(ctx,'Новый разговор',[
       ...(current?[{id:'current',label:'В проекте «'+projects.name(ctx.cwd)+'»',description:'Те же файлы · новая переписка'}]:[]),
-      {id:'create',label:'Новый проект',description:'Отдельная папка для новой задачи'},
+      {id:'create',navigation:true,kind:'primary',label:'Новый проект',description:'Отдельная папка для новой задачи'},
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
     ],false,'Чаты и файлы сохранятся. Черновик — в новый чат.'));
     if(choice?.id==='current')await startChat(ctx,ctx.cwd);
@@ -115,22 +117,31 @@ export function installFriendly(pi, rendering) {
       const sessions=await rendering.listSessions();
       if(!projects){return choose(ctx,'История разговоров',sessions.map(session=>({session,label:session.name||clean(session.firstMessage)||'Без названия',description:session.cwd})),true);}
       const catalog=projectCatalog(sessions,projects.list(),projects.isHub(ctx.cwd)?undefined:ctx.cwd);
-      const items=[{id:'create',label:'+ Новый проект',description:'Создать отдельную папку'},{id:'attach',label:'Открыть папку проекта',description:'Подключить существующую папку с файлами'}];
-      for(const project of catalog){
-        const name=projects.isHub(project.cwd)?'Старые чаты в общей папке':project.name;
-        items.push({project,kind:'project',label:'Проект: '+name,description:project.chats.length+' чатов · '+project.cwd});
-        if(!projects.isHub(project.cwd))items.push({id:'new',project,label:'  + Новый чат · '+name,description:'Общие файлы проекта, отдельная переписка'});
-        for(const session of project.chats)items.push({session,label:'  '+(session.name||(session.messageCount?clean(session.firstMessage).slice(0,80):'Новый разговор')),description:name+' · '+new Date(session.modified).toLocaleDateString('ru-RU')+' · сообщений: '+(session.messageCount??0)});
+      let project;
+      while(!stopped){
+        if(!project){
+          const picked=await choose(ctx,'Проекты',[
+            {id:'create',navigation:true,kind:'primary',label:'+ Новый проект',description:'Создать проект с отдельной папкой'},
+            ...catalog.map(p=>({project:p,navigation:true,label:projects.isHub(p.cwd)?'Старые чаты':p.name,description:p.chats.length+' чатов · открыть список чатов'})),
+          ],true,'Шаг 1 из 2 · выберите проект');
+          if(!picked||picked.id==='create')return picked;
+          project=picked.project;
+        }
+        const name=projects.isHub(project.cwd)?'Старые чаты':project.name;
+        const picked=await choose(ctx,name,[
+          {id:'back',navigation:true,kind:'back',label:'← Все проекты',description:'Выбрать другой проект'},
+          ...(!projects.isHub(project.cwd)?[{id:'new',kind:'primary',project,label:'+ Новый чат',description:'Начать разговор в этом проекте'}]:[]),
+          ...project.chats.map(session=>({session,label:session.name||(session.messageCount?clean(session.firstMessage).slice(0,80):'Новый разговор'),description:new Date(session.modified).toLocaleDateString('ru-RU')+' · сообщений: '+(session.messageCount??0)})),
+        ],true,'Шаг 2 из 2 · '+(project.chats.length?'выберите чат':'чатов пока нет — создайте первый'));
+        if(picked?.id==='back'){project=undefined;continue;}
+        return picked;
       }
-      return choose(ctx,'Проекты и чаты',items,true,'Проект — папка с файлами. Любой чат открывается одним нажатием.');
     });
     if(choice?.id==='create')await createProject(ctx);
-    else if(choice?.id==='attach'){
-      const path=await ctx.ui.input('Папка проекта','Вставьте полный путь к папке');
-      if(path?.trim()){const project=projects.attach(path);await startChat(ctx,project.cwd);}
-    }else if(choice?.session)await switchChat(ctx,choice.session.path);
-    else if(choice?.project){const chat=choice.project.chats[0];if(choice.id==='new'||!chat)await startChat(ctx,choice.project.cwd);else await switchChat(ctx,chat.path);}
+    else if(choice?.session)await switchChat(ctx,choice.session.path);
+    else if(choice?.id==='new')await startChat(ctx,choice.project.cwd);
   }
+
   async function commands(ctx) {
     const selected = await dialog(ctx, async () => {
       let item = await choose(ctx, "Частые команды", [

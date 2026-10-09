@@ -47,7 +47,7 @@ test("terminal controls in external labels are removed", () => {
 
 function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
   const events = new Map(), commands = new Map(), shortcuts = new Map(), statuses = new Map(), widgets = new Map();
-  const choices = [], notifications = [], models = [], calls = [];
+  const screens=[], choices = [], notifications = [], models = [], calls = [];
   let draft = "", footer, header, idle = true, expanded = true;
   const pi = {
     on: (name, fn) => events.set(name, [...(events.get(name) ?? []), fn]),
@@ -72,9 +72,10 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
         assert.equal(options.overlayOptions.row, 0);
         let result;
         const component = factory({ terminal: { rows: 30, columns: 100, write() {} }, requestRender() {} }, theme, {}, value => { result = value; });
-        const rows = component.render(100);
+        const rows = component.render(100);screens.push(rows.join("\n"));
         const choice = choices.shift();
         if (choice === undefined) component.handleInput("escape");
+        else if(rows.some(r=>r.includes("Название проекта"))){component.handleInput(choice);component.handleInput("enter");}
         else {
           const y = rows.findIndex(row => row.includes(choice));
           assert.ok(y >= 0, `Missing button ${choice} in ${rows.join("\n")}`);
@@ -84,9 +85,9 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
       },
     },
   };
-  installFriendly(pi, { ...rendering, listSessions: async () => sessions, projects });
+  installFriendly(pi, { ...rendering, listSessions: async () => sessions, projects, makeInput:()=>{let value='';const input={focused:true,getValue:()=>value,render:()=>[value],handleInput:data=>{if(data==='enter')input.onSubmit?.(value);else value+=data;}};return input;} });
   const emit = async (name, event = {}) => { for (const fn of events.get(name) ?? []) await fn(event, ctx); };
-  return { pi, ctx, emit, choices, notifications, calls, models, statuses, widgets,
+  return { pi, ctx, emit, choices, screens, notifications, calls, models, statuses, widgets,
     open: (args = "") => commands.get("friendly").handler(args, ctx),
     footer: () => footer, header: () => header, expanded: () => expanded,
     setIdle: value => { idle = value; },
@@ -154,7 +155,7 @@ test("popular commands and other commands are separate, dynamic plugin commands 
 
 test('new conversation explicitly chooses shared project files or a separate project',async()=>{
  const created=[],started=[];const projects={isHub:()=>false,name:()=> 'Пекарня',create:n=>{created.push(n);return{cwd:'/projects/'+n};},createChat:cwd=>{started.push(cwd);return cwd+'/chat.jsonl';}};
- const h=harness({projects});h.ctx.ui.input=async()=> 'Магазин';h.choices.push('Новый проект');await h.open('new');
+ const h=harness({projects});h.ctx.ui.input=async()=> 'Магазин';h.choices.push('Новый проект','Магазин');await h.open('new');
  assert.deepEqual(created,['Магазин']);assert.deepEqual(started,['/projects/Магазин']);assert.deepEqual(h.calls,['/projects/Магазин/chat.jsonl']);
  h.choices.push('В проекте');await h.open('new');assert.equal(started.at(-1),'/project');
  const n=started.length;await h.open('new');assert.equal(started.length,n);
@@ -163,4 +164,11 @@ test('switching chats restores a draft through the new session context',async()=
  const h=harness();h.ctx.ui.setEditorText('Мой черновик');let restored;
  h.ctx.switchSession=async(path,options)=>{assert.equal(path,'/chat.jsonl');await options.withSession({ui:{setEditorText:text=>{restored=text;}}});return{cancelled:false};};
  await h.open('open '+encodeURIComponent('/chat.jsonl'));assert.equal(restored,'Мой черновик');
+});
+
+test('projects and chats are separate screens, with back navigation and no folder import',async()=>{
+ const projects={isHub:()=>false,list:()=>[{name:'Bakery',cwd:'/Bakery'},{name:'Shop',cwd:'/Shop'}]};
+ const h=harness({projects,sessions:[{cwd:'/Bakery',name:'Главная',path:'/a',modified:new Date(),messageCount:2},{cwd:'/Shop',name:'Каталог',path:'/b',modified:new Date(),messageCount:3}]});
+ h.choices.push('Bakery','← Все проекты','Shop','Каталог');await h.open('history');
+ assert.deepEqual(h.calls,['/b']);assert.ok(!h.screens[0].includes('Главная'));assert.ok(!h.screens[0].includes('Открыть папку'));assert.ok(h.screens[1].includes('Главная'));assert.ok(!h.screens[1].includes('Каталог'));
 });

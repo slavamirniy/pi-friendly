@@ -3,11 +3,12 @@ import json,re,sys
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 root=Path(__file__).parent
-for mode in ['work','error','history']:
+for mode in ['work','error','history','chats','form']:
  rows=json.loads((root/f'preview-{mode}.json').read_text(encoding='utf-8'));cw,ch=12,24
  im=Image.new('RGB',(120*cw,len(rows)*ch),'white');d=ImageDraw.Draw(im)
  fonts=[ImageFont.truetype('C:/Windows/Fonts/consola.ttf',20),ImageFont.truetype('C:/Windows/Fonts/consolab.ttf',20)]
  for y,row in enumerate(rows):
+  row=row.replace("\x1b_pi:c\x07", "")
   fg=(31,41,51);bg=(255,255,255);bold=0;x=0
   for part in re.split(r'(\x1b\[[0-9;]*m)',row):
    if part.startswith('\x1b'):

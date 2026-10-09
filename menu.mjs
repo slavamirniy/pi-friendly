@@ -49,9 +49,9 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         if(selected>=offset+capacity)offset=selected-capacity+1;
         for(let i=offset;i<Math.min(list.length,offset+capacity);i++){
           const y=8+(i-offset)*step,item=list[i];
-          const bg=i===selected?p.bubble:item.kind==='project'?p.button:p.sidebar;
-          put(y,(i===selected?' › ':'   ')+clean(item.label),bg);
-          if(step===3)put(y+1,fg('   '+clean(item.description||'Нажмите, чтобы выбрать'),p.muted),bg);
+          const primary=item.kind==='primary',bg=primary?p.accent:i===selected?(p.selection||p.bubble):item.kind==='back'?p.button:p.sidebar;
+          put(y,fg((i===selected?' › ':'   ')+clean(item.label),primary?p.onAccent:p.text),bg);
+          if(step===3)put(y+1,fg('   '+clean(item.description||'Нажмите, чтобы выбрать'),primary?p.onAccent:p.muted),bg);
           for(let n=0;n<(step===3?2:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
         }
         if(!list.length)put(8,'Ничего не найдено');
