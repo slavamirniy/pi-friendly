@@ -111,10 +111,19 @@ test('microphone remains clickable during download and highlights only the setup
  h.data.voiceHintUntil=0;assert.ok(!h.surface.render(120).map(strip).join('').includes('← Для голосового ввода'));
 });
 
-test('audio trace fills from the right and advances old samples left without inventing sound',async()=>{
+test('raster bars have distinct symmetric heights and scroll from right to left',async()=>{
  const {voiceWaveform}=await import('./surface.mjs');
- assert.equal(voiceWaveform([0,.1,1],3),'·|│');assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····│');
- assert.equal(voiceWaveform([1,0],6),'····│·');assert.equal(voiceWaveform([1,0,1],2),'·│');assert.equal(voiceWaveform([1],0),'');
+ const levels=[.1,.3,.5,.65,.8,1],rows=voiceWaveform(levels,6,3),bits=[1,2,4,64];
+ const heights=[];
+ for(let x=0;x<6;x++){
+  const column=rows.flatMap(row=>bits.map(bit=>Boolean((row.charCodeAt(x)-0x2800)&bit)));
+  assert.deepEqual(column,[...column].reverse());heights.push(column.filter(Boolean).length);
+ }
+ assert.deepEqual(heights,[2,4,6,8,10,12]);
+ const first=voiceWaveform([1],6),next=voiceWaveform([1,0],6);
+ for(let y=0;y<3;y++)assert.equal(first[y][5],next[y][4]);
+ assert.deepEqual(voiceWaveform([1],0),['','','']);
+ assert.ok(voiceWaveform([],6).every(row=>row.length===6));
 });
 
 test('voice replaces draft without growing composer and stop icon is centered',()=>{

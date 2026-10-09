@@ -2,11 +2,20 @@ import {centered,buttonRows} from './buttons.mjs';
 import { clean, mouseEvent } from './menu.mjs';
 import { activityLabel } from './activity.mjs';
 import {explainError,wrapText} from './errors.mjs';
-// Oldest audio is on the left; every incoming sample advances the trace one cell.
-export function voiceWaveform(levels=[],width=0){
- const count=Math.max(0,Math.floor(width)),bars='|│';
- const recent=levels.slice(-count||levels.length);
- return '·'.repeat(Math.max(0,count-recent.length))+recent.map(level=>level<.025?'·':bars[Math.min(1,Math.floor(Math.sqrt(Math.max(0,level))*2))]).join('');
+// Rasterize centered bars into Braille's four vertical dots per terminal row.
+// A single dot column keeps bars thin; empty history stays on the left.
+export function voiceWaveform(levels=[],width=0,height=3){
+ const columns=Math.max(0,Math.floor(width)),rows=Math.max(1,Math.floor(height)),pixels=rows*4;
+ const recent=columns?levels.slice(-columns):[],samples=Array(Math.max(0,columns-recent.length)).fill(0).concat(recent);
+ const bits=[1,2,4,64];
+ return Array.from({length:rows},(_,row)=>samples.map(value=>{
+  const level=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;
+  const bar=level<.025?0:Math.max(2,Math.round(level*pixels/2)*2);
+  const top=(pixels-bar)/2,bottom=top+bar;
+  let mask=0;
+  for(let dy=0;dy<4;dy++){const y=row*4+dy;if(bar?y>=top&&y<bottom:y===Math.floor(pixels/2))mask|=bits[dy];}
+  return mask?String.fromCharCode(0x2800+mask):' ';
+ }).join(''));
 }
 export const palettes = {
  light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',selection:'215;232;250',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
@@ -84,21 +93,17 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   for(let i=0;i<innerHeight;i++){
    const y=editorTop+1+i,hasSend=y>=actionY&&y<actionY+sendHeight,hasMic=micW&&y>=micY&&y<micY+sendHeight;
    if(i<extra){
-    const seconds=voice.seconds??0,time=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
-    const wave=voiceWaveform(voice.levels,cw-4);
-    const percent=Math.max(0,Math.min(100,voice.percent??0)),filled=Math.round(percent/10);
-    const label=voiceHint&&!voiceBusy?(i===0?'← Для голосового ввода':'дождитесь загрузки голосовой модели'):voice.phase==='recording'?(i===0?`● ${time} · Enter или ■ — закончить запись`:wave):voice.phase==='transcribing'?(i===0?`Распознаю · ${percent}%`:'━'.repeat(filled)+'─'.repeat(10-filled)):(i===0?'Включаю микрофон…':'');
-    put(y,'│ '+centered(label,cw-4,truncate,measure)+' │',p.canvas,voice.phase==='recording'?(i===0?p.muted:p.accent):p.accent);continue;
+    const label=i===0?'← Для голосового ввода':'дождитесь загрузки голосовой модели';
+    put(y,'│ '+centered(label,cw-4,truncate,measure)+' │',p.canvas,p.accent);continue;
    }
    const contentWidth=inlineSend?editorWidth:cw-4-(hasSend?sendW:hasMic?micW:0);
    const contentHeight=inlineSend?innerHeight:editorLines.length;
    const voiceRow=Math.floor(contentHeight/2);
-   const seconds=Math.floor(voice?.seconds??0),time=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
    let text=(editorLines[i-extra]??'').replace(/\x1b\[[0-9;]*m/g,'');
    if(voiceBusy){
     text='';
-    if(i===voiceRow)text=voice.phase==='recording'?voiceWaveform(voice.levels,contentWidth):centered(voice.phase==='transcribing'?`Распознаю · ${Math.round(voice.percent??0)}%`:'Включаю микрофон…',contentWidth,truncate,measure);
-    if(voice.phase==='recording'&&contentHeight>=3&&i===voiceRow-1)text=centered(`● ${time} · Enter — закончить`,contentWidth,truncate,measure);
+    if(voice.phase==='recording')text=voiceWaveform(voice.levels,contentWidth,contentHeight)[i]??'';
+    else if(i===voiceRow)text=centered(voice.phase==='transcribing'?`Распознаю · ${Math.round(voice.percent??0)}%`:'Включаю микрофон…',contentWidth,truncate,measure);
    }
    const sendButton=hasSend?paint(sendHeight===3?buttonRows(send,sendW,truncate,measure)[y-actionY]:centered(send,sendW,truncate,measure),sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
    const micButton=hasMic?paint(sendHeight===3?buttonRows(micLabel,micW,truncate,measure)[y-micY]:centered(micLabel,micW,truncate,measure),micW,voice.phase==='recording'?p.errorBg:p.button,micEnabled?(voice.phase==='recording'?p.error:p.text):p.muted):inlineSend&&micW?paint('',micW):'';
@@ -114,6 +119,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   for(const widget of s.widgets??[]) {try {widgetLines.push(...(Array.isArray(widget)?widget:widget.render(cw)));}catch{}}
   if(widgetLines.length && !s.notice)info=clean(widgetLines.at(-1));
   if(info)put(editorTop-1,truncate(clean(info),cw,''),p.canvas,s.notice?p.accent:p.muted);
+  if(voice?.phase==='recording'){const seconds=Math.floor(voice.seconds??0);put(editorTop-1,`● ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} · Enter — закончить запись`,p.canvas,p.accent);}
   if(voice&&['installing','downloading','loading','error'].includes(voice.phase)){
    const pct=Number.isFinite(voice.percent)?` ${voice.percent}%`:'';
    const sideLabel=voice.phase==='error'?'Повторить голос':voice.phase==='downloading'?'Модель'+pct:voice.label||'Подготовка голоса';

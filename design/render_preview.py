@@ -29,6 +29,6 @@ for mode in ['work','error','history','chats','form','exit','project-choice','vo
     for char in part:
      cells=2 if char=='🎤' else 1
      d.rectangle((x*cw,y*ch,(x+cells)*cw-1,(y+1)*ch-1),fill=bg)
-     font=ImageFont.truetype('C:/Windows/Fonts/seguiemj.ttf',20) if char=='🎤' else ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌▁▂▃▄▅▆▇█⠆' else fonts[bold]
+     font=ImageFont.truetype('C:/Windows/Fonts/seguiemj.ttf',20) if char=='🎤' else ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌▁▂▃▄▅▆▇█' or 0x2800<=ord(char)<=0x28ff else fonts[bold]
      d.text((x*cw,y*ch),char,font=font,fill=fg);x+=cells
  im.save(root/f'preview-{mode}.png')
