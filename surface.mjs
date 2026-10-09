@@ -4,9 +4,9 @@ import { activityLabel } from './activity.mjs';
 import {explainError,wrapText} from './errors.mjs';
 // Oldest audio is on the left; every incoming sample advances the trace one cell.
 export function voiceWaveform(levels=[],width=0){
- const count=Math.max(0,Math.floor(width)),bars='▁▂▃▄▅▆▇█';
+ const count=Math.max(0,Math.floor(width)),bars='⠆│┃';
  const recent=levels.slice(-count||levels.length);
- return '·'.repeat(Math.max(0,count-recent.length))+recent.map(level=>level<.025?'·':bars[Math.min(7,Math.round(Math.sqrt(Math.max(0,level))*7))]).join('');
+ return '·'.repeat(Math.max(0,count-recent.length))+recent.map(level=>level<.025?'·':bars[Math.min(2,Math.floor(Math.sqrt(Math.max(0,level))*3))]).join('');
 }
 export const palettes = {
  light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',selection:'215;232;250',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
@@ -64,10 +64,10 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const voice=s.voice,voiceHint=(s.voiceHintUntil??0)>Date.now(),voiceBusy=['starting','recording','transcribing'].includes(voice?.phase);
   const sendW=measure(send)+4,enabled=!ctx.isIdle()||(!voiceBusy&&Boolean(delegate.getText().trim()));
   const sendHeight=height>=20?3:1,inlineSend=cw>=40;
-  const micLabel=voice?.phase==='recording'?'■':'🎤';
+  const micLabel=voice?.phase==='recording'?'██':'🎤';
   const micW=voice?(sendHeight===3?6:4):0;
   const micEnabled=Boolean(voice)&&(['installing','downloading','loading','error'].includes(voice.phase)||(ctx.isIdle()||voice.phase==='recording')&&['ready','recording'].includes(voice.phase));
-  const extra=voiceBusy||voiceHint?2:0;
+  const extra=voiceHint&&!voiceBusy?2:0;
   const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+2+(micW?micW+1:0):0));
   let editorAll=delegate.render(editorWidth);
   const rule=line=>/^[─━╌┄\s]+$/.test(clean(line));
@@ -90,10 +90,19 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
     const label=voiceHint&&!voiceBusy?(i===0?'← Для голосового ввода':'дождитесь загрузки голосовой модели'):voice.phase==='recording'?(i===0?`● ${time} · Enter или ■ — закончить запись`:wave):voice.phase==='transcribing'?(i===0?`Распознаю · ${percent}%`:'━'.repeat(filled)+'─'.repeat(10-filled)):(i===0?'Включаю микрофон…':'');
     put(y,'│ '+centered(label,cw-4,truncate,measure)+' │',p.canvas,voice.phase==='recording'?(i===0?p.muted:p.accent):p.accent);continue;
    }
-   const text=(editorLines[i-extra]??'').replace(/\x1b\[[0-9;]*m/g,'');
+   const contentWidth=inlineSend?editorWidth:cw-4-(hasSend?sendW:hasMic?micW:0);
+   const contentHeight=inlineSend?innerHeight:editorLines.length;
+   const voiceRow=Math.floor(contentHeight/2);
+   const seconds=Math.floor(voice?.seconds??0),time=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+   let text=(editorLines[i-extra]??'').replace(/\x1b\[[0-9;]*m/g,'');
+   if(voiceBusy){
+    text='';
+    if(i===voiceRow)text=voice.phase==='recording'?voiceWaveform(voice.levels,contentWidth):centered(voice.phase==='transcribing'?`Распознаю · ${Math.round(voice.percent??0)}%`:'Включаю микрофон…',contentWidth,truncate,measure);
+    if(voice.phase==='recording'&&contentHeight>=3&&i===voiceRow-1)text=centered(`● ${time} · Enter — закончить`,contentWidth,truncate,measure);
+   }
    const sendButton=hasSend?paint(sendHeight===3?buttonRows(send,sendW,truncate,measure)[y-actionY]:centered(send,sendW,truncate,measure),sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
    const micButton=hasMic?paint(sendHeight===3?buttonRows(micLabel,micW,truncate,measure)[y-micY]:centered(micLabel,micW,truncate,measure),micW,voice.phase==='recording'?p.errorBg:p.button,micEnabled?(voice.phase==='recording'?p.error:p.text):p.muted):inlineSend&&micW?paint('',micW):'';
-   const middle=inlineSend?paint(text,editorWidth)+paint('',2)+(micW?micButton+paint('',1):'')+sendButton:paint(text,cw-4-(hasSend?sendW:hasMic?micW:0))+micButton+sendButton;
+   const middle=inlineSend?paint(text,editorWidth,p.canvas,voiceBusy?p.accent:p.text)+paint('',2)+(micW?micButton+paint('',1):'')+sendButton:paint(text,cw-4-(hasSend?sendW:hasMic?micW:0))+micButton+sendButton;
    right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+middle+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
   }
   if(micW&&micEnabled)targets.push({x:inlineSend?side+pad+cw-sendW-micW-3:side+pad+cw-micW-2,y:micY,w:micW,h:sendHeight,run:actions.voice});

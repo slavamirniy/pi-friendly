@@ -113,6 +113,20 @@ test('microphone remains clickable during download and highlights only the setup
 
 test('audio trace fills from the right and advances old samples left without inventing sound',async()=>{
  const {voiceWaveform}=await import('./surface.mjs');
- assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····█');
- assert.equal(voiceWaveform([1,0],6),'····█·');assert.equal(voiceWaveform([1,0,1],2),'·█');assert.equal(voiceWaveform([1],0),'');
+ assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····┃');
+ assert.equal(voiceWaveform([1,0],6),'····┃·');assert.equal(voiceWaveform([1,0,1],2),'·┃');assert.equal(voiceWaveform([1],0),'');
+});
+
+test('voice replaces draft without growing composer and stop icon is centered',()=>{
+ for(const width of [60,100,160])for(const height of [16,30,40]){
+  const h=fixture(width,height);h.delegate.getText=()=> 'Сохранённый черновик';h.delegate.render=()=>['Сохранённый черновик'];
+  h.data.voice={phase:'ready'};const before=h.surface.render(width).map(strip);
+  const top=rows=>rows.findIndex(r=>r.slice(26).includes('╭────'));
+  for(const phase of ['recording','transcribing']){
+   h.data.voice={phase,levels:[.2,.5,1],percent:42};const rows=h.surface.render(width).map(strip);
+   assert.equal(top(rows),top(before));assert.ok(!rows.join('').includes('Сохранённый черновик'));assert.equal(h.delegate.getText(),'Сохранённый черновик');
+   if(phase==='recording'&&height>=20)assert.ok(rows.some(r=>r.includes('│ ██ │')));
+  }
+  h.data.voice={phase:'ready'};assert.ok(h.surface.render(width).map(strip).join('').includes('Сохранённый черновик'));
+ }
 });
