@@ -1,4 +1,3 @@
-import {createGames,newMines,newPuzzle,newRunner} from '../games.mjs';
 import {createExitDialog} from '../exit-dialog.mjs';
 import {createSurface} from '../surface.mjs';
 import {createProjectForm} from '../project-form.mjs';
@@ -17,7 +16,7 @@ const messages=[{role:'user',content:'Сделай сайт для моей пе
 messages.push({role:'assistant',content:[{type:'text',text:'Добавляю главную страницу и стили:'},{type:'toolCall',id:'page',name:'write',arguments:{path:'index.html',content:'<html>\n<body>Пекарня</body>\n</html>'}},{type:'toolCall',id:'css',name:'write',arguments:{path:'styles.css',content:'body {\n  color: #123;\n}'}}]},{role:'toolResult',toolCallId:'page',isError:false},{role:'toolResult',toolCallId:'css',isError:false});
 const ctx={isIdle:()=>!data.running,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>messages.map(message=>({type:'message',message}))}};
 const surface=createSurface({tui,delegate:{getText:()=>'',render:w=>['─'.repeat(w),'','─'.repeat(w)]},rendering,ctx,actions:{},state:()=>data});
-for(const mode of ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download','voice-hint','games-menu','games-mines','games-puzzle','games-runner']){
+for(const mode of ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download','voice-hint']){
  if(mode==='error'){data.running=false;data.error={raw:'HTTP 429 too many requests'};}
  data.paneOpen=['history','chats','form'].includes(mode);
  let rows=surface.render(120);
@@ -39,12 +38,6 @@ for(const mode of ['work','error','history','chats','form','exit','project-choic
   data.voice=mode==='voice-recording'?{phase:'recording',seconds:92,levels:Array.from({length:65},(_,i)=>i%17<4?0:(Math.sin(i*2.3)+1)/2*.8)}:mode==='voice-progress'?{phase:'transcribing',percent:64}:{phase:'downloading',percent:42,label:'GigaAM · 225 МБ'};
   data.voiceHintUntil=mode==='voice-hint'?Date.now()+3000:0;
   rows=surface.render(120);
- }
- if(mode.startsWith('games-')){
-  data.running=true;data.voice=undefined;data.voiceHintUntil=0;data.gamesHintUntil=Date.now()+6000;data.error=undefined;rows=surface.render(120);
-  const state={kind:mode.slice(6),mines:newMines(),puzzle:newPuzzle(()=>.37),runner:newRunner()};
-  const game=createGames({...rendering,tui,state,done(){},palette:palettes.light,background:w=>surface.render(w),status:()=>({running:true,summary:'Создаю файл · index.html'})});
-  data.paneOpen=true;rows=game.render(120);game.dispose();
  }
  writeFileSync(new URL(`preview-${mode}.json`,import.meta.url),JSON.stringify(rows));
 }
