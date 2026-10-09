@@ -113,8 +113,8 @@ test('microphone remains clickable during download and highlights only the setup
 
 test('audio trace fills from the right and advances old samples left without inventing sound',async()=>{
  const {voiceWaveform}=await import('./surface.mjs');
- assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····┃');
- assert.equal(voiceWaveform([1,0],6),'····┃·');assert.equal(voiceWaveform([1,0,1],2),'·┃');assert.equal(voiceWaveform([1],0),'');
+ assert.equal(voiceWaveform([0,.1,1],3),'·|│');assert.equal(voiceWaveform([],6),'······');assert.equal(voiceWaveform([1],6),'·····│');
+ assert.equal(voiceWaveform([1,0],6),'····│·');assert.equal(voiceWaveform([1,0,1],2),'·│');assert.equal(voiceWaveform([1],0),'');
 });
 
 test('voice replaces draft without growing composer and stop icon is centered',()=>{

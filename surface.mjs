@@ -4,9 +4,9 @@ import { activityLabel } from './activity.mjs';
 import {explainError,wrapText} from './errors.mjs';
 // Oldest audio is on the left; every incoming sample advances the trace one cell.
 export function voiceWaveform(levels=[],width=0){
- const count=Math.max(0,Math.floor(width)),bars='⠆│┃';
+ const count=Math.max(0,Math.floor(width)),bars='|│';
  const recent=levels.slice(-count||levels.length);
- return '·'.repeat(Math.max(0,count-recent.length))+recent.map(level=>level<.025?'·':bars[Math.min(2,Math.floor(Math.sqrt(Math.max(0,level))*3))]).join('');
+ return '·'.repeat(Math.max(0,count-recent.length))+recent.map(level=>level<.025?'·':bars[Math.min(1,Math.floor(Math.sqrt(Math.max(0,level))*2))]).join('');
 }
 export const palettes = {
  light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',selection:'215;232;250',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
