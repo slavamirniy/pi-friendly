@@ -25,3 +25,11 @@ test('catalog preserves empty projects and exposes all chats directly in their p
  const root=tmpdir(),a=join(root,'A'),b=join(root,'B');const catalog=projectCatalog([{cwd:a,path:'old',modified:'2020-01-01'},{cwd:a,path:'new',modified:'2026-01-01'}],[{cwd:b,name:'Empty'}],a);
  assert.equal(folderKey(catalog[0].cwd),folderKey(a));assert.deepEqual(catalog[0].chats.map(c=>c.path),['new','old']);assert.equal(catalog[1].chats.length,0);
 });
+
+test('only registered project folders can start a chat, never the launch folder',t=>{
+ const temp=fixture(t),store=createProjectStore({root:join(temp,'projects'),registry:join(temp,'registry.jsonl'),SessionManager:manager,sessionDir:temp});
+ const project=store.create('Сайт');
+ assert.equal(store.isProject(temp),false);assert.equal(store.isProject(store.root),false);assert.equal(store.isProject(project.cwd),true);
+ assert.throws(()=>store.createChat(temp),/проект/);assert.throws(()=>store.createChat(store.root),/проект/);
+ assert.ok(store.createChat(project.cwd));
+});

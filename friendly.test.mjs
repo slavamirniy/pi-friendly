@@ -86,7 +86,7 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
     },
   };
   installFriendly(pi, { ...rendering, listSessions: async () => sessions, projects, makeInput:()=>{let value='';const input={focused:true,getValue:()=>value,render:()=>[value],handleInput:data=>{if(data==='enter')input.onSubmit?.(value);else value+=data;}};return input;} });
-  const emit = async (name, event = {}) => { for (const fn of events.get(name) ?? []) await fn(event, ctx); };
+  const emit = async (name, event = {}) => { let result;for (const fn of events.get(name) ?? []) result=await fn(event, ctx);return result; };
   return { pi, ctx, emit, choices, screens, notifications, calls, models, statuses, widgets,
     open: (args = "") => commands.get("friendly").handler(args, ctx),
     footer: () => footer, header: () => header, expanded: () => expanded,
@@ -185,4 +185,19 @@ test('top left has no action and close exits the picker',async()=>{
   h.menu.handleInput(`\x1b[<0;${x+1};${y+1}M`);
   assert.deepEqual(h.results,[undefined]);
  }
+});
+
+test('unregistered working directory offers project creation instead of another chat there',async()=>{
+ const projects={isProject:()=>false,isHub:()=>false,name:()=> 'User'};
+ const h=harness({projects});h.ctx.ui.setEditorText('Создай сайт');await h.open('new');
+ assert.ok(h.screens[0].includes('Сначала выберите проект'));assert.ok(h.screens[0].includes('Новый проект'));assert.ok(!h.screens[0].includes('В проекте «User»'));
+ assert.equal(h.ctx.ui.getEditorText(),'Создай сайт');assert.deepEqual(h.calls,[]);
+});
+
+test('native input outside a project is handled before the agent starts and retains text',async()=>{
+ const projects={isProject:()=>false,isHub:()=>false};const h=harness({projects});
+ assert.deepEqual(await h.emit('input',{text:'Сделай сайт',source:'interactive'}),{action:'handled'});
+ assert.equal(h.ctx.ui.getEditorText(),'Сделай сайт');
+ await new Promise(resolve=>setTimeout(resolve,10));assert.ok(h.screens[0].includes('Сначала выберите проект'));assert.deepEqual(h.calls,[]);await h.emit('session_shutdown');
+ const rpc=harness({mode:'rpc',projects});assert.equal(await rpc.emit('input',{text:'API task',source:'rpc'}),undefined);
 });

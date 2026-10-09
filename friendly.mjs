@@ -21,6 +21,7 @@ export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
   const projects=rendering.projects; let pendingDraft;
+  const hasProject=ctx=>!projects||(projects.isProject?.(ctx.cwd)??!projects.isHub(ctx.cwd));
   let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
@@ -104,12 +105,12 @@ export function installFriendly(pi, rendering) {
   async function newConversation(ctx){
     if(!ctx.isIdle()){ctx.ui.notify('Сначала остановите текущую работу.','info');return;}
     if(!projects){await command(ctx,'/new');return;}
-    const current=!projects.isHub(ctx.cwd);
-    const choice=await dialog(ctx,()=>choose(ctx,'Новый разговор',[
+    const current=hasProject(ctx);
+    const choice=await dialog(ctx,()=>choose(ctx,current?'Новый разговор':'Сначала выберите проект',[
       ...(current?[{id:'current',label:'В проекте «'+projects.name(ctx.cwd)+'»',description:'Те же файлы · новая переписка'}]:[]),
       {id:'create',navigation:true,kind:'primary',label:'Новый проект',description:'Отдельная папка для новой задачи'},
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
-    ],false,'Чаты и файлы сохранятся. Черновик — в новый чат.'));
+    ],false,current?'Чаты и файлы сохранятся. Черновик — в новый чат.':'Каждый проект — отдельная папка. Ваш текст сохранён.'));
     if(choice?.id==='current')await startChat(ctx,ctx.cwd);
     if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx));
     if(choice?.id==='projects')await history(ctx);
@@ -133,7 +134,7 @@ export function installFriendly(pi, rendering) {
         const name=projects.isHub(project.cwd)?'Старые чаты':project.name;
         const picked=await choose(ctx,name,[
           {id:'back',navigation:true,kind:'back',label:'← Все проекты',description:'Выбрать другой проект'},
-          ...(!projects.isHub(project.cwd)?[{id:'new',kind:'primary',project,label:'+ Новый чат',description:'Начать разговор в этом проекте'}]:[]),
+          ...((projects.isProject?.(project.cwd)??!projects.isHub(project.cwd))?[{id:'new',kind:'primary',project,label:'+ Новый чат',description:'Начать разговор в этом проекте'}]:[]),
           ...project.chats.map(session=>({session,label:session.name||(session.messageCount?clean(session.firstMessage).slice(0,80):'Новый разговор'),description:new Date(session.modified).toLocaleDateString('ru-RU')+' · сообщений: '+(session.messageCount??0)})),
         ],true,'Шаг 2 из 2 · '+(project.chats.length?'выберите чат':'чатов пока нет — создайте первый'));
         if(picked?.id==='back'){project=undefined;continue;}
@@ -191,6 +192,13 @@ export function installFriendly(pi, rendering) {
   }
   pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.startsWith("open ") ? switchChat(ctx,decodeURIComponent(args.slice(5))) : args.trim()==="new" ? newConversation(ctx) : args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
   pi.registerShortcut("f2", { description: "Открыть меню Просто pi", handler: ctx => safe(ctx, () => menu(ctx))() });
+  pi.on("input",(event,ctx)=>{
+    if(ctx.mode!=="tui"||hasProject(ctx))return;
+    ctx.ui.setEditorText(event.text);
+    clearTimeout(startupTimer);
+    startupTimer=setTimeout(()=>{if(!stopped)void safe(ctx,()=>newConversation(ctx))();},0);
+    return {action:"handled"};
+  });
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     restoreUI(); clearTimeout(noticeTimer);
@@ -221,7 +229,7 @@ export function installFriendly(pi, rendering) {
         workspace?.dispose();
         const delegate = previousFactory ? previousFactory(tui, editorTheme, keys) : rendering.makeEditor(tui, editorTheme, keys);
         workspace = createWorkspace({ delegate, tui, theme: ctx.ui.theme, rendering, ctx,
-          cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:projects?.name(ctx.cwd), needsProject:Boolean(projects?.isHub(ctx.cwd)&&!ctx.sessionManager?.getEntries().some(e=>e.type==="message")), widgets:[...widgets.values()], statuses:statuses()}),
+          cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:hasProject(ctx)?projects?.name(ctx.cwd):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
             newChat: safe(ctx, () => newConversation(ctx)), history: safe(ctx, () => history(ctx)),
