@@ -10,7 +10,7 @@ export function mouseEvent(data) {
   return m ? { button: Number(m[1]), x: Number(m[2]) - 1, y: Number(m[3]) - 1, press: m[4] === "M" } : undefined;
 }
 
-export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey }) {
+export function createMenu({ tui, theme, done, title, subtitle = "", items, statuses = () => [], searchable = false, truncate, measure, matchesKey, palette }) {
   let query = "", selected = 0, offset = 0, targets = [], dimensions = "", disposed = false;
   const terminal = tui.terminal;
   // Save and restore terminal mouse modes; only capture mouse while this dialog is open.
@@ -64,7 +64,11 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
       // Occupy the whole viewport so scrollback growth cannot shift hit targets,
       // and the underlying conversation does not leak through the menu.
       while (rows.length < height) rows.push("");
-      return rows.slice(0, height);
+      return rows.slice(0, height).map(row => {
+        if (!palette) return row;
+        const base=`\x1b[48;2;${palette.canvas}m\x1b[38;2;${palette.text}m`;
+        return base+row.replace(/\x1b\[(?:0)?m/g,base).replace(/\x1b\[39m/g,`\x1b[38;2;${palette.text}m`).replace(/\x1b\[49m/g,`\x1b[48;2;${palette.canvas}m`)+" ".repeat(Math.max(0,width-measure(row)))+"\x1b[0m";
+      });
     },
     handleInput(data) {
       if (disposed) return;

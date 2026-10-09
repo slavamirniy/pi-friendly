@@ -1,10 +1,12 @@
 import { clean, mouseEvent } from "./menu.mjs";
 import { acquireMouse } from "./mouse.mjs";
+import { createSurface } from "./surface.mjs";
 
 // Compose the existing editor through its public interface. Unknown methods and
 // properties remain delegated, including image paste, history and app actions.
-export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions, footerHeight = () => 1, slashEnabled = true }) {
+export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions, footerHeight = () => 1, slashEnabled = true, viewState = () => ({}), cleanView = false }) {
   const { truncate, measure, matchesKey } = rendering;
+  let technical = false;
   let proxy, provider, suggestions = [], selected = 0, query = "", suppressed = "", request, disposed = false;
   let topTargets = [], listTargets = [], topSize = "", listSize = "";
   const releaseMouse = acquireMouse(tui.terminal);
@@ -44,7 +46,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     render(width) {
       topTargets = []; topSize = size();
       const buttons = [
-        { label: "Меню", run: actions.menu },
+        { label: technical ? "Вернуться в чат" : "Меню", run: technical ? () => { technical = false; tui.requestRender(); } : actions.menu },
         { label: "Модель", run: actions.model },
         { label: "/ Команды", run: () => { if (!delegate.getText().trim()) { proxy.setText("/"); } else actions.commands(); } },
         ...(width >= 66 ? [{ label: "Подробности", run: actions.details }] : []),
@@ -82,7 +84,12 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       return rows;
     },
   };
-  const topHandle = tui.showOverlay(toolbar, { row: 0, col: 0, width: "100%", nonCapturing: true, visible: focused });
+  const surface = createSurface({ tui, delegate, rendering, ctx,
+    state: () => ({ ...viewState(), suggestions: slash() ? suggestions : [], selected }),
+    actions: { ...actions, submit, complete, technical: () => { technical = true; tui.requestRender(); }, more: actions.more || actions.menu },
+  });
+  const surfaceHandle = tui.showOverlay(surface, { row: 0, col: 0, width: "100%", maxHeight: "100%", nonCapturing: true, visible: () => cleanView && !technical && focused() });
+  const topHandle = tui.showOverlay(toolbar, { row: 0, col: 0, width: "100%", nonCapturing: true, visible: () => (!cleanView || technical) && focused() });
   // The host footer is below the editor. Reserve dropdown rows in editor.render
   // so this overlay cannot hide the user's input or the router status.
   let dropdownHandle;
@@ -91,11 +98,12 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     const footer = footerHeight();
     if (footer === lastFooter) return;
     dropdownHandle?.hide(); lastFooter = footer;
-    dropdownHandle = tui.showOverlay(dropdown, { anchor: "bottom-left", offsetY: -footer, width: "100%", nonCapturing: true, visible: () => Boolean(listHeight()) });
+    dropdownHandle = tui.showOverlay(dropdown, { anchor: "bottom-left", offsetY: -footer, width: "100%", nonCapturing: true, visible: () => (!cleanView || technical) && Boolean(listHeight()) });
   }
   const removeInput = tui.addInputListener(data => {
     const mouse = mouseEvent(data);
     if (!mouse || !focused()) return undefined;
+    if (cleanView && !technical) { surface.onMouse(data); return { consume: true }; }
     if (mouse.press && size() === topSize && mouse.y === 0 && mouse.button === 0) {
       const hit = topTargets.find(t => mouse.x >= t.start && mouse.x < t.end);
       if (hit) void hit.run();
@@ -139,8 +147,8 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     get(target, key) { if (key in overrides) return overrides[key]; const value = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value; },
     set(target, key, value) { return Reflect.set(target, key, value); },
   });
-  return { editor: proxy, submit, refresh, dispose() {
+  return { editor: proxy, submit, refresh, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
     if (disposed) return;
-    disposed = true; request?.abort(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
+    disposed = true; request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
   } };
 }

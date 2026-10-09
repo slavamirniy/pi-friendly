@@ -1,5 +1,6 @@
 import { createMenu, clean } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
+import { palettes } from "./surface.mjs";
 
 export function groupProjects(sessions) {
   const groups = new Map();
@@ -12,6 +13,9 @@ export function groupProjects(sessions) {
 }
 
 export function installFriendly(pi, rendering) {
+  let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
+  const widgets = new Map();
+  let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
   pi.registerFlag("friendly-keep-footer", { description: "Сохранить footer другого расширения (без кликабельных slash-подсказок)", type: "boolean", default: false });
@@ -22,7 +26,7 @@ export function installFriendly(pi, rendering) {
 
   async function choose(ctx, title, items, searchable = false, subtitle = ctx.cwd) {
     return ctx.ui.custom((tui, theme, _keys, done) => {
-      activeMenu = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, statuses: () => [modelLabel(ctx), ...statuses()] });
+      activeMenu = createMenu({ ...rendering, tui, theme, done, title, subtitle, items, searchable, palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
       return activeMenu;
     }, { overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", row: 0, col: 0, margin: 0 } });
   }
@@ -72,6 +76,40 @@ export function installFriendly(pi, rendering) {
       await ctx.switchSession(selected.path);
     }
   }
+  async function commands(ctx) {
+    const selected = await dialog(ctx, async () => {
+      let item = await choose(ctx, "Частые команды", [
+        { label: "Новый разговор", command: "/new" },
+        { label: "История разговоров", command: "/friendly history" },
+        { label: "Выбрать модель", command: "/model" },
+        { label: "Скопировать ответ", command: "/copy" },
+        { label: "Настройки", command: "/settings" },
+        { label: "Сжать длинный разговор", command: "/compact" },
+        { label: "Другие команды", id: "all", description: "Полный список и поиск" },
+      ], true, "Полезные действия без запоминания slash-команд");
+      if (item?.id === "all") {
+        const all = await workspace?.getCommands() ?? pi.getCommands().map(c => ({ value: c.name, label: c.name, description: c.description }));
+        item = await choose(ctx, "Другие команды", all.map(c => ({ label: "/" + c.value.replace(/^\//, ""), description: c.description, command: "/" + c.value.replace(/^\//, "") })), true);
+      }
+      return item;
+    });
+    if (selected?.command) await command(ctx, selected.command);
+  }
+  async function more(ctx) {
+    const item = await dialog(ctx, () => choose(ctx, "Действия", [
+      {label: "Модель", id:"model"}, {label:"Команды",id:"commands"},
+      {label:"Сменить тему",id:"theme"}, {label:"Меню",id:"menu"},
+    ], true));
+    if(item?.id === "model") await selectModel(ctx);
+    if(item?.id === "commands") await commands(ctx);
+    if(item?.id === "menu") await menu(ctx);
+    if(item?.id === "theme") changeTheme(ctx);
+  }
+  function changeTheme(ctx) {
+    view.scheme = view.scheme === "light" ? "dark" : "light";
+    ctx.ui.setTheme?.(view.scheme);
+    rendering.savePrefs?.({scheme:view.scheme}); workspace?.redraw();
+  }
   async function menu(ctx) {
     const active = Boolean(ctx.ui.getEditorText().trim() || ctx.sessionManager?.getEntries().some(entry => entry.type === "message"));
     const action = await dialog(ctx, () => choose(ctx, "Просто pi", [
@@ -82,12 +120,24 @@ export function installFriendly(pi, rendering) {
     if (action?.id === "new") await command(ctx, "/new");
     if (action?.id === "history") await command(ctx, "/friendly history");
   }
-  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.trim() === "history" ? history(ctx) : menu(ctx))() });
+  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
   pi.registerShortcut("f2", { description: "Открыть меню Просто pi", handler: ctx => safe(ctx, () => menu(ctx))() });
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
+    restoreUI(); clearTimeout(noticeTimer);
+    view.live = undefined; view.notice = ""; view.activity = "";
     stopped = false;
     ctx.ui.setToolsExpanded(false);
+    ctx.ui.setTheme?.(view.scheme);
+    const ui=ctx.ui, originalWidget=ui.setWidget, originalNotify=ui.notify;
+    const widgetBridge=(key,content,options)=>{
+      if(typeof content === "function") originalWidget.call(ui,key,(...args)=>{const component=content(...args);widgets.set(key,component);return component;},options);
+      else {if(content)widgets.set(key,content);else widgets.delete(key);originalWidget.call(ui,key,content,options);}
+      workspace?.redraw();
+    };
+    const noticeBridge=(message,type)=>{view.notice=clean(message);clearTimeout(noticeTimer);if(type!=="error")noticeTimer=setTimeout(()=>{view.notice="";workspace?.redraw();},6000);originalNotify.call(ui,message,type);workspace?.redraw();};
+    ui.setWidget=widgetBridge;ui.notify=noticeBridge;
+    restoreUI=()=>{if(ui.setWidget===widgetBridge)ui.setWidget=originalWidget;if(ui.notify===noticeBridge)ui.notify=originalNotify;};
     ctx.ui.setHeader(() => ({ render: () => ["", ""], invalidate() {} }));
     if (!pi.getFlag("friendly-keep-footer")) ctx.ui.setFooter((_tui, theme, data) => {
       footerData = data;
@@ -102,10 +152,13 @@ export function installFriendly(pi, rendering) {
         workspace?.dispose();
         const delegate = previousFactory ? previousFactory(tui, editorTheme, keys) : rendering.makeEditor(tui, editorTheme, keys);
         workspace = createWorkspace({ delegate, tui, theme: ctx.ui.theme, rendering, ctx,
+          cleanView: true, viewState: () => ({...view, widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
+            newChat: safe(ctx, () => command(ctx,"/new")), history: safe(ctx, () => command(ctx,"/friendly history")),
+            theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
-            commands: safe(ctx, async () => { if (!ctx.ui.getEditorText().trim() || await ctx.ui.confirm("Открыть команды?", "Заменить текст в поле ввода на поиск команд?")) ctx.ui.setEditorText("/"); }),
+            commands: safe(ctx, () => commands(ctx)),
             details: () => ctx.ui.setToolsExpanded(!ctx.ui.getToolsExpanded()),
           },
         });
@@ -113,9 +166,17 @@ export function installFriendly(pi, rendering) {
       });
     }
     clearTimeout(startupTimer);
-    if (!pi.getFlag("friendly-no-welcome") && (!_event.reason || _event.reason === "startup")) startupTimer = setTimeout(() => { void safe(ctx, () => menu(ctx))(); }, 0);
+    // The clean conversation is the welcome screen; no modal blocks typing.
   });
+  for (const name of ["message_start","message_update","message_end"]) pi.on(name, event => {
+    if(event.message?.role === "assistant" || event.message?.role === "user") view.live=event.message;
+    workspace?.redraw();
+  });
+  pi.on("agent_start",()=>{view.notice="";view.activity="Помощник готовит ответ…";workspace?.redraw();});
+  pi.on("agent_end",()=>{view.activity="";workspace?.redraw();});
+  pi.on("tool_execution_start",()=>{view.activity="Выполняю задачу…";workspace?.redraw();});
+  pi.on("tool_execution_end",event=>{if(event.isError)view.notice="Не удалось выполнить действие. Откройте технический вид для подробностей.";workspace?.redraw();});
   pi.on("session_shutdown", () => {
-    stopped = true; clearTimeout(startupTimer); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }

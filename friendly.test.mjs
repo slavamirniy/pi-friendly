@@ -132,3 +132,10 @@ test("busy commands and declined draft replacement leave editor untouched", asyn
   h.choices.push("История разговоров"); await h.open();
   assert.equal(h.ctx.ui.getEditorText(), "Важный текст");
 });
+
+test("popular commands and other commands are separate, dynamic plugin commands remain available", async () => {
+ const h=harness();await h.emit("session_start");
+ h.choices.push("Скопировать ответ");await h.open("commands");assert.equal(h.ctx.ui.getEditorText(),"/copy");
+ h.ctx.ui.setEditorText("");h.choices.push("Другие команды","/new-plugin");await h.open("commands");assert.equal(h.ctx.ui.getEditorText(),"/new-plugin");
+ await h.emit("session_shutdown");
+});
