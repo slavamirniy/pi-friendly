@@ -45,6 +45,7 @@ export function installFriendly(pi, rendering) {
           const mouse=mouseEvent(data),side=tui.terminal.columns>=100?26:18;
           if(mouse && mouse.x<side){
             if(mouse.press&&mouse.button===0){
+              if(mouse.y>=4&&mouse.y<7){inner.handleInput("\x1b");return;}
               const release=workspace.holdFrame(lastFrame);inner.handleInput("\x1b");
               setTimeout(async()=>{try{await workspace?.sidebarNavigate(data);}finally{release();}},0);
             }
@@ -93,8 +94,9 @@ export function installFriendly(pi, rendering) {
     if(!projects){await command(ctx,'/new');return;}
     await switchChat(ctx,projects.createChat(cwd));
   }
-  async function createProject(ctx){
+  async function createProject(ctx,onBack){
     const name=await dialog(ctx,()=>choose(ctx,'Новый проект',[],false,'',true));
+    if(name?.back){await onBack?.();return;}
     if(!name?.trim())return;
     const project=projects.create(name);await startChat(ctx,project.cwd);
   }
@@ -108,7 +110,7 @@ export function installFriendly(pi, rendering) {
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
     ],false,'Чаты и файлы сохранятся. Черновик — в новый чат.'));
     if(choice?.id==='current')await startChat(ctx,ctx.cwd);
-    if(choice?.id==='create')await createProject(ctx);
+    if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx));
     if(choice?.id==='projects')await history(ctx);
   }
   async function history(ctx){
@@ -137,7 +139,7 @@ export function installFriendly(pi, rendering) {
         return picked;
       }
     });
-    if(choice?.id==='create')await createProject(ctx);
+    if(choice?.id==='create')await createProject(ctx,()=>history(ctx));
     else if(choice?.session)await switchChat(ctx,choice.session.path);
     else if(choice?.id==='new')await startChat(ctx,choice.project.cwd);
   }
@@ -218,7 +220,7 @@ export function installFriendly(pi, rendering) {
         workspace?.dispose();
         const delegate = previousFactory ? previousFactory(tui, editorTheme, keys) : rendering.makeEditor(tui, editorTheme, keys);
         workspace = createWorkspace({ delegate, tui, theme: ctx.ui.theme, rendering, ctx,
-          cleanView: true, viewState: () => ({...view, projectName:projects?.name(ctx.cwd), needsProject:Boolean(projects?.isHub(ctx.cwd)&&!ctx.sessionManager?.getEntries().some(e=>e.type==="message")), widgets:[...widgets.values()], statuses:statuses()}),
+          cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:projects?.name(ctx.cwd), needsProject:Boolean(projects?.isHub(ctx.cwd)&&!ctx.sessionManager?.getEntries().some(e=>e.type==="message")), widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
             newChat: safe(ctx, () => newConversation(ctx)), history: safe(ctx, () => history(ctx)),

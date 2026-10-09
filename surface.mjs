@@ -38,12 +38,12 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   left[1]=paint('  '+bold('Просто pi'),side,p.sidebar,p.text);
   const button=(y,label,run,primary=false)=>{
    if(y<3||y+2>=height-2)return;
-   const w=side-4,bg=primary?p.bubble:p.sidebar,fg=primary?p.accent:p.text;
+   const w=side-4,bg=primary?(s.paneOpen?p.selection:p.bubble):p.sidebar,fg=primary?(s.paneOpen?p.text:p.accent):p.text;
    const rows=buttonRows(label,w,truncate,measure);
    for(let dy=0;dy<3;dy++)left[y+dy]=paint('  ',2,p.sidebar)+paint(rows[dy],w,bg,fg)+paint('  ',2,p.sidebar);
    targets.push({x:2,y,w,h:3,run});
   };
-  button(4,side<24?'Новый чат':'Новый разговор',actions.newChat,true);
+  button(4,s.paneOpen?(side<24?'← В чат':'Вернуться к чату'):side<24?'Новый чат':'Новый разговор',actions.newChat,true);
   if(height>=23)button(8,'Проекты',actions.history);
   const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme],['Подробности',actions.technical]];
   if(height>=29)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));

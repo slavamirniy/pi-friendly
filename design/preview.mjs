@@ -17,6 +17,7 @@ const ctx={isIdle:()=>!data.running,model:{name:'Kimi K3'},sessionManager:{getBr
 const surface=createSurface({tui,delegate:{getText:()=>'',render:w=>['─'.repeat(w),'','─'.repeat(w)]},rendering,ctx,actions:{},state:()=>data});
 for(const mode of ['work','error','history','chats','form']){
  if(mode==='error'){data.running=false;data.error={raw:'HTTP 429 too many requests'};}
+ data.paneOpen=['history','chats','form'].includes(mode);
  let rows=surface.render(120);
  if(['history','chats','form'].includes(mode)){
   const projectItems=[{kind:'primary',label:'+ Новый проект',description:'Создать проект с отдельной папкой'},{label:'Сайт пекарни',description:'2 чата · открыть список чатов'},{label:'Магазин цветов',description:'1 чат · открыть список чатов'}];

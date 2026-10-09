@@ -14,3 +14,8 @@ test('custom project form mouse cancel never creates a project and both button r
  const h=fixture(),rows=h.form.render(80).map(strip),y=rows.findIndex(r=>r.includes('Отмена')),x=rows[y].indexOf('Отмена');h.form.handleInput(`\x1b[<0;${x+1};${y+2}M`);assert.deepEqual(h.results,[undefined]);
  const s=fixture();s.set('Новый сайт');const rs=s.form.render(80).map(strip),yy=rs.findIndex(r=>r.includes('Создать проект')),xx=rs[yy].indexOf('Создать проект');s.form.handleInput(`\x1b[<0;${xx+1};${yy+2}M`);assert.deepEqual(s.results,['Новый сайт']);
 });
+
+test('project form back is distinct from cancelling and does not submit its draft',()=>{
+ const h=fixture();h.set('Не создавать');const rows=h.form.render(80).map(strip),y=rows.findIndex(r=>r.includes('Назад')),x=rows[y].indexOf('Назад');
+ h.form.handleInput(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.results,[{back:true,navigation:true}]);
+});
