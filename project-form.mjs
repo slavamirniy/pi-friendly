@@ -14,17 +14,19 @@ export function createProjectForm({tui,done,palette:p,makeInput,truncate,measure
   const rows=Array(h).fill(paint('',width));const w=Math.max(8,Math.min(64,width-6)),left=Math.max(0,Math.floor((width-w)/2));
   const put=(y,s,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<h)rows[y]=paint('',left)+paint(s,w,bg,fg)+paint('',Math.max(0,width-left-w));};
   if(h<14||width<26){put(1,'Увеличьте окно · Esc — отмена');return rows;}
-  put(3,'Новый проект',p.canvas,p.accent);put(4,'Название проекта');
-  put(5,'╭'+'─'.repeat(w-2)+'╮',p.canvas,focus===0?p.accent:p.border);
-  put(6,'│ '+input.render(w-4)[0]+' │',p.sidebar);
-  put(7,'╰'+'─'.repeat(w-2)+'╯',p.canvas,focus===0?p.accent:p.border);
-  put(8,error?'Название: до 60 символов, без / \\ : * ?':'Например: Сайт пекарни',p.canvas,error?p.error:p.muted);
-  put(10,'Будет создана отдельная папка.',p.canvas,p.muted);
-  const y=Math.min(12,h-3),half=Math.floor((w-2)/2);
+  const top=Math.max(3,h-12);
+  put(top,'Новый проект',p.canvas,p.accent);
+  put(top+1,'Будет создана отдельная папка.',p.canvas,p.muted);
+  put(top+3,'Название проекта');
+  put(top+4,'╭'+'─'.repeat(w-2)+'╮',p.canvas,focus===0?p.accent:p.border);
+  put(top+5,'│ '+input.render(w-4)[0]+' │',p.sidebar);
+  put(top+6,'╰'+'─'.repeat(w-2)+'╯',p.canvas,focus===0?p.accent:p.border);
+  put(top+7,error?'Название: до 60 символов, без / \\ : * ?':'Например: Сайт пекарни',p.canvas,error?p.error:p.muted);
+  const y=top+8,half=Math.floor((w-2)/2);
   const primary=buttonRows('Создать проект',half,truncate,measure),secondary=buttonRows('Отмена',w-half-2,truncate,measure);
   for(let n=0;n<3;n++)rows[y+n]=paint('',left)+paint(primary[n],half,p.accent,p.onAccent)+paint('',2)+paint(secondary[n],w-half-2,focus===2?p.selection:p.button,focus===2?p.accent:p.text)+paint('',width-left-w);
   if(focus===1)rows[y+1]=rows[y+1].replace('Создать проект','\x1b[1mСоздать проект\x1b[22m');
-  targets=[{x:left,y:5,w,h:3,run:()=>{focus=0;input.focused=true;}},{x:left,y,w:half,h:3,run:submit},{x:left+half+2,y,w:w-half-2,h:3,run:()=>close(undefined)}];
+  targets=[{x:left,y:top+4,w,h:3,run:()=>{focus=0;input.focused=true;}},{x:left,y,w:half,h:3,run:submit},{x:left+half+2,y,w:w-half-2,h:3,run:()=>close(undefined)}];
   const nav=navigationRows(width,p,truncate,measure);
   nav.rows.forEach((row,y)=>rows[y]=row);
   targets.push({x:width-nav.width-2,y:0,w:nav.width,h:3,run:()=>close(undefined)});
