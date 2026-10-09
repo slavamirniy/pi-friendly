@@ -139,3 +139,8 @@ test('voice replaces draft without growing composer and stop icon is centered',(
   h.data.voice={phase:'ready'};assert.ok(h.surface.render(width).map(strip).join('').includes('Сохранённый черновик'));
  }
 });
+
+test('mini games are offered only during generation and their sidebar button is clickable',()=>{
+ const h=fixture(120,36);h.ctx.isIdle=()=>false;h.data.gamesHintUntil=Date.now()+6000;let rows=h.surface.render(120).map(strip);assert.ok(rows.join('').includes('Пока готовится ответ'));
+ const y=rows.findIndex(r=>r.includes('Мини-игры'));assert.ok(y>=0);h.ctx.isIdle=()=>true;assert.ok(!h.surface.render(120).map(strip).join('').includes('Мини-игры'));
+});

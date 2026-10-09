@@ -3,7 +3,7 @@ import json,re,sys
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 root=Path(__file__).parent
-for mode in ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download','voice-hint']:
+for mode in ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download','voice-hint','games-menu','games-mines','games-puzzle','games-runner']:
  rows=json.loads((root/f'preview-{mode}.json').read_text(encoding='utf-8'));cw,ch=12,24
  im=Image.new('RGB',(120*cw,len(rows)*ch),'white');d=ImageDraw.Draw(im)
  fonts=[ImageFont.truetype('C:/Windows/Fonts/consola.ttf',20),ImageFont.truetype('C:/Windows/Fonts/consolab.ttf',20)]
@@ -27,8 +27,8 @@ for mode in ['work','error','history','chats','form','exit','project-choice','vo
      i+=1
    else:
     for char in part:
-     cells=2 if char=='🎤' else 1
+     cells=2 if char in ('🎤','🦖') else 1
      d.rectangle((x*cw,y*ch,(x+cells)*cw-1,(y+1)*ch-1),fill=bg)
-     font=ImageFont.truetype('C:/Windows/Fonts/seguiemj.ttf',20) if char=='🎤' else ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌▁▂▃▄▅▆▇█' or 0x2800<=ord(char)<=0x28ff else fonts[bold]
+     font=ImageFont.truetype('C:/Windows/Fonts/seguiemj.ttf',20) if char in ('🎤','🦖') else ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌▁▂▃▄▅▆▇█' or 0x2800<=ord(char)<=0x28ff else fonts[bold]
      d.text((x*cw,y*ch),char,font=font,fill=fg);x+=cells
  im.save(root/f'preview-{mode}.png')

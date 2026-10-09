@@ -60,6 +60,12 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   };
   if(height>=18)button(4,s.paneOpen?(side<24?'← В чат':'Вернуться к чату'):side<24?'Новый чат':'Новый разговор',actions.newChat,true);
   if(height>=23)button(8,'Проекты',actions.history);
+  if(!ctx.isIdle()){
+   const gy=height>=30?height-10:2,highlight=(s.gamesHintUntil??0)>Date.now();
+   left[gy]=paint(centered('Мини-игры ›',side,truncate,measure),side,highlight?p.selection:p.button,p.accent);
+   targets.push({x:0,y:gy,w:side,h:1,run:actions.games});
+   if(highlight)put(2,'← Пока готовится ответ, можно открыть мини-игру',p.selection,p.text);
+  }
   const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme]];
   if(height>=27)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));
   else if(height>=23)button(12,'Ещё',actions.more);

@@ -1,3 +1,4 @@
+import {createGames} from './games.mjs';
 import {appendDictation} from './voice.mjs';
 import {requestExit,createExitDialog} from './exit-dialog.mjs';
 import { createMenu, clean, mouseEvent } from "./menu.mjs";
@@ -20,7 +21,7 @@ export function groupProjects(sessions) {
 
 export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
-  const widgets = new Map();
+  const widgets = new Map();const gameState={};let gamesHintTimer;
   const projects=rendering.projects; let pendingDraft,voice,voiceContext,voiceHintTimer;
   const currentFolder=ctx=>ctx.sessionManager?.getCwd?.()||ctx.cwd;
   const hasProject=ctx=>!projects||(projects.isProject?.(currentFolder(ctx))??!projects.isHub(currentFolder(ctx)));
@@ -255,6 +256,9 @@ export function installFriendly(pi, rendering) {
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
+            games:safe(ctx,()=>dialog(ctx,()=>ctx.ui.custom((tui,_theme,_keys,done)=>{
+              activeMenu=createGames({...rendering,tui,done,palette:palettes[view.scheme],state:gameState,status:()=>({running:!ctx.isIdle(),summary:view.steps?.length?view.steps.at(-1).label:view.activity})});return activeMenu;
+            },{overlay:true,overlayOptions:{anchor:'center',width:64,maxHeight:23}}))),
             voice:()=>{
               if(voice&&['installing','downloading','loading','error'].includes(voice.state.phase)){
                 view.voiceHintUntil=Date.now()+3000;clearTimeout(voiceHintTimer);
@@ -279,12 +283,12 @@ export function installFriendly(pi, rendering) {
     if(event.message?.role === "assistant" || event.message?.role === "user") view.live=event.message;
     workspace?.redraw();
   });
-  pi.on("agent_start",()=>{view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";workspace?.redraw();});
+  pi.on("agent_start",()=>{view.gamesHintUntil=Date.now()+6000;clearTimeout(gamesHintTimer);gamesHintTimer=setTimeout(()=>{view.gamesHintUntil=0;workspace?.redraw();},6000);view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";workspace?.redraw();});
   pi.on("agent_end",()=>{view.activity="";view.running=false;workspace?.redraw();});
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", event => {
     if(["resume","new","fork"].includes(event?.reason))workspace?.freezeForTransition();
-    stopped = true; clearTimeout(voiceHintTimer);voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; clearTimeout(gamesHintTimer);clearTimeout(voiceHintTimer);voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }
