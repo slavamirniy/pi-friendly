@@ -7,7 +7,7 @@ function fixture(w=100,h=30){
  const calls=[];const tui={terminal:{columns:w,rows:h},requestRender(){}};
  const data={scheme:'light',statuses:['Осталось 993 тыс.'],live:{role:'assistant',timestamp:1,content:[{type:'thinking',thinking:'PRIVATE THOUGHT'},{type:'text',text:'Привет! Чем могу помочь?'}]}};
  const ctx={isIdle:()=>true,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>[]}};
- const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit'].map(k=>[k,()=>calls.push(k)]));
+ const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit','voice'].map(k=>[k,()=>calls.push(k)]));
  const delegate={getText:()=>'',render:width=>['─'.repeat(width),'','─'.repeat(width)]};
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
  return{surface,tui,data,calls,ctx,delegate};
@@ -79,4 +79,25 @@ test('red exit button stays clickable at the bottom without a details button',()
 test('busy exit button has no click target',()=>{
  const h=fixture();h.ctx.isIdle=()=>false;const rows=h.surface.render(100).map(strip),y=rows.findIndex(r=>r.includes('Выйти')),x=rows[y].indexOf('Выйти');
  h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,[]);
+});
+
+test('voice control fits narrow and wide windows and microphone toggles from its visible label',()=>{
+ for(const width of [44,60,100,160])for(const height of [16,27,40])for(const phase of ['ready','recording','transcribing','downloading']){
+  const h=fixture(width,height);h.data.voice={phase,percent:42,seconds:65,level:.7};h.delegate.getText=()=> 'черновик';
+  const rows=h.surface.render(width).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(row=>row.length===width),`${width} ${height} ${phase}`);
+  if(width>=100&&phase==='ready'){
+   const y=rows.findIndex(row=>row.includes('Микрофон')),x=rows[y].indexOf('Микрофон');h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
+  }
+ }
+});
+
+test('recognition stays inside composer, installation stays only in sidebar',()=>{
+ for(const phase of ['recording','transcribing','downloading']){
+  const h=fixture(120,36);h.data.voice={phase,percent:42,seconds:62,level:.6};
+  const rows=h.surface.render(120).map(strip),left=rows.map(r=>r.slice(0,26)).join('\n'),right=rows.map(r=>r.slice(26)).join('\n');
+  if(phase==='downloading'){assert.ok(left.includes('Модель 42%'));assert.ok(!right.includes('42%'));}
+  else {assert.ok(!left.includes('42%'));assert.ok(!left.includes('запись'));assert.ok(!left.includes('Распозна'));
+   if(phase==='transcribing'){const row=rows.find(r=>r.includes('Распознаю'));assert.ok(row.includes('│'));assert.ok(row.includes('42%'));}
+  }
+ }
 });

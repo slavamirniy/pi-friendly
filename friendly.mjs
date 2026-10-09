@@ -1,3 +1,4 @@
+import {appendDictation} from './voice.mjs';
 import {requestExit,createExitDialog} from './exit-dialog.mjs';
 import { createMenu, clean, mouseEvent } from "./menu.mjs";
 import { createWorkspace } from "./workspace.mjs";
@@ -20,7 +21,7 @@ export function groupProjects(sessions) {
 export function installFriendly(pi, rendering) {
   let view = { scheme: rendering.loadPrefs?.()?.scheme === "dark" ? "dark" : "light", live: undefined, notice: "", activity: "" };
   const widgets = new Map();
-  const projects=rendering.projects; let pendingDraft;
+  const projects=rendering.projects; let pendingDraft,voice,voiceContext;
   const hasProject=ctx=>!projects||(projects.isProject?.(ctx.cwd)??!projects.isHub(ctx.cwd));
   let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
@@ -202,6 +203,20 @@ export function installFriendly(pi, rendering) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     restoreUI(); clearTimeout(noticeTimer);
+    voice?.cancel();voiceContext=ctx;
+    if(!voice&&rendering.createVoice){
+      voice=rendering.createVoice({
+        onState:state=>{view.voice=state;workspace?.redraw();},
+        onError:message=>{if(voiceContext&&!stopped)voiceContext.ui.notify(message,'warning');},
+        onText:(text,context)=>{
+          if(stopped||context!==voiceContext)return;
+          if(text.trim())context.ui.setEditorText(appendDictation(context.ui.getEditorText(),text));
+          else context.ui.notify('Речь не распознана. Попробуйте говорить ближе к микрофону.','info');
+          workspace?.redraw();
+        },
+      });
+      void voice.start();
+    }
     view.live = undefined; view.notice = ""; view.activity = ""; view.error = undefined; view.steps=[]; view.running=false;
     stopped = false;
     ctx.ui.setToolsExpanded(false);
@@ -236,6 +251,7 @@ export function installFriendly(pi, rendering) {
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),
+            voice:()=>{if(ctx.isIdle()||voice?.state.phase==='recording')voice?.toggle(ctx);},
             exit: safe(ctx, () => requestExit(ctx,()=>dialog(ctx,()=>ctx.ui.custom((tui,_theme,_keys,done)=>{
               activeMenu=createExitDialog({...rendering,tui,done,palette:palettes[view.scheme],background:width=>workspace.renderSurface(width)});return activeMenu;
             },{overlay:true,overlayOptions:{width:'100%',maxHeight:'100%',row:0,col:0,margin:0}})))),
@@ -258,6 +274,6 @@ export function installFriendly(pi, rendering) {
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", () => {
-    stopped = true; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
+    stopped = true; voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
 }

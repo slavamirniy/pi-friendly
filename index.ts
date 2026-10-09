@@ -1,3 +1,4 @@
+import { createVoiceService } from './voice.mjs';
 import { CustomEditor, SessionManager, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Input, Markdown, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ export default function friendly(pi: ExtensionAPI) {
   const preferencePath = join(getAgentDir(), "friendly-ui.json");
   installFriendly(pi, { matchesKey, truncate: truncateToWidth, measure: visibleWidth,
     makeInput: () => new Input(),
+    createVoice: callbacks => createVoiceService({root:join(getAgentDir(),'friendly-voice'),...callbacks}),
     makeEditor: (tui, theme, keys) => new CustomEditor(tui, theme, keys),
     listSessions: () => SessionManager.listAll(),
     projects: createProjectStore({root:join(homedir(),"Documents","AI DIY Projects"),registry:join(getAgentDir(),"friendly-projects.jsonl"),SessionManager}),

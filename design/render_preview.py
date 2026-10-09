@@ -3,7 +3,7 @@ import json,re,sys
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 root=Path(__file__).parent
-for mode in ['work','error','history','chats','form','exit','project-choice']:
+for mode in ['work','error','history','chats','form','exit','project-choice','voice-recording','voice-progress','voice-download']:
  rows=json.loads((root/f'preview-{mode}.json').read_text(encoding='utf-8'));cw,ch=12,24
  im=Image.new('RGB',(120*cw,len(rows)*ch),'white');d=ImageDraw.Draw(im)
  fonts=[ImageFont.truetype('C:/Windows/Fonts/consola.ttf',20),ImageFont.truetype('C:/Windows/Fonts/consolab.ttf',20)]
@@ -28,6 +28,6 @@ for mode in ['work','error','history','chats','form','exit','project-choice']:
    else:
     for char in part:
      d.rectangle((x*cw,y*ch,(x+1)*cw-1,(y+1)*ch-1),fill=bg)
-     font=ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌' else fonts[bold]
+     font=ImageFont.truetype('C:/Windows/Fonts/seguisym.ttf',20) if char in '✓◌▁▂▃▄▅▆▇█' else fonts[bold]
      d.text((x*cw,y*ch),char,font=font,fill=fg);x+=1
  im.save(root/f'preview-{mode}.png')

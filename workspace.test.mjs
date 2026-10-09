@@ -70,3 +70,9 @@ test('project hub blocks both Enter and send until a project is chosen, preservi
  assert.equal(h.submitted.length,0);assert.equal(h.getText(),'Создай сайт');assert.deepEqual(h.calls,['newChat','newChat']);
  h.w.editor.setText('/reload');h.w.submit();assert.deepEqual(h.submitted,['/reload']);h.w.dispose();
 });
+
+test('recording and transcription never auto-send a partially dictated message',()=>{
+ for(const phase of ['starting','recording','transcribing']){
+  const h=harness(true,()=>({voice:{phase}}));h.w.editor.setText('мой черновик');h.w.submit();h.w.editor.handleInput('enter');assert.deepEqual(h.submitted,[]);assert.equal(h.getText(),'мой черновик');h.w.dispose();
+ }
+});

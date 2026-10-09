@@ -36,7 +36,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     suppressed = delegate.getText(); tui.requestRender();
   }
   function submit() {
-    if (!ctx.isIdle() || !delegate.getText().trim()) return;
+    if (!ctx.isIdle() || !delegate.getText().trim() || ['starting','recording','transcribing'].includes(viewState().voice?.phase)) return;
     if(viewState().needsProject && !delegate.getText().startsWith("/")){void actions.newChat();return;}
     clear(); suppressed = delegate.getText();
     delegate.handleInput("\r"); // Host submission: commands, pasted text and images retain native semantics.
@@ -122,6 +122,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       return [...delegate.render(width), ...Array(listHeight()).fill("")];
     },
     handleInput(data) {
+      if(matchesKey(data,'enter')&&['starting','recording','transcribing'].includes(viewState().voice?.phase))return;
       if (suggestions.length && slash()) {
         if (matchesKey(data, "down") || matchesKey(data, "up")) {
           selected = (selected + (matchesKey(data, "down") ? 1 : -1) + suggestions.length) % suggestions.length;
