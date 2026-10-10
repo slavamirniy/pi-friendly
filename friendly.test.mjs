@@ -79,7 +79,8 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
         else {
           const y = rows.findIndex(row => row.includes(choice));
           assert.ok(y >= 0, `Missing button ${choice} in ${rows.join("\n")}`);
-          component.handleInput(`\x1b[<0;35;${y + 1}M`);
+          const x=clean(rows[y]).indexOf(choice)+1;
+          component.handleInput(`\x1b[<0;${x};${y + 1}M`);
         }
         component.dispose(); return result;
       },
@@ -166,11 +167,37 @@ test('switching chats restores a draft through the new session context',async()=
  await h.open('open '+encodeURIComponent('/chat.jsonl'));assert.equal(restored,'Мой черновик');
 });
 
-test('projects and chats are separate screens, with back navigation and no folder import',async()=>{
+test('projects and chats are separate screens, with back navigation and explicit folder import',async()=>{
  const projects={isHub:()=>false,list:()=>[{name:'Bakery',cwd:'/Bakery'},{name:'Shop',cwd:'/Shop'}]};
  const h=harness({projects,sessions:[{cwd:'/Bakery',name:'Главная',path:'/a',modified:new Date(),messageCount:2},{cwd:'/Shop',name:'Каталог',path:'/b',modified:new Date(),messageCount:3}]});
  h.choices.push('Bakery','← Все проекты','Shop','Каталог');await h.open('history');
  assert.deepEqual(h.calls,['/b']);assert.ok(!h.screens[0].includes('Главная'));assert.ok(!h.screens[0].includes('Открыть папку'));assert.ok(h.screens[1].includes('Главная'));assert.ok(!h.screens[1].includes('Каталог'));
+});
+
+test('unregistered chats remain accessible without promoting their folders to projects',async()=>{
+ const projects={isProject:()=>false,isHub:()=>false,list:()=>[]};
+ const h=harness({projects,sessions:[{cwd:'/random',name:'Старая задача',path:'/old',modified:new Date(),messageCount:2}]});
+ h.choices.push('Другие разговоры','Старая задача');await h.open('history');
+ assert.deepEqual(h.calls,['/old']);assert.ok(!h.screens[0].includes('/random'));
+ assert.ok(!h.screens[0].includes('/project'));assert.ok(h.screens[1].includes('/random'));
+});
+
+test('flat lists retain actions during search, scroll, and activate rows by keyboard and mouse',async()=>{
+ const {palettes}=await import('./surface.mjs');
+ const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
+ const options={layout:'list',palette:palettes.light,searchable:true,measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w),items:[{kind:'primary',label:'+ Новый проект'},...Array.from({length:40},(_,i)=>({label:'Проект '+i,description:'/folder/'+i}))]};
+ const h=panel(options);let rows=h.menu.render(90).map(strip);
+ assert.ok(!rows.join('').includes('╭'));assert.ok(rows.filter(r=>r.includes('/folder/')).length>=5);
+ h.menu.handleInput('Проект 39');rows=h.menu.render(90).map(strip);
+ assert.ok(rows.some(r=>r.includes('+ Новый проект')));
+ const y=rows.findIndex(r=>r.includes('/folder/39'));h.menu.handleInput(`\x1b[<0;20;${y+1}M`);
+ assert.equal(h.results[0].label,'Проект 39');
+ const k=panel(options);for(let i=0;i<40;i++){k.menu.handleInput('down');k.menu.render(90);}k.menu.handleInput('enter');
+ assert.equal(k.results[0].label,'Проект 39');
+ for(const width of [24,40,90])for(const height of [9,12,24,40]){
+   const r=panel(options);r.tui.terminal.columns=width;r.tui.terminal.rows=height;
+   const rendered=r.menu.render(width).map(strip);assert.equal(rendered.length,height);assert.ok(rendered.every(row=>row.length===width),`${width}x${height}`);r.menu.dispose();
+ }
 });
 
 test('project navigation is separate from chat list and close exits the picker',async()=>{

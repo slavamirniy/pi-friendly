@@ -22,8 +22,18 @@ test('unsafe names cannot escape the project root and missing folders are not re
  assert.deepEqual(readdirSync(temp),[]);
 });
 test('catalog preserves empty projects and exposes all chats directly in their project',()=>{
- const root=tmpdir(),a=join(root,'A'),b=join(root,'B');const catalog=projectCatalog([{cwd:a,path:'old',modified:'2020-01-01'},{cwd:a,path:'new',modified:'2026-01-01'}],[{cwd:b,name:'Empty'}],a);
+ const root=tmpdir(),a=join(root,'A'),b=join(root,'B');const catalog=projectCatalog([{cwd:a,path:'old',modified:'2020-01-01'},{cwd:a,path:'new',modified:'2026-01-01'}],[{cwd:a,name:'A'},{cwd:b,name:'Empty'}],a);
  assert.equal(folderKey(catalog[0].cwd),folderKey(a));assert.deepEqual(catalog[0].chats.map(c=>c.path),['new','old']);assert.equal(catalog[1].chats.length,0);
+});
+
+test('launch folders and historical session folders never become projects implicitly',()=>{
+ const root=tmpdir(),launch=join(root,'launch'),old=join(root,'old'),project=join(root,'registered');
+ const sessions=[{cwd:launch,path:'launch-chat'},{cwd:old,path:'old-chat'},{cwd:project,path:'project-chat'}];
+ assert.deepEqual(projectCatalog(sessions,[],launch),[]);
+ const catalog=projectCatalog(sessions,[{cwd:project,name:'Chosen'}],launch);
+ assert.equal(catalog.length,1);assert.equal(catalog[0].name,'Chosen');
+ assert.deepEqual(catalog[0].chats.map(s=>s.path),['project-chat']);
+ assert.equal(sessions.length,3);
 });
 
 test('only registered project folders can start a chat, never the launch folder',t=>{
