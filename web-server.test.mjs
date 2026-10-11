@@ -77,3 +77,10 @@ test('transient connection errors stay hidden through retry and disappear after 
  h.emit({type:'message_end',message:{role:'assistant',content:'Готово',stopReason:'stop'}});
  h.emit({type:'agent_settled'});assert.equal((await h.state()).error,null);assert.equal((await h.state()).busy,false);
 });
+
+test('folder dialog cancellation is harmless; selected folder is attached without creating chats',async t=>{
+ let selected,attached;const project={name:'Existing',cwd:process.cwd()};
+ const h=await fixture(t,{options:{pickProjectFolder:async()=>selected,projects:{list:()=>attached?[project]:[],isProject:()=>true,markOpened(){},attach:path=>{attached=path;return project;}}}});
+ const cancel=await h.request('attach-project',{});assert.equal(cancel.data.cancelled,true);assert.equal(attached,undefined);
+ selected=project.cwd;const result=await h.request('attach-project',{});assert.equal(result.status,200);assert.equal(attached,selected);assert.equal(result.data.projects[0].name,'Existing');assert.equal(h.calls.length,0);
+});

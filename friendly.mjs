@@ -30,7 +30,7 @@ export function installFriendly(pi, rendering) {
   pi.registerFlag("friendly-keep-footer", { description: "Сохранить footer другого расширения (без кликабельных slash-подсказок)", type: "boolean", default: false });
   const statuses = () => [...(footerData?.getExtensionStatuses().values() ?? [])].filter(Boolean);
   const modelLabel = ctx => clean(ctx.model?.name || ctx.model?.id || "Модель не выбрана");
-  const notifyError = (ctx, error) => { if (!stopped) ctx.ui.notify(`Не удалось выполнить действие: ${clean(error?.message ?? error)}`, "error"); };
+  const notifyError = (ctx, error) => { if (!stopped) ctx.ui.notify(`Не удалось выполнить действие: ${clean(error?.message ?? error)}`, "warning"); };
   const safe = (ctx, fn) => async () => { try { if(rendering.isWebActive?.())return;await fn(); } catch (error) { notifyError(ctx, error); } };
 
   async function choose(ctx, title, items, searchable = false, subtitle = "", form = false, bottom = false, layout = 'cards') {
@@ -171,7 +171,7 @@ export function installFriendly(pi, rendering) {
         const name=project.name;
         const picked=await choose(ctx,name,[
           {id:'back',navigation:true,kind:'back',label:'← Все проекты',description:'Выбрать другой проект'},
-          ...((projects.isProject?.(project.cwd)??!projects.isHub(project.cwd))?[{id:'new',kind:'primary',project,label:'+ Новый чат',description:'Начать разговор в этом проекте'}]:[]),
+          ...((projects.isProject?.(project.cwd)??!projects.isHub(project.cwd))?[{id:'new',kind:'primary',toolbar:true,project,label:'+ Новый чат',description:'Начать разговор в этом проекте'}]:[]),
           ...project.chats.map(session=>({session,label:session.name||(session.messageCount?clean(session.firstMessage).slice(0,80):'Новый разговор'),description:new Date(session.modified).toLocaleDateString('ru-RU')+' · сообщений: '+(session.messageCount??0)})),
         ],true,project.chats.length?'Выберите чат':'Чатов пока нет — создайте первый',false,false,'list');
         if(picked?.id==='back'){project=undefined;continue;}

@@ -135,10 +135,10 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(enabled)targets.push({x:side+pad+cw-sendW-2,y:actionY,w:sendW,h:sendHeight,run:ctx.isIdle()?actions.submit:()=>ctx.abort()});
   put(editorTop+innerHeight+1,'╰'+'─'.repeat(cw-2)+'╯',p.canvas,p.border);
   if(!delegate.getText())put(editorTop-1,'Сообщение',p.canvas,p.muted);
-  let info=s.notice||s.activity||'';
+  let info=s.running?'◌ Готовлю ответ…':s.notice||s.activity||'';
   const widgetLines=[];
   for(const widget of s.widgets??[]) {try {widgetLines.push(...(Array.isArray(widget)?widget:widget.render(cw)));}catch{}}
-  if(widgetLines.length && !s.notice)info=clean(widgetLines.at(-1));
+  if(widgetLines.length && !s.notice && !s.running)info=clean(widgetLines.at(-1));
   if(info)put(editorTop-1,truncate(clean(info),cw,''),p.canvas,s.notice?p.accent:p.muted);
   if(voice?.phase==='recording'){const seconds=Math.floor(voice.seconds??0);put(editorTop-1,`● ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')} · Enter — закончить запись`,p.canvas,p.accent);}
   if(voice&&height>=23&&['installing','downloading','loading','error'].includes(voice.phase)){

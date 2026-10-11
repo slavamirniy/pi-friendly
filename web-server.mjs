@@ -8,7 +8,7 @@ import {activityLabel} from './activity.mjs';
 const key=value=>createHash('sha256').update(value).digest('hex').slice(0,24);
 import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,updateTool} from './web-messages.mjs';
 export {publicMessage,publicMessages} from './web-messages.mjs';
-export async function startWebServer({projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{}}){
+export async function startWebServer({projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
  let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],voice:voice?.state||null,dictation:null};
@@ -38,14 +38,14 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
    for(const m of state.messages)m.tools=m.tools.map(tool=>{if(tool.id!==event.toolCallId)return tool;found=true;return updateTool(tool,event);});
    if(!found){let m=state.messages.findLast(m=>m.role==='assistant');if(!m){m=publicMessage({role:'assistant'});state.messages.push(m);}m.tools.push(updateTool(toolView({id:event.toolCallId,name:event.toolName,arguments:event.args}),event));}
   }
-  if(event.type==='auto_retry_start'){state.busy=true;state.notice=`Повтор подключения · попытка ${event.attempt} из ${event.maxAttempts}. Уже полученный текст сохранён.`;}
-  if(event.type==='auto_retry_end'){state.notice=event.success?'Подключение восстановлено.':'';if(!event.success){state.busy=false;state.error=event.finalError||'Не удалось восстановить подключение.';}}
+  if(event.type==='auto_retry_start'){state.busy=true;state.notice='';}
+  if(event.type==='auto_retry_end'){state.notice='';if(!event.success){state.busy=false;state.error=event.finalError||'Не удалось восстановить подключение.';}}
   if(event.type==='agent_settled'){state.busy=false;const last=state.messages.findLast(m=>m.role==='assistant');state.error=last?.error||null;state.pendingError=null;state.notice='';}
   if(event.type==='agent_end')for(const m of state.messages)if(m.status==='streaming')m.status='done';
   if(event.type==='process_error'){state.busy=false;state.error=event.message;for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}}
   if(event.type==='extension_ui_request'){
    if(['select','confirm','input','editor'].includes(event.method)){state.questions.push({...event,expires:event.timeout?Date.now()+event.timeout:null});}
-   if(event.method==='notify'){if(event.notifyType==='error'){if(state.busy)state.pendingError=clean(event.message);else state.error=clean(event.message);}else state.notice=clean(event.message);}
+   if(event.method==='notify'){if(event.notifyType==='error'){if(state.busy)state.pendingError=clean(event.message);else state.error=clean(event.message);}else if(!state.busy)state.notice=clean(event.message);}
    if(event.method==='setStatus'){if(event.statusText)state.statuses[event.statusKey]=clean(event.statusText);else delete state.statuses[event.statusKey];}
    if(event.method==='setWidget'){if(event.widgetLines)state.widgets[event.widgetKey]=event.widgetLines.map(clean);else delete state.widgets[event.widgetKey];}
    if(event.method==='set_editor_text')state.dictation={id:event.id,text:event.text,chat:active?.id,replace:true};
@@ -85,6 +85,7 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
     if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:models().map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
     if(req.method!=='POST'){reply(404,{error:'Неизвестное действие.'});return;}
     const data=await body(req),action=url.pathname.slice(5);
+    if(action==='attach-project'){ensureIdle();if(!pickProjectFolder)throw new Error('Выбор папки недоступен в этом режиме.');navigating=true;try{const path=await pickProjectFolder();if(!path){reply(200,{cancelled:true});return;}const p=projects.attach(path);projects.markOpened?.(p.cwd);reply(200,{project:key(folderKey(p.cwd)),projects:await catalog()});}finally{navigating=false;}return;}
     if(action==='open-project'){await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Проект не найден.');projects.markOpened?.(p.cwd);reply(200,{ok:true});return;}
     if(action==='create-project'){ensureIdle();navigating=true;try{const p=projects.create(data.name);await catalog();const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
     if(action==='new-chat'){ensureIdle();navigating=true;try{await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Сначала выберите проект.');const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}

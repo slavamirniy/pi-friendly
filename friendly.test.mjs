@@ -258,7 +258,7 @@ test('project creation sits right of search and project rows follow directly',as
  const {palettes}=await import('./surface.mjs');const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
  const h=panel({layout:'list',searchable:true,palette:palettes.light,truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,items:[{id:'create',kind:'primary',toolbar:true,label:'Создать проект'},{label:'Пекарня',description:'2 чата'}]});
  const rows=h.menu.render(90).map(strip),y=rows.findIndex(r=>r.includes('Создать проект')),x=rows[y].indexOf('Создать проект');
- assert.ok(rows[y].includes('[ Поиск ]'));assert.ok(x>rows[y].indexOf('[ Поиск ]'));assert.ok(rows.findIndex(r=>r.includes('Пекарня'))>y);
+ assert.ok(rows[y].includes('🔍'));assert.ok(x>rows[y].indexOf('🔍'));assert.ok(rows.findIndex(r=>r.includes('Пекарня'))>y);
  h.menu.handleInput(`\x1b[<0;${x+1};${y+1}M`);assert.equal(h.results[0].id,'create');
 });
 
@@ -275,7 +275,7 @@ test('cancel creation returns to projects and permits creating again',async()=>{
 test('project search is hidden until clicked, Escape clears it without leaving projects',()=>{
  const h=panel({layout:'list',searchable:true,items:[{label:'Пекарня'},{label:'Отпуск'}]});
  let rows=h.menu.render(90);assert.ok(!rows.join('').includes('Поиск:'));
- const y=rows.findIndex(r=>r.includes('[ Поиск ]')),x=rows[y].indexOf('[ Поиск ]');
+ const y=rows.findIndex(r=>r.includes('🔍')),x=rows[y].indexOf('🔍');
  h.menu.handleInput(`\x1b[<0;${x+2};${y+1}M`);h.menu.handleInput('Пекарня');
  rows=h.menu.render(90);assert.ok(rows.join('').includes('Поиск:'));assert.ok(!rows.join('').includes('Отпуск'));
  h.menu.handleInput('escape');rows=h.menu.render(90);assert.ok(rows.join('').includes('Отпуск'));assert.equal(h.results.length,0);

@@ -61,17 +61,18 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
           targets.push({y,x:left,end:left+cw,index});y+=compact?1:2;
         }
         const toolbar=actions.find(item=>item.toolbar);
-        if(toolbar){
-          const index=list.indexOf(toolbar),bw=Math.min(20,cw-3),sw=Math.max(0,cw-bw-2),bh=compact?1:3;
+        if(toolbar||searchable){
+          const bh=compact?1:3,sw=searchable?(compact?2:6):0,bw=toolbar?Math.min(22,cw-sw):0,bx=left+cw-sw-bw,index=toolbar?list.indexOf(toolbar):-1;
           for(let n=0;n<bh;n++){
-            const text=n===Math.floor(bh/2)?centered(clean(toolbar.label),bw,truncate,measure):' '.repeat(bw);
-            const search=n===Math.floor(bh/2)?color(searchOpen?'Поиск: '+(query||'название…'):'[ Поиск ]','muted'):'';
-            if(searchable)targets.push({y:y+n,x:left,end:left+Math.min(sw,12),index:-3});
-            rows[y+n]=paint('',left)+paint(search,sw)+paint('',2)+paint(text,bw,index===selected?true:'card')+paint('',width-left-cw);
-            targets.push({y:y+n,x:left+cw-bw,end:left+cw,index});
+            const mid=n===Math.floor(bh/2),glass=mid?centered('🔍',sw,truncate,measure):' '.repeat(sw),label=mid&&toolbar?centered(clean(toolbar.label),bw,truncate,measure):' '.repeat(bw);
+            rows[y+n]=paint('',bx)+paint(glass,sw,searchOpen?true:'card')+paint(label,bw,index===selected?true:'card')+paint('',width-bx-sw-bw);
           }
+          if(searchable)targets.push({y,x:bx,end:bx+sw,index:-3,h:bh});
+          if(toolbar)for(let n=0;n<bh;n++)targets.push({y:y+n,x:bx+sw,end:bx+sw+bw,index});
+          if(searchable)for(let n=1;n<bh;n++)targets.push({y:y+n,x:bx,end:bx+sw,index:-3});
           y+=bh;
-        }else if(searchable){put(y,color(searchOpen?'Поиск: '+(query||'название или папка…'):'[ Поиск ]','muted'));targets.push({y:y++,x:left,end:left+12,index:-3});}
+          if(searchOpen&&searchable)put(y++,color('Поиск: '+(query||'начните печатать…'),'muted'));
+        }
         const start=y+(compact?0:1),step=!compact&&height-y>=6?3:1,capacity=Math.max(1,Math.floor((height-start-2)/step));
         const entryIndex=Math.max(0,selected-actions.length);
         offset=Math.max(0,Math.min(offset,Math.max(0,entries.length-capacity)));
