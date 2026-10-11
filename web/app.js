@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-const paths={search:'M10 3a7 7 0 100 14 7 7 0 000-14M15 15l6 6',new:'M12 5v14M5 12h14',projects:'M3 7h7l2 2h9v11H3zM3 7V4h7l2 3',models:'M8 4h8v16H8zM4 8h16M4 16h16',theme:'M20 14A8 8 0 0110 4a8 8 0 1010 10',mic:'M9 5a3 3 0 016 0v7a3 3 0 01-6 0zM5 11v1a7 7 0 0014 0v-1M12 19v3M8 22h8',exit:'M9 3H3v18h6M9 12h12M17 8l4 4-4 4',chat:'M3 4h18v13H8l-5 4z',arrow:'M9 5l7 7-7 7',stop:'M7 7h10v10H7z',folder:'M3 7h7l2 2h9v11H3zM3 7V4h7l2 3',folderUp:'M10 9l4-4 4 4M14 5v8',copy:'M8 8h12v12H8zM4 16V4h12',attach:'M20 11l-8 8a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8'};
+const paths={back:'M19 12H5M11 6l-6 6 6 6',search:'M10 3a7 7 0 100 14 7 7 0 000-14M15 15l6 6',new:'M12 5v14M5 12h14',projects:'M3 7h7l2 2h9v11H3zM3 7V4h7l2 3',models:'M8 4h8v16H8zM4 8h16M4 16h16',theme:'M20 14A8 8 0 0110 4a8 8 0 1010 10',mic:'M9 5a3 3 0 016 0v7a3 3 0 01-6 0zM5 11v1a7 7 0 0014 0v-1M12 19v3M8 22h8',exit:'M9 3H3v18h6M9 12h12M17 8l4 4-4 4',chat:'M3 4h18v13H8l-5 4z',arrow:'M9 5l7 7-7 7',stop:'M7 7h10v10H7z',folder:'M3 7h7l2 2h9v11H3zM3 7V4h7l2 3',folderUp:'M10 9l4-4 4 4M14 5v8',copy:'M8 8h12v12H8zM4 16V4h12',attach:'M20 11l-8 8a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8'};
 function icon(name){const e=document.createElementNS('http://www.w3.org/2000/svg','svg');e.setAttribute('viewBox','0 0 24 24');e.setAttribute('aria-hidden','true');const p=document.createElementNS(e.namespaceURI,'path');p.setAttribute('d',paths[name]||paths.chat);e.append(p);return e;}
 function el(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
 function button(text,run,cls){const e=el('button',text,cls);e.type='button';e.onclick=()=>task(run);return e;}
@@ -30,7 +30,10 @@ function titleForPage(){return page==='projects'?'Ваши проекты':page=
 function renderRoute(){
  $('page').hidden=page==='chat';$('chat').hidden=page!=='chat';$('breadcrumb').textContent=titleForPage();
  for(const b of document.querySelectorAll('[data-nav]'))b.classList.toggle('active',b.dataset.nav==='projects'&&['projects','chats','create'].includes(page)||b.dataset.nav===page);
- $('new-chat').querySelector('.nav-text').textContent=page==='chat'?'Новый разговор':state.active?'Вернуться к чату':'Новый разговор';
+ const returning=page!=='chat'&&Boolean(state.active);
+ $('new-chat').classList.toggle('returning',returning);
+ $('new-chat').replaceChildren(icon(returning?'back':'new'),el('span',returning?'Вернуться к чату':'Новый разговор','nav-text'));
+ $('new-chat').title=returning?'Вернуться к чату':'Новый разговор';
  $('new-chat').setAttribute('aria-label',$('new-chat').querySelector('.nav-text').textContent);
  $('new-chat').onclick=()=>task(()=>page!=='chat'&&state.active?(page='chat',renderRoute()):navigate('new'));
  if(page==='chat'){renderedMessages=undefined;renderMessages();renderStatus();autoGrow();return;}
@@ -63,17 +66,20 @@ function renderRoute(){
 }
 /* ---------- Веб-обозреватель папок ---------- */
 const folderDialog=$('folder-dialog');
-let browserPath='',browserChosen=null;
+let browserPath='',browserChosen=null,browserRequest=0;
 async function browseFolders(path){
- const data=await api('browse-folders'+(path?'?path='+encodeURIComponent(path):''));
+ const request=++browserRequest;$('folder-choose').disabled=true;$('browser-status').textContent='Загружаю папки…';
+ try{const data=await api('browse-folders'+(path?'?path='+encodeURIComponent(path):''));
+ if(request!==browserRequest||!folderDialog.open)return;
  browserPath=data.path;browserChosen=data.path;renderBrowser(data);return data;
+ }catch(error){if(request===browserRequest&&folderDialog.open)$('browser-status').textContent=error.message;}
 }
 function renderBrowser({path,parent,entries}){
- $('browser-path').replaceChildren(el('code',path));
+ $('folder-path').value=path;$('browser-status').textContent='Откройте нужную папку и нажмите «Выбрать эту папку».';
  const list=$('browser-list');list.replaceChildren();
  const up=button('',()=>task(()=>browseFolders(parent)),'browser-row parent');up.disabled=!parent;up.setAttribute('aria-label','На уровень выше');
- up.append(icon('folderUp'),el('span','… на уровень выше','browser-name'));list.append(up);
- for(const entry of entries){
+ up.append(icon('folderUp'),el('span','На уровень выше','browser-name'));list.append(up);
+ for(const entry of entries.filter(entry=>!entry.name.startsWith('.'))){
   const row=button('',()=>task(async()=>{try{await browseFolders(entry.path);}catch(error){showHint(error.message);}}),'browser-row');
   row.append(icon('folder'),el('span',entry.name,'browser-name'));list.append(row);
  }
@@ -83,19 +89,21 @@ function renderBrowser({path,parent,entries}){
 function openFolderDialog(){
  return task(async()=>{
   canSwitch();
-  browserChosen=browserPath;
+  browserChosen=null;
   $('folder-choose').disabled=true;
   folderDialog.showModal();
-  working=true;operationLabel='Открываю папки…';renderStatus();
-  try{const data=await browseFolders('');browserChosen=data.path;}catch(error){folderDialog.close();throw error;}finally{working=false;renderStatus();}
+  await browseFolders(browserPath);
  });
 }
+folderDialog.addEventListener('close',()=>{browserRequest++;browserChosen=null;});
+$('folder-path-form').onsubmit=e=>{e.preventDefault();task(()=>browseFolders($('folder-path').value));};
+$('folder-home').onclick=()=>task(()=>browseFolders(''));
 $('folder-close').onclick=()=>folderDialog.close();
 $('folder-cancel').onclick=()=>folderDialog.close();
 $('folder-choose').onclick=()=>task(async()=>{
- if(!browserChosen)return;folderDialog.close();
+ if(!browserChosen||$('folder-choose').disabled)return;const chosen=browserChosen;folderDialog.close();
  working=true;operationLabel='Подключаю папку…';renderStatus();
- try{const result=await api('attach-project',{path:browserChosen});if(!result.cancelled){catalog=result.projects;projectId=result.project;page='chats';searchOpen=false;searchValue='';renderRoute();showHint('Папка подключена как проект.');}}finally{working=false;renderStatus();}
+ try{const result=await api('attach-project',{path:chosen});if(!result.cancelled){catalog=result.projects;projectId=result.project;page='chats';searchOpen=false;searchValue='';renderRoute();showHint('Папка подключена как проект.');}}finally{working=false;renderStatus();}
 });
 /* ---------- Загрузка файлов в проект ---------- */
 $('attach').replaceChildren(icon('attach'));

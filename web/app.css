@@ -164,7 +164,17 @@ dialog p{padding:0 28px;color:var(--muted);margin-top:8px}
 .dialog-actions{display:flex;justify-content:flex-end;gap:10px;padding:20px 24px}
 #exit-dialog{width:min(480px,92vw)}
 #exit-dialog p{margin:0}
-.browser-dialog{width:min(660px,94vw);max-height:82dvh;display:flex;flex-direction:column}
+.browser-dialog{width:min(720px,94vw);max-width:720px;max-height:82dvh;flex-direction:column}
+.browser-dialog[open]{display:flex}
+dialog:not([open]){display:none}
+.sidebar nav button.returning{background:var(--selected);color:#245a89;border-color:transparent}
+[data-theme=dark] .sidebar nav button.returning{color:#b5d9fa}
+.sidebar nav button.returning:hover{filter:brightness(.95)}
+.browser-path{display:flex;gap:8px;flex-shrink:0}
+#folder-path{min-width:0;flex:1;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px}
+.browser-shortcuts{padding:0 26px}
+#browser-status{font-size:13px;margin:8px 0 12px;min-height:21px}
+.browser-head,.browser-actions{flex-shrink:0}
 .browser-head{display:flex;align-items:center;justify-content:space-between;margin:0;padding:0}
 .browser-head h2{flex:1;padding:22px 8px 12px 26px}
 .browser-close{border:0;background:transparent;min-height:40px;min-width:40px;margin:16px 16px 0 0;border-radius:10px;color:var(--muted);cursor:pointer}
