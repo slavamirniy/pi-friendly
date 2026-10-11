@@ -201,9 +201,11 @@ export function installFriendly(pi, rendering) {
   async function more(ctx) {
     const item = await dialog(ctx, () => choose(ctx, "Действия", [
       {label: "Модель", id:"model"}, {label:"История",id:"history"},
+      ...(rendering.openWeb?[{label:"Открыть в браузере",id:"web"}]:[]),
       {label:"Сменить тему",id:"theme"}, {label:"Меню",id:"menu"},
     ], true));
     if(item?.id === "model") await selectModel(ctx);
+    if(item?.id === "web") await rendering.openWeb?.(ctx,voice,statuses);
     if(item?.id === "history") await command(ctx,"/friendly history");
     if(item?.id === "menu") await menu(ctx);
     if(item?.id === "theme") changeTheme(ctx);
@@ -223,7 +225,7 @@ export function installFriendly(pi, rendering) {
     if (action?.id === "new") await newConversation(ctx);
     if (action?.id === "history") await command(ctx, "/friendly history");
   }
-  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.startsWith("open ") ? switchChat(ctx,decodeURIComponent(args.slice(5))) : args.trim()==="new" ? newConversation(ctx) : args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
+  pi.registerCommand("friendly", { description: "Новый разговор и история по проектам", handler: async (args, ctx) => safe(ctx, () => args.startsWith("open ") ? switchChat(ctx,decodeURIComponent(args.slice(5))) : args.trim()==="web" ? rendering.openWeb?.(ctx,voice,statuses) : args.trim()==="new" ? newConversation(ctx) : args.trim() === "history" ? history(ctx) : args.trim() === "commands" ? commands(ctx) : menu(ctx))() });
   pi.registerShortcut("f2", { description: "Открыть меню Просто pi", handler: ctx => safe(ctx, () => menu(ctx))() });
   pi.on("input",(event,ctx)=>{
     if(ctx.mode!=="tui"||hasProject(ctx))return;
@@ -279,7 +281,7 @@ export function installFriendly(pi, rendering) {
           cleanView: true, viewState: () => ({...view, paneOpen:opened, projectName:hasProject(ctx)?projects?.name(currentFolder(ctx)):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
-            newChat: safe(ctx, () => newConversation(ctx)), history: safe(ctx, () => history(ctx)),
+            web: safe(ctx,()=>rendering.openWeb?.(ctx,voice,statuses)), newChat: safe(ctx, () => newConversation(ctx)), history: safe(ctx, () => history(ctx)),
             theme: safe(ctx, () => changeTheme(ctx)), more: safe(ctx, () => more(ctx)),
             menu: safe(ctx, () => menu(ctx)), model: safe(ctx, () => selectModel(ctx)),
             commands: safe(ctx, () => commands(ctx)),

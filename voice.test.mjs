@@ -61,3 +61,8 @@ test('wave history follows real samples, stays bounded and resets for each recor
  h.voice.toggle('a');h.event({type:'ready'});h.voice.toggle('a');id=h.sent.at(-1).id;
  h.event({type:'recording',id,level:.5,seconds:0});assert.deepEqual(h.voice.state.levels,[.5]);h.voice.dispose();
 });
+
+
+test('browser observes shared voice without replacing terminal callbacks',async()=>{
+ const h=fixture(),events=[];const stop=h.voice.subscribe(e=>events.push(e));await h.voice.start();h.event({type:'ready'});h.voice.toggle({web:true,chat:'a'});const id=h.sent.at(-1).id;h.event({type:'text',id,text:'Диктовка'});assert.equal(events.at(-1).context.chat,'a');assert.equal(h.texts[0][0],'Диктовка');stop();const count=events.length;h.event({type:'ready'});assert.equal(events.length,count);h.voice.dispose();
+});

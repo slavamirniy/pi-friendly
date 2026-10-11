@@ -68,6 +68,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(height>=27)utilities.forEach(([label,run],i)=>button(10+i*3,label,run));
   else if(height>=23)button(10,'Ещё',actions.more);
   else if(height>=18)button(height-11,'Ещё',actions.more);
+  if(height>=31&&actions.web)button(16,side<24?'В браузере':'Открыть в браузере',actions.web);
   button(height-7,'Выйти',actions.exit,false,true,!ctx.isIdle());
   left[height-3]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
   const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
