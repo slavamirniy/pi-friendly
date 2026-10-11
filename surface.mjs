@@ -59,7 +59,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    if(y<3||y+2>=height-2)return;
    const w=side,bg=disabled?p.button:danger?p.errorBg:primary?(s.paneOpen?p.selection:p.bubble):p.button,fg=disabled?p.muted:danger?p.error:primary?(s.paneOpen?p.text:p.accent):p.text;
    const rows=buttonRows(label,w,truncate,measure);
-   for(let dy=0;dy<3;dy++)left[y+dy]=paint(dy===2?'─'.repeat(w):rows[dy],w,bg,dy===2?p.border:fg);
+   for(let dy=0;dy<3;dy++)left[y+dy]=paint(dy===2?'▁'.repeat(w):rows[dy],w,bg,dy===2?p.border:fg);
    if(!disabled)targets.push({x:0,y,w,h:3,run});
   };
   if(height>=18)button(4,s.paneOpen?(side<24?'← В чат':'Вернуться к чату'):side<24?'Новый чат':'Новый разговор',actions.newChat,true);

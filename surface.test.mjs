@@ -163,3 +163,14 @@ test('left drag selects draft without Shift and compact context menu offers copy
  assert.equal(paste,copy+1);assert.equal(clear,paste+1);
  surface.handleContextInput('enter');assert.deepEqual(calls,['Привет']);
 });
+
+
+test('sidebar dividers sit at the bottom cell edge and rows remain contiguous',()=>{
+ const h=fixture(120,36),rows=h.surface.render(120).map(strip);
+ for(const y of [4,7,10,13]){
+  assert.equal(rows[y].slice(0,26).trim(),'');
+  assert.ok(rows[y+1].slice(0,26).trim().length>0);
+  assert.equal(rows[y+2].slice(0,26),'▁'.repeat(26));
+ }
+ assert.equal(rows[31].slice(0,26),'▁'.repeat(26));
+});
