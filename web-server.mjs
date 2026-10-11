@@ -1,11 +1,17 @@
 import {createServer} from 'node:http';
-import {readFile} from 'node:fs/promises';
+import {readFile,readdir,mkdir,stat} from 'node:fs/promises';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {homedir} from 'node:os';
+import {join,resolve,basename,sep,isAbsolute} from 'node:path';
 import {folderKey} from './projects.mjs';
+import {sanitizeUploadName} from './uploads.mjs';
 import {clean} from './menu.mjs';
 import {activityLabel} from './activity.mjs';
 const key=value=>createHash('sha256').update(value).digest('hex').slice(0,24);
+const isDir=async p=>{try{return (await stat(p)).isDirectory();}catch{return false;}};
+const exists=async p=>{try{await stat(p);return true;}catch{return false;}};
+const dirnameOf=p=>{const parent=resolve(p,'..');return parent===p||!p?resolve(p):parent;};
 import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,updateTool} from './web-messages.mjs';
 export {publicMessage,publicMessages} from './web-messages.mjs';
 export async function startWebServer({projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder}){
@@ -64,7 +70,7 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
   }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
   finally{loading=false;broadcast();}
  }
- async function body(req){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1024*1024)throw new Error('Слишком большое сообщение.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
+ async function body(req,limit=1024*1024){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw new Error('Слишком большое сообщение.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
  let origin;
  const server=createServer(async(req,res)=>{
   const reply=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -83,9 +89,46 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
     if(req.method==='GET'&&url.pathname==='/api/events'){res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});res.write('data: '+JSON.stringify(snapshot())+'\n\n');clients.add(res);req.on('close',()=>clients.delete(res));return;}
     if(req.method==='GET'&&url.pathname==='/api/catalog'){reply(200,{projects:await catalog()});return;}
     if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:models().map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
+   if(req.method==='GET'&&url.pathname==='/api/browse-folders'){
+    const start=String(url.searchParams.get('path')||'').trim()||join(homedir());
+    if(!isAbsolute(start))throw new Error('Укажите полный путь.');
+    let cwd=start;
+    while(!await isDir(cwd)){const parent=dirnameOf(cwd);if(parent===cwd)throw new Error('Папка недоступна.');cwd=parent;}
+    if(!cwd)throw new Error('Папка недоступна.');
+    try{const names=await readdir(cwd,{withFileTypes:true});
+     const entries=[];for(const e of names){if(!e.isDirectory())continue;let ok=true;try{await stat(join(cwd,e.name));}catch{ok=false;}if(ok)entries.push({name:e.name});}
+     entries.sort((a,b)=>a.name.localeCompare(b.name,'ru'));const visible=entries.filter(e=>!e.name.startsWith('.')),hidden=entries.filter(e=>e.name.startsWith('.'));
+     const all=hidden.concat(visible).slice(0,500);
+     reply(200,{path:resolve(cwd),parent:dirnameOf(cwd)===cwd?null:dirnameOf(cwd),entries:all.map(e=>({name:e.name,path:join(cwd,e.name)})),hasMore:hidden.length+visible.length>all.length});
+    }catch(error){reply(400,{error:'Не удалось открыть папку: '+error.message});}
+    return;
+   }
+   if(req.method==='POST'&&url.pathname==='/api/upload'){
+    ensureIdle();
+    const data=await body(req,140*1024*1024);ensureIdle();
+    const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);
+    if(!p||!projects.isProject(p.cwd))throw new Error('Сначала выберите проект.');
+    const maxTotal=100*1024*1024;let total=0;const saved=[];
+    for(const f of Array.isArray(data.files)?data.files.slice(0,50):[]){
+     if(f?.truncated)throw new Error('Файл слишком большой (до 50 МБ).');
+     const buf=Buffer.from(String(f.content||''),'base64');const name=sanitizeUploadName(f.name);if(!name)continue;
+     if(buf.length>50*1024*1024)throw new Error('Файл слишком большой (до 50 МБ).');total+=buf.length;if(total>maxTotal)throw new Error('Слишком много файлов за один раз (до 100 МБ).');
+     await mkdir(p.cwd,{recursive:true});
+     let target=join(p.cwd,name),stem=name,ext='';
+     const dot=name.lastIndexOf('.');if(dot>0){stem=name.slice(0,dot);ext=name.slice(dot);}
+     const {writeFile}=await import('node:fs/promises');
+     for(let i=1;;i++){try{await writeFile(target,buf,{flag:'wx'});break;}catch(error){if(error.code!=='EEXIST')throw error;target=join(p.cwd,`${stem} (${i})${ext}`);}}
+     saved.push(basename(target));
+    }
+    reply(200,{saved});return;
+   }
     if(req.method!=='POST'){reply(404,{error:'Неизвестное действие.'});return;}
     const data=await body(req),action=url.pathname.slice(5);
-    if(action==='attach-project'){ensureIdle();if(!pickProjectFolder)throw new Error('Выбор папки недоступен в этом режиме.');navigating=true;try{const path=await pickProjectFolder();if(!path){reply(200,{cancelled:true});return;}const p=projects.attach(path);projects.markOpened?.(p.cwd);reply(200,{project:key(folderKey(p.cwd)),projects:await catalog()});}finally{navigating=false;}return;}
+    if(action==='attach-project'){ensureIdle();navigating=true;try{
+   let path=data.path?resolve(String(data.path)):null;
+   if(!path&&pickProjectFolder)path=await pickProjectFolder();
+   if(!path){reply(200,{cancelled:true});return;}
+   const p=projects.attach(path);projects.markOpened?.(p.cwd);reply(200,{project:key(folderKey(p.cwd)),projects:await catalog()});}finally{navigating=false;}return;}
     if(action==='open-project'){await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Проект не найден.');projects.markOpened?.(p.cwd);reply(200,{ok:true});return;}
     if(action==='create-project'){ensureIdle();navigating=true;try{const p=projects.create(data.name);await catalog();const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
     if(action==='new-chat'){ensureIdle();navigating=true;try{await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Сначала выберите проект.');const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
@@ -104,7 +147,7 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
     if(action==='prompt'){
      if(state.busy||loading||navigating||voiceOwned)throw new Error('Сначала дождитесь завершения текущего действия.');
      const message=String(data.text||'').trim();if(!message)throw new Error('Введите сообщение.');
-     state.busy=true;state.error=null;state.notice='';changed();const epoch=generation;
+     state.busy=true;state.error=null;state.notice='';state.dictation=null;changed();const epoch=generation;
      try{
       await rpc.request('prompt',{message},300000);
       void rpc.request('get_state').then(current=>{if(epoch===generation&&typeof current?.isStreaming==='boolean'){state.busy=current.isStreaming;changed();}}).catch(()=>{});

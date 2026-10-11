@@ -4,7 +4,7 @@ import {startWebServer,publicMessage} from './web-server.mjs';
 async function fixture(t,{host=false,options={}}={}){
  const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
  const calls=[];let emit;
- const projects={list:()=>projectsList,isProject:()=>true,create:name=>{if(!name?.trim())throw new Error('Введите название');const p={cwd:process.cwd()+'/new',name};projectsList.push(p);return p;},createChat:cwd=>{const s={cwd,path:'/test/new.jsonl'};sessions.push(s);return s.path;}};
+ const projects={list:()=>projectsList,isProject:()=>true,create:name=>{if(!name?.trim())throw new Error('Введите название');const p={cwd:process.cwd()+'/new',name};projectsList.push(p);return p;},createChat:cwd=>{const s={cwd,path:'/test/new.jsonl'};sessions.push(s);return s.path;},attach:value=>{const p={cwd:value,name:'Attached'};projectsList.push(p);return p;}};
  const web=await startWebServer({projects,listSessions:async()=>sessions,readSession:()=>[{role:'user',content:'Привет'}],models:()=>[{id:'test',name:'Тест',provider:'local'}],hostSession:()=>host?sessions[0].path:undefined,makeRpc:options=>{calls.push(options);emit=options.onEvent;return{request:async(type,data)=>{calls.push({type,data});if(type==='get_state')return{model:{id:'test',provider:'local'}};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};if(type==='prompt')emit({type:'agent_start'});},respond:data=>calls.push(data),dispose:async()=>calls.push('dispose')};},...options});
  t.after(()=>web.close());let cookie;
  const request=async(path,data,headers={})=>{const res=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{...(cookie?{cookie}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});return{status:res.status,data:await res.json()};};
@@ -83,4 +83,14 @@ test('folder dialog cancellation is harmless; selected folder is attached withou
  const h=await fixture(t,{options:{pickProjectFolder:async()=>selected,projects:{list:()=>attached?[project]:[],isProject:()=>true,markOpened(){},attach:path=>{attached=path;return project;}}}});
  const cancel=await h.request('attach-project',{});assert.equal(cancel.data.cancelled,true);assert.equal(attached,undefined);
  selected=project.cwd;const result=await h.request('attach-project',{});assert.equal(result.status,200);assert.equal(attached,selected);assert.equal(result.data.projects[0].name,'Existing');assert.equal(h.calls.length,0);
+});
+
+test('web folder browser lists directories and attach-project accepts an explicit path',async t=>{
+ const h=await fixture(t);
+ const home=await h.request('browse-folders');
+ assert.equal(home.status,200);assert.ok(home.data.entries.length>=0);assert.ok(home.data.path);
+ const sub=await h.request('browse-folders?path='+encodeURIComponent(home.data.path));
+ assert.equal(sub.status,200);
+ const attached=await h.request('attach-project',{path:home.data.path});
+ assert.equal(attached.status,200);assert.ok(attached.data.project);
 });
