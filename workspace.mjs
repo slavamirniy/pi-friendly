@@ -21,6 +21,9 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
   let proxy, provider, suggestions = [], selected = 0, query = "", suppressed = "", request, disposed = false;
   let topTargets = [], listTargets = [], topSize = "", listSize = "";
   const releaseMouse = acquireMouse(tui.terminal);
+  const previousCursor=tui.getShowHardwareCursor?.();
+  if(cleanView){tui.setShowHardwareCursor?.(true);tui.terminal.write('\x1b[5 q');}
+
   const focused = () => !disposed && tui.getFocusedComponent() === proxy;
   const size = () => `${tui.terminal.columns}:${tui.terminal.rows}`;
   const slash = () => /^\/[^\s]*$/.test(delegate.getText());
@@ -103,7 +106,10 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
   };
   const surface = createSurface({ tui, delegate, rendering, ctx,
     state: () => ({ ...viewState(), suggestions: slash() ? suggestions : [], selected }),
-    actions: { ...actions, submit, complete, technical: () => { technical = true; tui.requestRender(); }, more: actions.more || actions.menu },
+    actions: { ...actions,
+      clearEditor:()=>{delegate.setText('');void refresh();},
+      paste:async()=>{try{const text=await rendering.readClipboardText?.();if(disposed)return;if(text){delegate.insertTextAtCursor?.(text);void refresh();}else ctx.ui?.notify('Буфер обмена пуст.','info');}catch(error){if(!disposed)ctx.ui?.notify(error.message,'warning');}},
+      submit, complete, technical: () => { technical = true; tui.requestRender(); }, more: actions.more || actions.menu },
   });
   const surfaceHandle = tui.showOverlay({invalidate:()=>surface.invalidate(),render:width=>{const rows=heldFrame && heldFrame.width===width && heldFrame.rows.length===tui.terminal.rows ? heldFrame.rows : surface.render(width);const release=transitions.get(tui);if(release)queueMicrotask(release);return rows;}}, { row: 0, col: 0, width: "100%", maxHeight: "100%", nonCapturing: true, visible: () => cleanView && !technical && focused() });
   const topHandle = tui.showOverlay(toolbar, { row: 0, col: 0, width: "100%", nonCapturing: true, visible: () => (!cleanView || technical) && focused() });
@@ -140,6 +146,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       return [...delegate.render(width), ...Array(listHeight()).fill("")];
     },
     handleInput(data) {
+      if(surface.handleContextInput(data))return;
       if(matchesKey(data,'enter')&&['starting','recording','transcribing'].includes(viewState().voice?.phase)){
         if(viewState().voice?.phase==='recording')actions.voice?.();
         return;
@@ -171,6 +178,6 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
   });
   return { editor: proxy, submit, executeCommand, refresh, freezeForTransition, renderSurface: width => surface.render(width), sidebarMouse: data => surface.onMouse(data), sidebarNavigate: data => surface.navigate(data), clearHeldFrame: () => {heldFrame=undefined;}, holdFrame: rows => {const held={rows:rows??[],width:tui.terminal.columns};heldFrame=held;return ()=>{if(heldFrame===held)heldFrame=undefined;tui.requestRender();};}, getCommands: async () => (await provider?.getSuggestions(["/"], 0, 1, { signal: new AbortController().signal }))?.items ?? [], redraw: () => tui.requestRender(), dispose() {
     if (disposed) return;
-    disposed = true; request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
+    disposed = true;if(cleanView){tui.setShowHardwareCursor?.(previousCursor??false);tui.terminal.write("\x1b[0 q");} request?.abort(); surfaceHandle.hide(); topHandle.hide(); dropdownHandle?.hide(); removeInput(); releaseMouse();
   } };
 }

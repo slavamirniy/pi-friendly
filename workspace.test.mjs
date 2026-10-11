@@ -6,8 +6,8 @@ const theme = { fg: (_c,s)=>s, bg: (_c,s)=>s, bold:s=>s };
 const rendering = { truncate:(s,w)=>s.slice(0,w), measure:s=>s.length, matchesKey:(s,k)=>s===k };
 const tick=()=>new Promise(r=>setImmediate(r));
 function harness(cleanView=false,viewState=()=>({})) {
-  const overlays=[],writes=[],calls=[],submitted=[]; let input,text='',focus,idle=true,autocomplete;
-  const tui={terminal:{rows:24,columns:90,write:s=>writes.push(s)},requestRender(){},getFocusedComponent:()=>focus,
+  const overlays=[],writes=[],calls=[],submitted=[]; let input,text='',focus,idle=true,autocomplete,cursor=false;
+  const tui={terminal:{rows:24,columns:90,write:s=>writes.push(s)},requestRender(){},getFocusedComponent:()=>focus,getShowHardwareCursor:()=>cursor,setShowHardwareCursor:v=>{cursor=v;},
     showOverlay:(component,options)=>{const item={component,options,hidden:false};overlays.push(item);return{hide:()=>{item.hidden=true;}};},
     addInputListener:fn=>{input=fn;return()=>{input=undefined;};}};
   const delegate={actionHandlers:new Map(),getText:()=>text,setText:v=>{text=v;},render:()=>['input: '+text],
@@ -97,4 +97,8 @@ test('internal chat navigation bypasses recording guard and editor completion, a
  let completed=false;h.delegate.onSubmit=async text=>{assert.equal(text,'/friendly open project-chat');await tick();completed=true;};
  h.delegate.handleInput=()=>{throw new Error('must not emulate Enter for navigation');};
  await h.w.executeCommand('/friendly open project-chat');assert.equal(completed,true);assert.equal(h.getText(),'Мой черновик');h.w.dispose();
+});
+
+test('clean workspace enables native cursor and restores preference on dispose',()=>{
+ const h=harness(true);assert.equal(h.tui.getShowHardwareCursor(),true);assert.ok(h.writes.includes('\x1b[5 q'));h.w.dispose();assert.equal(h.tui.getShowHardwareCursor(),false);
 });

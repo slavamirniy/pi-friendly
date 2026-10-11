@@ -139,3 +139,12 @@ test('voice replaces draft without growing composer and stop icon is centered',(
   h.data.voice={phase:'ready'};assert.ok(h.surface.render(width).map(strip).join('').includes('Сохранённый черновик'));
  }
 });
+
+test('right click opens editor menu only in input and actions require a click',()=>{
+ const calls=[],tui={terminal:{columns:120,rows:36},requestRender(){}},delegate={getText:()=> 'черновик',render:()=>['черновик']};
+ const surface=createSurface({tui,delegate,ctx:{isIdle:()=>true},state:()=>({}),actions:{paste:()=>calls.push('paste'),clearEditor:()=>calls.push('clear')},rendering:{truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k}});
+ surface.render(120);surface.onMouse('\x1b[<2;35;32M');let rows=surface.render(120).map(strip);assert.ok(rows.join('').includes('Вставить'));assert.deepEqual(calls,[]);
+ const y=rows.findIndex(r=>r.includes('Вставить'));surface.onMouse(`\x1b[<0;40;${y+1}M`);assert.deepEqual(calls,['paste']);
+ surface.render(120);surface.onMouse('\x1b[<2;35;32M');surface.render(120);surface.handleContextInput('down');surface.handleContextInput('enter');assert.deepEqual(calls,['paste','clear']);
+ surface.render(120);surface.onMouse('\x1b[<2;35;5M');assert.ok(!surface.render(120).map(strip).join('').includes('Удалить всё'));
+});

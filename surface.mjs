@@ -33,7 +33,9 @@ export function messageText(message) {
  return (message.content??[]).filter(c=>c.type==='text'||c.type==='image').map(c=>c.type==='image'?'[Прикреплено изображение]':c.text).join('\n');
 }
 export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
- let targets=[],dimensions='',scroll=0;
+ let targets=[],dimensions='',scroll=0,editorRect,contextMenu,contextTargets=[];
+ const closeContext=()=>{contextMenu=undefined;tui.requestRender();};
+ const contextAction=index=>{closeContext();if(index===0)void actions.paste?.();else actions.clearEditor?.();};
  const {truncate,measure}=rendering;
  const safeText=text=>String(text??'').split('\n').map(clean).join('\n');
  function render(width) {
@@ -89,6 +91,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const editorTop=height-innerHeight-4;
   const actionY=editorTop+1+(inlineSend?innerHeight-sendHeight:extra+editorLines.length+(micW?sendHeight:0));
   const micY=inlineSend?actionY:actionY-sendHeight;
+  editorRect=voiceBusy?undefined:{x:side+pad+2,y:editorTop+1+extra,w:editorWidth,h:inlineSend?innerHeight-extra:editorLines.length};
   put(editorTop,'╭'+'─'.repeat(cw-2)+'╮',p.canvas,p.border);
   for(let i=0;i<innerHeight;i++){
    const y=editorTop+1+i,hasSend=y>=actionY&&y<actionY+sendHeight,hasMic=micW&&y>=micY&&y<micY+sendHeight;
@@ -194,11 +197,34 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold(s.needsProject?'С чего начнём?':'Чем могу помочь?'),cw));put(y+2,center(s.needsProject?'Новый проект — отдельная папка для вашей задачи.':'Напишите, что хотите сделать.',cw),p.canvas,p.muted);}
   content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
-  return left.map((line,i)=>line+right[i]);
+  const frame=left.map((line,i)=>line+right[i]);contextTargets=[];
+  if(contextMenu){
+   const w=Math.min(30,width),x=Math.max(0,Math.min(contextMenu.x,width-w)),y=Math.max(0,Math.min(contextMenu.y-7,height-7));
+   ['Вставить','Удалить всё'].forEach((label,index)=>{
+    buttonRows(label,w,truncate,measure).forEach((line,dy)=>{
+     const row=y+index*3+dy;
+     // Repaint complete tail with the same canvas; no native UI can show through.
+     frame[row]=truncate(frame[row],x,'')+paint(line,w,index===contextMenu.selected?p.selection:p.button,index===1?p.error:p.text)+paint('',width-x-w);
+    });
+    contextTargets.push({x,y:y+index*3,w,h:3,index});
+   });
+   frame[y+6]=truncate(frame[y+6],x,'')+paint('Esc — закрыть',w,p.sidebar,p.muted)+paint('',width-x-w);
+   return frame.map(row=>row.replace(/\x1b_pi:c\x07/g,''));
+  }
+  return frame;
  }
- return {render,invalidate(){},navigate(data){const e=mouseEvent(data);const hit=e&&targets.find(t=>e.x>=t.x&&e.x<t.x+t.w&&e.y>=t.y&&e.y<t.y+t.h);return hit?.run();},onMouse(data){
+ return {render,invalidate(){},handleContextInput(data){
+  if(!contextMenu)return false;
+  if(rendering.matchesKey?.(data,'escape'))closeContext();
+  else if(['up','down','tab'].some(k=>rendering.matchesKey?.(data,k))){contextMenu.selected=1-contextMenu.selected;tui.requestRender();}
+  else if(rendering.matchesKey?.(data,'enter'))contextAction(contextMenu.selected);
+  else closeContext();
+  return true;
+ },navigate(data){const e=mouseEvent(data);const hit=e&&targets.find(t=>e.x>=t.x&&e.x<t.x+t.w&&e.y>=t.y&&e.y<t.y+t.h);return hit?.run();},onMouse(data){
   const event=mouseEvent(data);if(!event)return false;
   if(dimensions!==`${tui.terminal.columns}:${tui.terminal.rows}`){tui.requestRender();return true;}
+  if(contextMenu){if(event.press){const hit=contextTargets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(event.button===0&&hit)contextAction(hit.index);else closeContext();}return true;}
+  if(event.press&&event.button===2&&editorRect&&event.x>=editorRect.x&&event.x<editorRect.x+editorRect.w&&event.y>=editorRect.y&&event.y<editorRect.y+editorRect.h){contextMenu={x:event.x,y:event.y,selected:0};tui.requestRender();return true;}
   if(event.press&&event.button===0){const hit=targets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(hit)void hit.run();}
   if(event.press&&(event.button===64||event.button===65))scroll=Math.max(0,scroll+(event.button===64?3:-3));
   tui.requestRender();return true;
