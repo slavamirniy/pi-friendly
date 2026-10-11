@@ -148,3 +148,18 @@ test('right click opens editor menu only in input and actions require a click',(
  surface.render(120);surface.onMouse('\x1b[<2;35;32M');surface.render(120);surface.handleContextInput('down');surface.handleContextInput('enter');assert.deepEqual(calls,['paste','clear']);
  surface.render(120);surface.onMouse('\x1b[<2;35;5M');assert.ok(!surface.render(120).map(strip).join('').includes('Удалить всё'));
 });
+
+
+test('left drag selects draft without Shift and compact context menu offers copy',async()=>{
+ const {createSelection}=await import('./selection.mjs');
+ const tui={terminal:{columns:120,rows:36},requestRender(){}},delegate={getText:()=> 'Привет мир',render:()=>['Привет мир']};
+ const selection=createSelection(delegate),calls=[];
+ const surface=createSurface({tui,delegate,ctx:{isIdle:()=>true},state:()=>({}),actions:{selection,copy:()=>calls.push(selection.text())},rendering:{truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k}});
+ const rows=surface.render(120).map(strip),y=rows.findIndex(r=>r.includes('Привет мир')),x=rows[y].indexOf('Привет мир');
+ surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);surface.onMouse(`\x1b[<32;${x+7};${y+1}M`);surface.onMouse(`\x1b[<0;${x+7};${y+1}m`);
+ assert.equal(selection.text(),'Привет');
+ surface.onMouse(`\x1b[<2;${x+2};${y+1}M`);const popup=surface.render(120).map(strip);
+ const copy=popup.findIndex(r=>r.includes('Копировать')),paste=popup.findIndex(r=>r.includes('Вставить')),clear=popup.findIndex(r=>r.includes('Удалить всё'));
+ assert.equal(paste,copy+1);assert.equal(clear,paste+1);
+ surface.handleContextInput('enter');assert.deepEqual(calls,['Привет']);
+});

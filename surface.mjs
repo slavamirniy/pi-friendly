@@ -1,3 +1,4 @@
+import {editorMap,offsetAt} from './selection.mjs';
 import {centered,buttonRows} from './buttons.mjs';
 import { clean, mouseEvent } from './menu.mjs';
 import { activityLabel } from './activity.mjs';
@@ -33,9 +34,10 @@ export function messageText(message) {
  return (message.content??[]).filter(c=>c.type==='text'||c.type==='image').map(c=>c.type==='image'?'[Прикреплено изображение]':c.text).join('\n');
 }
 export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
- let targets=[],dimensions='',scroll=0,editorRect,contextMenu,contextTargets=[];
+ let targets=[],dimensions='',scroll=0,editorRect,editorRows=[],dragAnchor,contextMenu,contextTargets=[];
  const closeContext=()=>{contextMenu=undefined;tui.requestRender();};
- const contextAction=index=>{closeContext();if(index===0)void actions.paste?.();else actions.clearEditor?.();};
+ const contextItems=()=>[...(actions.selection?.text()?[{label:'Копировать',run:actions.copy}]:[]),{label:'Вставить',run:actions.paste},{label:'Удалить всё',run:actions.clearEditor,danger:true}];
+ const contextAction=index=>{const item=contextItems()[index];closeContext();void item?.run?.();};
  const {truncate,measure}=rendering;
  const safeText=text=>String(text??'').split('\n').map(clean).join('\n');
  function render(width) {
@@ -81,12 +83,13 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const extra=voiceHint&&!voiceBusy?2:0;
   const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+2+(micW?micW+1:0):0));
   let editorAll=delegate.render(editorWidth);
-  const rule=line=>/^[─━╌┄\s]+$/.test(clean(line));
+  const rule=line=>/^[─━╌┄↑↓0-9\s]+$/.test(clean(line));
   if(editorAll.length>=3&&rule(editorAll[0])&&rule(editorAll.at(-1)))editorAll=editorAll.slice(1,-1);
   const editorLimit=Math.min(5,Math.max(1,height-10-extra-(inlineSend?0:micW?sendHeight:0)));
   const cursorLine=editorAll.findIndex(line=>line.includes("\x1b_pi:c\x07"));
   const editorStart=Math.min(Math.max(0,cursorLine-editorLimit+2),Math.max(0,editorAll.length-editorLimit));
   const editorLines=editorAll.slice(editorStart,editorStart+editorLimit);
+  editorRows=editorMap(delegate,editorAll).slice(editorStart,editorStart+editorLimit);
   const innerHeight=extra+(inlineSend?Math.max(editorLines.length,sendHeight):editorLines.length+sendHeight+(micW?sendHeight:0));
   const editorTop=height-innerHeight-4;
   const actionY=editorTop+1+(inlineSend?innerHeight-sendHeight:extra+editorLines.length+(micW?sendHeight:0));
@@ -103,6 +106,11 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const contentHeight=inlineSend?innerHeight:editorLines.length;
    const voiceRow=Math.floor(contentHeight/2);
    let text=(editorLines[i-extra]??'').replace(/\x1b\[[0-9;]*m/g,'');
+   const selection=actions.selection?.get(),mapped=editorRows[i-extra];
+   if(selection&&selection[0]!==selection[1]&&mapped&&!voiceBusy){
+    let offset=mapped.start;const plain=text.replace(/\x1b_pi:c\x07/g,'');let pos=0;
+    text=[...new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(plain)].map(({segment})=>{const inPadding=pos++<mapped.padding;const selected=!inPadding&&offset>=selection[0]&&offset<selection[1];if(!inPadding)offset+=segment.length;return selected?`\x1b[48;2;${p.selection}m${segment}\x1b[48;2;${p.canvas}m`:segment;}).join('');
+   }
    if(voiceBusy){
     text='';
     if(voice.phase==='recording')text=voiceWaveform(voice.levels,contentWidth,contentHeight)[i]??'';
@@ -199,16 +207,13 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   const frame=left.map((line,i)=>line+right[i]);contextTargets=[];
   if(contextMenu){
-   const w=Math.min(30,width),x=Math.max(0,Math.min(contextMenu.x,width-w)),y=Math.max(0,Math.min(contextMenu.y-7,height-7));
-   ['Вставить','Удалить всё'].forEach((label,index)=>{
-    buttonRows(label,w,truncate,measure).forEach((line,dy)=>{
-     const row=y+index*3+dy;
-     // Repaint complete tail with the same canvas; no native UI can show through.
-     frame[row]=truncate(frame[row],x,'')+paint(line,w,index===contextMenu.selected?p.selection:p.button,index===1?p.error:p.text)+paint('',width-x-w);
-    });
-    contextTargets.push({x,y:y+index*3,w,h:3,index});
+   const items=contextItems(),w=Math.min(24,width),x=Math.max(0,Math.min(contextMenu.x,width-w)),y=Math.max(0,Math.min(contextMenu.y-items.length-2,height-items.length-2));
+   const popup=[{text:'╭'+'─'.repeat(w-2)+'╮'},...items.map((item,index)=>({text:'│ '+truncate(item.label,w-4,'')+' '.repeat(Math.max(0,w-4-measure(item.label)))+' │',index,item})),{text:'╰'+'─'.repeat(w-2)+'╯'}];
+   popup.forEach(({text,index,item},dy)=>{
+    const row=y+dy;
+    frame[row]=truncate(frame[row],x,'')+paint(text,w,index===contextMenu.selected?p.selection:p.sidebar,item?.danger?p.error:p.text)+paint('',width-x-w);
+    if(item)contextTargets.push({x,y:row,w,h:1,index});
    });
-   frame[y+6]=truncate(frame[y+6],x,'')+paint('Esc — закрыть',w,p.sidebar,p.muted)+paint('',width-x-w);
    return frame.map(row=>row.replace(/\x1b_pi:c\x07/g,''));
   }
   return frame;
@@ -216,7 +221,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
  return {render,invalidate(){},handleContextInput(data){
   if(!contextMenu)return false;
   if(rendering.matchesKey?.(data,'escape'))closeContext();
-  else if(['up','down','tab'].some(k=>rendering.matchesKey?.(data,k))){contextMenu.selected=1-contextMenu.selected;tui.requestRender();}
+  else if(['up','down','tab'].some(k=>rendering.matchesKey?.(data,k))){contextMenu.selected=(contextMenu.selected+(rendering.matchesKey?.(data,'up')?-1:1)+contextItems().length)%contextItems().length;tui.requestRender();}
   else if(rendering.matchesKey?.(data,'enter'))contextAction(contextMenu.selected);
   else closeContext();
   return true;
@@ -225,7 +230,13 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   if(dimensions!==`${tui.terminal.columns}:${tui.terminal.rows}`){tui.requestRender();return true;}
   if(contextMenu){if(event.press){const hit=contextTargets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(event.button===0&&hit)contextAction(hit.index);else closeContext();}return true;}
   if(event.press&&event.button===2&&editorRect&&event.x>=editorRect.x&&event.x<editorRect.x+editorRect.w&&event.y>=editorRect.y&&event.y<editorRect.y+editorRect.h){contextMenu={x:event.x,y:event.y,selected:0};tui.requestRender();return true;}
-  if(event.press&&event.button===0){const hit=targets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(hit)void hit.run();}
+  const inside=editorRect&&event.x>=editorRect.x&&event.x<editorRect.x+editorRect.w&&event.y>=editorRect.y&&event.y<editorRect.y+editorRect.h;
+  const at=()=>offsetAt(editorRows[Math.max(0,Math.min(editorRows.length-1,event.y-editorRect.y))],event.x-editorRect.x,measure);
+  if(event.press&&event.button===0&&inside){dragAnchor=at();actions.selection?.clear();actions.placeCursor?.(dragAnchor);tui.requestRender();return true;}
+  if(dragAnchor!==undefined&&(event.button===32||!event.press)){
+   if(editorRect){const end=at();actions.selection?.set(dragAnchor,end);}if(!event.press)dragAnchor=undefined;tui.requestRender();return true;
+  }
+  if(event.press&&event.button===0){actions.selection?.clear();const hit=targets.find(t=>event.x>=t.x&&event.x<t.x+t.w&&event.y>=t.y&&event.y<t.y+t.h);if(hit)void hit.run();}
   if(event.press&&(event.button===64||event.button===65))scroll=Math.max(0,scroll+(event.button===64?3:-3));
   tui.requestRender();return true;
  },resetScroll(){scroll=0;}};

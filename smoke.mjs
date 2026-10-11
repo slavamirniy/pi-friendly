@@ -25,3 +25,18 @@ menu.handleInput("\x1b[B"); menu.handleInput("\r");
 assert.equal(result.label, "История разговоров");
 await writeFile(join(here, "design/rendered.txt"), lines.map(line => clean(line).trimEnd()).join("\n").trimEnd() + "\n");
 console.log("PASS: extension loaded by pi; real pi-tui keyboard/width checks passed.");
+
+const {Editor}=await import(pathToFileURL(join(resolve(packageDir),'node_modules/@earendil-works/pi-tui/dist/index.js')));
+const {editorMap,offsetAt,createSelection,moveCursor,cursorOffset}=await import('./selection.mjs');
+const editor=new Editor(tui,{borderColor:s=>s,selectList:{}});editor.focused=true;
+for(const draft of ['Привет мир','Одна строка\nДругая строка','emoji 👩‍💻 и 日本語','повтор\nповтор\nповтор','Очень длинный текст с переносами между словами и ещё несколькими словами']){
+ editor.setText(draft);
+ for(const width of [12,40]){
+  const map=editorMap(editor,editor.render(width).slice(1,-1));
+  for(const row of map){assert.equal(draft.slice(row.start,row.start+row.text.length),row.text);assert.equal(offsetAt(row,0,visibleWidth),row.start);}
+ }
+ const selection=createSelection(editor);selection.set(0,draft.length);assert.equal(selection.text(),draft);selection.remove();assert.equal(editor.getText(),'');
+}
+editor.setText('привет мир');moveCursor(editor,3);assert.equal(cursorOffset(editor),3);
+const selection=createSelection(editor);selection.set(6,3);assert.equal(selection.text(),'вет');selection.remove();editor.insertTextAtCursor('мер');assert.equal(editor.getText(),'пример мир');
+console.log('PASS: native editor selection, wrapped Russian/emoji text and replacement.');

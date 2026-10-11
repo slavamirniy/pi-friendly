@@ -38,7 +38,7 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         const paint=(text,w,selected=false)=>{
           const fitted=truncate(text,w,'');
           const row=fitted+' '.repeat(Math.max(0,w-measure(fitted)));
-          return p?`\x1b[48;2;${selected?p.selection||p.bubble:p.canvas}m`+fg(row,p.text)+'\x1b[0m':row;
+          return p?`\x1b[48;2;${selected===true?p.selection||p.bubble:selected==='card'?p.sidebar:p.canvas}m`+fg(row,p.text)+'\x1b[0m':row;
         };
         const cw=Math.min(80,width-4),left=Math.floor((width-cw)/2),rows=Array(height).fill(paint('',width));
         const put=(y,text,selected=false)=>{if(y>=0&&y<height)rows[y]=paint('',left)+paint(text,cw,selected)+paint('',width-left-cw);};
@@ -56,18 +56,18 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         for(const action of actions){
           const index=list.indexOf(action);
           put(y,color((selected===index?'› ':'  ')+clean(action.label),'accent'),selected===index);
-          targets.push({y,x:left,end:left+cw,index});y++;
+          targets.push({y,x:left,end:left+cw,index});y+=compact?1:2;
         }
         if(searchable)put(y++,color('Поиск: '+(query||'название или папка…'),'muted'));
-        const start=y,step=!compact&&height-start>=6?2:1,capacity=Math.max(1,Math.floor((height-start-2)/step));
+        const start=y+(compact?0:1),step=!compact&&height-y>=6?3:1,capacity=Math.max(1,Math.floor((height-start-2)/step));
         const entryIndex=Math.max(0,selected-actions.length);
         offset=Math.max(0,Math.min(offset,Math.max(0,entries.length-capacity)));
         if(selected>=actions.length){if(entryIndex<offset)offset=entryIndex;if(entryIndex>=offset+capacity)offset=entryIndex-capacity+1;}
         for(let i=offset;i<Math.min(entries.length,offset+capacity);i++){
           const item=entries[i],index=list.indexOf(item),active=index===selected,row=start+(i-offset)*step;
-          put(row,(active?'› ':'  ')+clean(item.label)+(item.current?' · текущий':''),active);
-          if(step===2)put(row+1,color('  '+clean(item.description),'muted'),active);
-          for(let n=0;n<step;n++)targets.push({y:row+n,x:left,end:left+cw,index});
+          put(row,(active?' › ':'   ')+clean(item.label)+(item.current?' · текущий':'')+'  ›',active||'card');
+          if(step===3)put(row+1,color('   '+clean(item.description),'muted'),active||'card');
+          for(let n=0;n<(step===3?2:1);n++)targets.push({y:row+n,x:left,end:left+cw,index});
         }
         if(!entries.length)put(start,color(query?'Ничего не найдено':'Список пока пуст','muted'));
         put(height-1,color('↑↓ выбор · Enter открыть · Esc закрыть'+(entries.length>capacity?` · ${Math.min(entryIndex+1,entries.length)}/${entries.length}`:''),'muted'));

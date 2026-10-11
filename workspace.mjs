@@ -1,3 +1,4 @@
+import {createSelection,moveCursor} from './selection.mjs';
 import { clean, mouseEvent } from "./menu.mjs";
 import { acquireMouse } from "./mouse.mjs";
 import { createSurface } from "./surface.mjs";
@@ -6,6 +7,7 @@ import { createSurface } from "./surface.mjs";
 // properties remain delegated, including image paste, history and app actions.
 export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions, footerHeight = () => 1, slashEnabled = true, viewState = () => ({}), cleanView = false }) {
   const { truncate, measure, matchesKey } = rendering;
+  const selection=createSelection(delegate);
   let technical = false, heldFrame;
   const transitionKey=Symbol.for('pi-friendly.transition');
   const transitions=globalThis[transitionKey]??=new Map();
@@ -107,8 +109,10 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
   const surface = createSurface({ tui, delegate, rendering, ctx,
     state: () => ({ ...viewState(), suggestions: slash() ? suggestions : [], selected }),
     actions: { ...actions,
-      clearEditor:()=>{delegate.setText('');void refresh();},
-      paste:async()=>{try{const text=await rendering.readClipboardText?.();if(disposed)return;if(text){delegate.insertTextAtCursor?.(text);void refresh();}else ctx.ui?.notify('Буфер обмена пуст.','info');}catch(error){if(!disposed)ctx.ui?.notify(error.message,'warning');}},
+      selection,placeCursor:offset=>moveCursor(delegate,offset),
+      copy:async()=>{try{await rendering.copyToClipboard?.(selection.text());}catch(error){ctx.ui?.notify(error.message,'warning');}},
+      clearEditor:()=>{selection.clear();delegate.setText('');void refresh();},
+      paste:async()=>{try{const text=await rendering.readClipboardText?.();if(disposed)return;if(text){selection.remove();delegate.insertTextAtCursor?.(text);void refresh();}else ctx.ui?.notify('Буфер обмена пуст.','info');}catch(error){if(!disposed)ctx.ui?.notify(error.message,'warning');}},
       submit, complete, technical: () => { technical = true; tui.requestRender(); }, more: actions.more || actions.menu },
   });
   const surfaceHandle = tui.showOverlay({invalidate:()=>surface.invalidate(),render:width=>{const rows=heldFrame && heldFrame.width===width && heldFrame.rows.length===tui.terminal.rows ? heldFrame.rows : surface.render(width);const release=transitions.get(tui);if(release)queueMicrotask(release);return rows;}}, { row: 0, col: 0, width: "100%", maxHeight: "100%", nonCapturing: true, visible: () => cleanView && !technical && focused() });
@@ -147,6 +151,12 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     },
     handleInput(data) {
       if(surface.handleContextInput(data))return;
+      if(selection.text()){
+        if(matchesKey(data,'ctrl+c')){void rendering.copyToClipboard?.(selection.text());return;}
+        if(matchesKey(data,'backspace')||matchesKey(data,'delete')){selection.remove();void refresh();return;}
+        if(data.startsWith('\x1b[200~')||!/[\x00-\x1f\x7f-\x9f]/.test(data))selection.remove();
+        else selection.clear();
+      }
       if(matchesKey(data,'enter')&&['starting','recording','transcribing'].includes(viewState().voice?.phase)){
         if(viewState().voice?.phase==='recording')actions.voice?.();
         return;
@@ -162,7 +172,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       if(viewState().needsProject && matchesKey(data,"enter") && !delegate.getText().startsWith("/")){void actions.newChat();return;}
       delegate.handleInput(data); void refresh();
     },
-    setText(text) { delegate.setText(text); suppressed = ""; void refresh(); },
+    setText(text) { selection.clear();delegate.setText(text); suppressed = ""; void refresh(); },
     setAutocompleteProvider(next) {
       provider = next;
       delegate.setAutocompleteProvider?.(new Proxy(next, { get(target, key) {

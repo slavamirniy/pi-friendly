@@ -1,6 +1,6 @@
 import {readClipboardText} from './clipboard.mjs';
 import { createVoiceService } from './voice.mjs';
-import { CustomEditor, SessionManager, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { copyToClipboard, CustomEditor, SessionManager, getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Input, Markdown, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { installFriendly } from "./friendly.mjs";
 export default function friendly(pi: ExtensionAPI) {
   const preferencePath = join(getAgentDir(), "friendly-ui.json");
-  installFriendly(pi, { readClipboardText, matchesKey, truncate: truncateToWidth, measure: visibleWidth,
+  installFriendly(pi, { copyToClipboard, readClipboardText, matchesKey, truncate: truncateToWidth, measure: visibleWidth,
     makeInput: () => new Input(),
     createVoice: callbacks => createVoiceService({root:join(getAgentDir(),'friendly-voice'),...callbacks}),
     makeEditor: (tui, theme, keys) => new CustomEditor(tui, theme, keys),
