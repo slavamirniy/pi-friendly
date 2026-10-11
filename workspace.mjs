@@ -59,6 +59,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     await delegate.onSubmit(text);
   }
   function submit() {
+    if(viewState().webActive||viewState().loading)return;
     if (!ctx.isIdle() || !delegate.getText().trim() || ['starting','recording','transcribing'].includes(viewState().voice?.phase)) return;
     if(viewState().needsProject && !delegate.getText().startsWith("/")){void actions.newChat();return;}
     clear(); suppressed = delegate.getText();
@@ -128,6 +129,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
     dropdownHandle = tui.showOverlay(dropdown, { anchor: "bottom-left", offsetY: -footer, width: "100%", nonCapturing: true, visible: () => (!cleanView || technical) && Boolean(listHeight()) });
   }
   const removeInput = tui.addInputListener(data => {
+    if(viewState().webActive||viewState().loading)return {consume:true};
     const mouse = mouseEvent(data);
     if (!mouse || !focused()) return undefined;
     if (cleanView && !technical) { surface.onMouse(data); return { consume: true }; }
@@ -150,6 +152,7 @@ export function createWorkspace({ delegate, tui, theme, rendering, ctx, actions,
       return [...delegate.render(width), ...Array(listHeight()).fill("")];
     },
     handleInput(data) {
+      if(viewState().webActive||viewState().loading)return;
       if(surface.handleContextInput(data))return;
       if(selection.text()){
         if(matchesKey(data,'ctrl+c')){void rendering.copyToClipboard?.(selection.text());return;}

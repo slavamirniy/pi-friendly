@@ -7,7 +7,7 @@ function fixture(w=100,h=30){
  const calls=[];const tui={terminal:{columns:w,rows:h},requestRender(){}};
  const data={scheme:'light',statuses:['Осталось 993 тыс.'],live:{role:'assistant',timestamp:1,content:[{type:'thinking',thinking:'PRIVATE THOUGHT'},{type:'text',text:'Привет! Чем могу помочь?'}]}};
  const ctx={isIdle:()=>true,model:{name:'Kimi K3'},sessionManager:{getBranch:()=>[]}};
- const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit','voice'].map(k=>[k,()=>calls.push(k)]));
+ const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit','voice','web'].map(k=>[k,()=>calls.push(k)]));
  const delegate={getText:()=>'',render:width=>['─'.repeat(width),'','─'.repeat(width)]};
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
  return{surface,tui,data,calls,ctx,delegate};
@@ -25,7 +25,7 @@ test('all rendered rows fit viewport, sidebar targets do not overlap at short he
 });
 test('dark theme, tool progress and errors remain readable',()=>{
  const h=fixture();h.data.scheme='dark';h.data.widgets=[['Генерация · 12 с']];h.data.live.errorMessage='Connection failed';
- const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Не удалось связаться с сервисом'));assert.ok(!text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;26;29;33/);
+ const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Не удалось получить ответ'));assert.ok(!text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;26;29;33/);
 });
 test('live assistant replaces matching saved message instead of duplicating it',()=>{
  const old={role:'assistant',timestamp:1,content:[{type:'text',text:'old'}]};const live={...old,content:[{type:'text',text:'new'}]};
@@ -35,8 +35,8 @@ test('live assistant replaces matching saved message instead of duplicating it',
 
 test('errors stay visible over progress and open technical details',()=>{
  const h=fixture();h.data.error={raw:'HTTP 429 too many requests'};h.data.widgets=[['Progress is running']];
- const rows=h.surface.render(100).map(strip);assert.ok(rows.join('\n').includes('Слишком много запросов'));
- const y=rows.findIndex(r=>r.includes('Подробнее'));h.surface.onMouse(`\x1b[<0;30;${y+1}M`);assert.deepEqual(h.calls,['errorDetails']);
+ const rows=h.surface.render(100).map(strip);assert.ok(rows.join('\n').includes('Не удалось получить ответ'));
+ const y=rows.findIndex(r=>r.includes('Подробнее'));h.surface.onMouse(`\x1b[<0;30;${y+1}M`);assert.deepEqual(h.calls,[]);assert.ok(h.surface.render(100).map(strip).join(' ').includes('HTTP 429 too many requests'));
  for(const w of [44,60,100])for(const height of [12,20,30]){const f=fixture(w,height);f.data.error={raw:'HTTP 503 unavailable'};const r=f.surface.render(w).map(strip);assert.equal(r.length,height);assert.ok(r.every(l=>l.length===w));assert.ok(r.join('\n').includes('Подробнее'));}
 });
 test('three-row send target is usable without the bottom activity panel',()=>{
@@ -172,5 +172,27 @@ test('sidebar dividers sit at the bottom cell edge and rows remain contiguous',(
   assert.ok(rows[y+1].slice(0,26).trim().length>0);
   assert.equal(rows[y+2].slice(0,26),'▁'.repeat(26));
  }
- assert.equal(rows[31].slice(0,26),'▁'.repeat(26));
+ assert.equal(rows[35].slice(0,26),'▁'.repeat(26));
+});
+
+test('web entry is visible at compact heights, exit is last and hover does not activate',()=>{
+ for(const height of [21,24,27,36]){
+  const h=fixture(100,height),rows=h.surface.render(100).map(strip),side=rows.map(r=>r.slice(0,26));
+  assert.ok(side.some(r=>/Веб-интерфейс|Открыть в браузере/.test(r)));
+  const exit=side.findIndex(r=>r.includes('Выйти')),model=side.findIndex(r=>r.includes('Kimi'));
+  assert.equal(exit,height-2);assert.ok(model<exit);
+  const before=h.surface.render(100)[exit];h.surface.onMouse(`\x1b[<35;10;${exit+1}M`);
+  assert.notEqual(h.surface.render(100)[exit],before);assert.deepEqual(h.calls,[]);
+ }
+});
+test('web lock hides terminal chat and ignores mouse actions',()=>{
+ const h=fixture();h.data.webActive=true;const text=h.surface.render(100).map(strip).join('');
+ assert.ok(text.includes('Сейчас идёт работа в веб-интерфейсе'));assert.ok(!text.includes('Привет!'));
+ h.surface.onMouse('\x1b[<0;10;6M');assert.deepEqual(h.calls,[]);
+});
+
+test('provider errors remain hidden while pi is still running retries',()=>{
+ const h=fixture();h.data.running=true;h.data.live.errorMessage='Connection failed';h.data.error={raw:'Connection failed'};
+ const text=h.surface.render(100).map(strip).join('');assert.ok(!text.includes('Не удалось получить ответ'));assert.ok(!text.includes('Connection failed'));
+ h.data.running=false;assert.ok(h.surface.render(100).map(strip).join('').includes('Подробнее'));
 });

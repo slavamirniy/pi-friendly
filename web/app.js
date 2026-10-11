@@ -8,22 +8,22 @@ $('theme').replaceChildren(icon('theme'),el('span','Тёмная тема','nav-
 $('exit').setAttribute('aria-label','Выйти');$('exit').replaceChildren(icon('exit'),el('span','Выйти'));
 const brand=document.querySelector('.brand');brand.childNodes.forEach(n=>{if(n.nodeType===3&&n.textContent.trim()){const span=el('span',n.textContent,'brand-name');n.replaceWith(span);}});brand.onclick=e=>{e.preventDefault();task(()=>navigate('projects'));};
 let renderedMessages;
-let page='projects',projectId=null,catalog=[],modelList=[],state={},source,connected=false,working=false,lastChat,questionId,dictationId,searchValue='';
+let page='projects',projectId=null,catalog=[],modelList=[],state={},source,connected=false,working=false,lastChat,questionId,dictationId,searchValue='',searchOpen=false,operationLabel='';
 const draftKey=id=>'pf-draft-'+(id||'new');
 function saved(id){try{return localStorage.getItem(draftKey(id))||'';}catch{return '';}}
 function store(id,text){try{localStorage.setItem(draftKey(id),text);}catch{}}
-function showError(text){$('error').textContent=text||'';$('error').hidden=!text;}
+function showError(text){if($('error-text').textContent!==(text||''))$('error').open=false;$('error-text').textContent=text||'';$('error').hidden=!text;}
 async function api(path,data){const res=await fetch('/api/'+path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const value=await res.json();if(!res.ok)throw new Error(value.error||'Не удалось выполнить действие.');return value;}
 async function task(fn){try{await fn();}catch(error){showError(error.message);} }
 function canSwitch(){if(working||state.busy||state.loading||['starting','recording','transcribing'].includes(state.voice?.phase))throw new Error('Дождитесь завершения действия или остановите ответ.');}
 async function loadCatalog(){catalog=(await api('catalog')).projects;}
-async function navigate(next){store(state.active?.id,$('draft').value);searchValue='';
+async function navigate(next){if(working||state.loading)return;store(state.active?.id,$('draft').value);searchValue='';searchOpen=false;
  if(next==='new'){canSwitch();if(state.active?.projectId){await openAction('new-chat',{project:state.active.projectId});return;}next='projects';}
- if(next==='projects'){await loadCatalog();projectId=null;}
+ if(next==='projects'){working=true;operationLabel='Загружаю проекты…';renderStatus();try{await loadCatalog();projectId=null;}finally{working=false;renderStatus();}}
  if(next==='models'){if(!state.active||state.active.readOnly)throw new Error('Сначала откройте или создайте чат в проекте.');modelList=(await api('models')).models;}
  page=next;renderRoute();
 }
-async function openAction(action,data){canSwitch();working=true;renderStatus();try{const next=await api(action,data);applyState(next);page='chat';renderRoute();await loadCatalog();}finally{working=false;renderStatus();}}
+async function openAction(action,data){canSwitch();working=true;operationLabel=action==='create-project'?'Создаю проект…':action==='new-chat'?'Создаю разговор…':'Открываю разговор…';renderStatus();try{const next=await api(action,data);applyState(next);page='chat';renderRoute();await loadCatalog();}finally{working=false;renderStatus();}}
 function plural(n,one,few,many){const mod=n%100;return n+' '+(mod>=11&&mod<=14?many:n%10===1?one:n%10>=2&&n%10<=4?few:many);}
 function titleForPage(){return page==='projects'?'Ваши проекты':page==='create'?'Новый проект':page==='models'?'Выбор модели':page==='chats'?catalog.find(p=>p.id===projectId)?.name||'Разговоры':state.active?.projectName||'Разговор';}
 function renderRoute(){
@@ -42,7 +42,9 @@ function renderRoute(){
  }
  if(page==='chats')root.append(button('← Все проекты',()=>navigate('projects'),'back'));
  root.append(el('h1',titleForPage()),el('p',page==='projects'?'Выберите проект, чтобы продолжить работу.':page==='models'?'Модель можно сменить для текущего разговора.':'Общие файлы проекта, отдельная переписка в каждом чате.','intro'));
- const toolbar=el('div',null,'toolbar'),search=el('input',null,'search');search.type='search';search.placeholder=page==='projects'?'Найти проект…':page==='models'?'Найти модель…':'Найти разговор…';search.setAttribute('aria-label',search.placeholder);search.value=searchValue;toolbar.append(search);
+ const toolbar=el('div',null,'toolbar'),search=el('input',null,'search');search.type='search';search.placeholder=page==='projects'?'Найти проект…':page==='models'?'Найти модель…':'Найти разговор…';search.setAttribute('aria-label',search.placeholder);search.value=searchValue;search.id='list-search';search.hidden=!searchOpen&&page!=='models';
+ const toggle=button('Поиск',()=>{searchOpen=!searchOpen;search.hidden=!searchOpen;toggle.setAttribute('aria-expanded',String(searchOpen));if(searchOpen)search.focus();else{search.value='';renderList();toggle.focus();}},'search-toggle');toggle.setAttribute('aria-controls',search.id);toggle.setAttribute('aria-expanded',String(searchOpen));if(page!=='models')toolbar.append(toggle);toolbar.append(search);
+ search.onkeydown=e=>{if(e.key==='Escape'&&page!=='models'){e.stopPropagation();if(searchOpen)toggle.click();}};
  if(page==='projects')toolbar.append(button('＋ Создать проект',()=>{canSwitch();page='create';renderRoute();},'primary'));
  if(page==='chats')toolbar.append(button('＋ Новый чат',()=>openAction('new-chat',{project:projectId}),'primary'));
  root.append(toolbar);const list=el('div',null,'list');root.append(list);
@@ -51,7 +53,7 @@ function renderRoute(){
   const filtered=entries.filter(e=>(e.name+' '+(e.provider||'')).toLocaleLowerCase().includes(q));
   if(!filtered.length){const empty=el('div',null,'empty');empty.append(el('h2',q?'Ничего не найдено':page==='projects'?'Начните с первого проекта':'Пока нет разговоров'),el('p',q?'Попробуйте другое название.':page==='projects'?'Проект объединяет файлы и разговоры об одной задаче.':'Нажмите «Новый чат», чтобы начать.'));list.append(empty);return;}
   for(const item of filtered){const b=button('',async()=>{
-   if(page==='projects'){projectId=item.id;page='chats';searchValue='';renderRoute();}
+   if(page==='projects'){if(working)return;working=true;operationLabel='Открываю проект…';renderStatus();try{await api('open-project',{project:item.id});projectId=item.id;page='chats';searchValue='';searchOpen=false;renderRoute();}finally{working=false;renderStatus();}}
    else if(page==='models'){canSwitch();await api('model',{chat:state.active.id,id:item.id,provider:item.provider});page='chat';renderRoute();}
    else await openAction('open',{id:item.id});
   },'item');const copy=el('span',null,'copy');copy.append(el('strong',item.name));copy.append(el('small',page==='projects'?plural(item.chats.length,'разговор','разговора','разговоров'):page==='models'?item.provider+(state.active?.model?.id===item.id&&state.active?.model?.provider===item.provider?' · выбрана':''):`${new Date(item.modified).toLocaleDateString('ru-RU')} · ${plural(item.count,'сообщение','сообщения','сообщений')}${item.terminal?' · открыт в консоли':''}`));b.append(icon(page==='projects'?'projects':page==='models'?'models':'chat'),copy,icon('arrow'));list.append(b);}
@@ -59,9 +61,24 @@ function renderRoute(){
 }
 function inline(parent,text){const re=/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;let last=0;for(const match of text.matchAll(re)){parent.append(document.createTextNode(text.slice(last,match.index)));const t=match[0];if(t.startsWith('`'))parent.append(el('code',t.slice(1,-1)));else if(t.startsWith('**'))parent.append(el('strong',t.slice(2,-2)));else{const [,name,url]=/^\[([^\]]+)\]\(([^)]+)\)$/.exec(t);const a=el('a',name);a.href=url;a.target='_blank';a.rel='noopener noreferrer';parent.append(a);}last=match.index+t.length;}parent.append(document.createTextNode(text.slice(last)));}
 function markdown(parent,text){let code=null;for(const line of text.split('\n')){if(line.startsWith('```')){if(code){parent.append(code);code=null;}else code=el('pre');continue;}if(code){code.textContent+=line+'\n';continue;}if(!line.trim())continue;const heading=/^(#{1,3})\s+(.*)/.exec(line);const node=el(heading?'h3':'p');inline(node,heading?heading[2]:line);parent.append(node);}if(code)parent.append(code);}
-function renderMessages(){if(page!=='chat')return;const signature=JSON.stringify(state.messages||[]);if(signature===renderedMessages)return;renderedMessages=signature;const area=$('messages'),nearBottom=area.scrollHeight-area.scrollTop-area.clientHeight<100;const frag=document.createDocumentFragment();
- for(const m of state.messages||[]){if(!m.text&&!m.tools?.length&&!m.error)continue;const row=el('article',null,'message '+m.role);row.append(el('div',m.role==='user'?'Вы':'Просто pi','message-label'));markdown(row,m.text||'');for(const t of m.tools||[]){const tool=el('div',null,'tool '+(t.status||''));tool.append(el('span',t.status==='done'?'✓':t.status==='error'?'!':'·'),el('span',t.label));row.append(tool);}if(m.error)row.append(el('p',m.error,'form-error'));frag.append(row);}
- if(!frag.childNodes.length){const welcome=el('div',null,'empty');welcome.append(el('h2','Чем могу помочь?'),el('p','Опишите задачу своими словами.'));frag.append(welcome);}area.replaceChildren(frag);if(nearBottom)area.scrollTop=area.scrollHeight;
+const expandedDetails=new Map();
+function disclosure(key,label,body,cls){const box=el('details',null,cls);box.open=expandedDetails.get(key)||false;box.append(el('summary',label),body);box.ontoggle=()=>expandedDetails.set(key,box.open);return box;}
+function renderMessages(){if(page!=='chat')return;const signature=JSON.stringify([state.messages||[],Boolean(state.busy)]);if(signature===renderedMessages)return;renderedMessages=signature;const area=$('messages'),nearBottom=area.scrollHeight-area.scrollTop-area.clientHeight<100,oldTop=area.scrollTop;const frag=document.createDocumentFragment();
+ (state.messages||[]).forEach((m,i)=>{
+  if(!m.text&&!m.thinking&&!m.tools?.length&&!m.error&&m.status!=='streaming')return;
+  const key=(state.active?.id||'')+':'+i,row=el('article',null,'message '+m.role);row.append(el('div',m.role==='user'?'Вы':'Просто pi','message-label'));
+  if(m.thinking){const body=el('div',null,'reasoning-text');markdown(body,m.thinking);row.append(disclosure(key+':thinking',m.status==='streaming'&&!m.text?'Размышляет…':'Размышления',body,'reasoning'));}
+  const text=el('div',null,'answer');markdown(text,m.text||'');row.append(text);
+  if(m.status==='streaming'&&!m.text&&!m.thinking&&!m.tools?.length)row.append(el('p','Готовит ответ…','stream-label'));
+  for(const t of m.tools||[]){const status=t.status||'pending',labels={pending:'Подготовка',running:'Выполняется',done:'Готово',error:'Ошибка',stopped:'Остановлено'},body=el('div',null,'tool-detail');if(t.path)body.append(el('p',t.path,'file-path'));if(t.command)body.append(el('pre',t.command));if(t.output)body.append(el('pre',t.output));if(!body.childNodes.length)body.append(el('p',status==='running'?'Ожидаю результат…':status==='error'?'Действие завершилось с ошибкой.':'Дополнительных сведений нет.'));const label=status==='done'?t.label.replace('Создаю файл','Файл записан').replace('Обновляю файл','Файл изменён').replace('Читаю файл','Файл прочитан'):t.label;const tool=disclosure(key+':'+t.id,`${status==='done'?'✓':status==='error'?'!':status==='stopped'?'■':'·'} ${label} · ${labels[status]}`,body,'tool-card '+status);row.append(tool);}
+  if(m.error&&!state.busy&&!state.messages.slice(i+1).some(n=>n.role==='assistant'&&!n.error&&(n.text||n.tools?.length))){row.append(disclosure(key+':error','Не удалось получить ответ · Подробнее',el('pre',m.error),'message-error'));}
+  if(m.status==='stopped')row.append(el('p','Ответ прерван. Полученная часть сохранена.','stream-label'));
+  if(m.retained)row.append(el('p','Сохранённый фрагмент: сервис не вернул его в итоговой истории.','stream-label'));
+  if(m.versions?.length){const body=el('div');for(const v of m.versions)body.append(el('pre',v.text||v.thinking));row.append(disclosure(key+':versions','Предыдущий фрагмент ответа · сервис заменил текст',body,'reasoning'));}
+  if(m.usage?.output>0)row.append(el('div',`${m.usage.output.toLocaleString('ru-RU')} токенов в ответе`,'token-count'));
+  frag.append(row);
+ });
+ if(!frag.childNodes.length){const welcome=el('div',null,'empty');welcome.append(el('h2','Чем могу помочь?'),el('p','Опишите задачу своими словами.'));frag.append(welcome);}area.replaceChildren(frag);area.scrollTop=nearBottom?area.scrollHeight:oldTop;
 }
 function renderQuestion(){const q=(state.questions||[]).find(q=>!q.expires||q.expires>Date.now());if(q?.id===questionId)return;questionId=q?.id;$('question').replaceChildren();if(!q)return;
  const box=el('div',null,'question');box.append(el('h2',q.title||'Нужен ваш ответ'));if(q.message)box.append(el('p',q.message));const actions=el('div',null,'question-actions');const answer=data=>api('answer',{chat:state.active?.id,id:q.id,...data});
@@ -71,11 +88,12 @@ function renderQuestion(){const q=(state.questions||[]).find(q=>!q.expires||q.ex
  actions.append(button('Отмена',()=>answer({cancelled:true})));box.append(actions);$('question').append(box);
 }
 function renderStatus(){
+ const navigating=working||state.loading;$('navigation-loading').hidden=!navigating;$('navigation-loading').textContent=navigating?(operationLabel||'Открываю разговор…'):'';$('page').inert=Boolean(navigating);$('page').setAttribute('aria-busy',String(Boolean(navigating)));
  const busy=working||state.loading||state.busy,v=state.voice,record=['starting','recording','transcribing'].includes(v?.phase);$('exit').disabled=Boolean(busy||record);
  $('send').disabled=!connected||working||state.loading||record||state.active?.readOnly||(!state.busy&&!$('draft').value.trim());$('send').textContent=state.busy?'Остановить':'Отправить ↑';
  $('draft').disabled=Boolean(state.active?.readOnly||!connected);$('readonly').hidden=!state.active?.readOnly;
  $('mic').disabled=!connected||!state.active||state.active.readOnly||working||state.loading||state.busy||v?.phase==='transcribing';$('mic').replaceChildren(icon(v?.phase==='recording'?'stop':'mic'));$('mic').setAttribute('aria-label',v?.phase==='recording'?'Закончить запись':'Начать диктовку');
- $('activity').textContent=working||state.loading?'Открываю разговор…':state.busy?'Помощник работает…':state.questions?.length?'Нужен ваш ответ':'';
+ $('activity').textContent=working||state.loading?'Открываю разговор…':state.busy?(state.messages?.flatMap(m=>m.tools||[]).findLast(t=>t.status==='running')?.label||((state.messages?.at(-1)?.thinking&&!state.messages?.at(-1)?.text)?'Размышляет…':'Пишет ответ…')):state.questions?.length?'Нужен ваш ответ':'';
  $('voice-view').hidden=!record;$('draft').style.visibility=record?'hidden':'visible';
  if(record){$('voice-label').textContent=v.phase==='recording'?`${Math.floor((v.seconds||0)/60)}:${String((v.seconds||0)%60).padStart(2,'0')} · Enter — закончить`:v.phase==='transcribing'?`Распознаю · ${Math.round(v.percent||0)}%`:'Включаю микрофон…';drawWave(v.levels||[]);}
  const setup=$('voice-setup');setup.replaceChildren();if(v&&['installing','downloading','loading','error'].includes(v.phase)){setup.append(el('span',v.phase==='error'?'Голос не загрузился':v.label||'Подготовка голоса'));if(Number.isFinite(v.percent)){setup.append(el('span',` · ${Math.round(v.percent)}%`));const p=el('progress');p.max=100;p.value=v.percent;setup.append(p);}}
@@ -87,7 +105,7 @@ function drawWave(levels){const canvas=$('wave'),width=canvas.clientWidth;if(!wi
 function applyState(next){const previous=state.active?.id;state=next;
  if(previous!==state.active?.id){store(previous,$('draft').value);$('draft').value=saved(state.active?.id);questionId=undefined;}
  if(state.dictation&&state.dictation.id!==dictationId){dictationId=state.dictation.id;const d=state.dictation,old=d.chat===state.active?.id?$('draft').value:saved(d.chat),text=d.replace?d.text:old+(old?' ':'')+d.text;store(d.chat,text);if(d.chat===state.active?.id)$('draft').value=text;}
- if(state.error)showError(state.error);if(state.active&&!lastChat){lastChat=state.active.id;page='chat';renderRoute();}renderMessages();renderStatus();
+ if(state.error&&!state.messages?.some(m=>m.error===state.error))showError(state.error);else if(!state.error||state.messages?.some(m=>m.error===state.error))showError('');if(state.active&&!lastChat){lastChat=state.active.id;page='chat';renderRoute();}renderMessages();renderStatus();
 }
 $('draft').oninput=()=>{store(state.active?.id,$('draft').value);renderStatus();};
 $('draft').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(state.voice?.phase==='recording'){e.stopPropagation();task(()=>api('voice',{chat:state.active?.id}));}else if(!state.busy)$('composer').requestSubmit();}};
@@ -95,7 +113,7 @@ $('composer').onsubmit=e=>{e.preventDefault();task(async()=>{if(state.busy){awai
 $('mic').onclick=()=>task(async()=>{if(['installing','downloading','loading'].includes(state.voice?.phase)){$('voice-setup').classList.add('highlight');setTimeout(()=>$('voice-setup').classList.remove('highlight'),2500);throw new Error('← Для голосового ввода дождитесь загрузки голосовой модели.');}await api('voice',{chat:state.active?.id});});
 function theme(value){document.documentElement.dataset.theme=value;try{localStorage.setItem('pf-theme',value);}catch{}$('theme').querySelector('.nav-text').textContent=value==='dark'?'Светлая тема':'Тёмная тема';$('theme').setAttribute('aria-label',$('theme').querySelector('.nav-text').textContent);}
 try{theme(localStorage.getItem('pf-theme')||'light');}catch{theme('light');}$('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
-$('exit').onclick=()=>{if(!$('exit').disabled)$('exit-dialog').showModal();};$('cancel-exit').onclick=()=>$('exit-dialog').close();$('confirm-exit').onclick=()=>task(async()=>{await api('close',{});source?.close();connected=false;$('exit-dialog').close();$('connection').textContent='Веб-интерфейс закрыт';renderStatus();showError('Веб-интерфейс закрыт. Эту вкладку можно закрыть; pi остаётся в консоли.');});
+$('exit').onclick=()=>{if(!$('exit').disabled)$('exit-dialog').showModal();};$('cancel-exit').onclick=()=>$('exit-dialog').close();$('confirm-exit').onclick=()=>task(async()=>{await api('close',{});source?.close();connected=false;$('exit-dialog').close();$('connection').textContent='Веб-интерфейс закрыт';renderStatus();showError('Работа завершена. pi закрыт. Если вкладка осталась открытой, закройте её вручную.');window.close();});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing&&state.voice?.phase==='recording'){e.preventDefault();task(()=>api('voice',{chat:state.active?.id}));}});
 window.addEventListener('beforeunload',()=>store(state.active?.id,$('draft').value));
 await task(async()=>{const token=location.hash.slice(1);if(token){await api('auth',{token});history.replaceState(null,'',location.pathname);}await loadCatalog();renderRoute();source=new EventSource('/api/events');source.onopen=()=>{connected=true;$('connection').textContent='На этом компьютере';renderStatus();};source.onmessage=e=>applyState(JSON.parse(e.data));source.onerror=()=>{connected=false;$('connection').textContent='Соединение прервано';renderStatus();};});

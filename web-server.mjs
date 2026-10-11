@@ -6,15 +6,9 @@ import {folderKey} from './projects.mjs';
 import {clean} from './menu.mjs';
 import {activityLabel} from './activity.mjs';
 const key=value=>createHash('sha256').update(value).digest('hex').slice(0,24);
-export function publicMessage(message){
- const content=typeof message.content==='string'?[{type:'text',text:message.content}]:message.content||[];
- return {role:message.role,text:content.filter(c=>c.type==='text').map(c=>c.text).join('\n'),tools:content.filter(c=>c.type==='toolCall').map(c=>({id:c.id,label:activityLabel(c.name,c.arguments||{})})),error:message.errorMessage?clean(message.errorMessage):undefined};
-}
-export function publicMessages(messages){
- const results=new Map(messages.filter(m=>m.role==='toolResult').map(m=>[m.toolCallId,m]));
- return messages.filter(m=>['user','assistant'].includes(m.role)).map(m=>{const value=publicMessage(m);for(const t of value.tools){const result=results.get(t.id);if(result){t.status=result.isError?'error':'done';if(!result.isError)t.label=t.label.replace('Создаю файл','Файл записан').replace('Обновляю файл','Файл изменён').replace('Читаю файл','Файл прочитан');}}return value;});
-}
-export async function startWebServer({projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0}){
+import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,updateTool} from './web-messages.mjs';
+export {publicMessage,publicMessages} from './web-messages.mjs';
+export async function startWebServer({projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{}}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
  let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],voice:voice?.state||null,dictation:null};
@@ -23,26 +17,35 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
  const changed=()=>{if(!publishTimer)publishTimer=setTimeout(broadcast,35);};
  const unsub=voice?.subscribe?.(event=>{if(event.type==='state'){state.voice=event.state;if(['ready','error'].includes(event.state.phase))voiceOwned=false;changed();}if(event.type==='text'&&event.context?.web){state.dictation={id:randomBytes(8).toString('hex'),text:event.text,chat:event.context.chat};voiceOwned=false;changed();}if(event.type==='error'&&voiceOwned){state.error=event.message;voiceOwned=false;changed();}});
  async function catalog(){allProjects=projects.list();const registered=new Set(allProjects.map(p=>folderKey(p.cwd)));allSessions=(await listSessions()).filter(s=>s.cwd&&registered.has(folderKey(s.cwd)));return allProjects.map(p=>({id:key(folderKey(p.cwd)),name:p.name,folder:p.cwd,chats:allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||s.firstMessage?.slice(0,80)||'Новый разговор',modified:s.modified,count:s.messageCount||0,terminal:s.path===hostSession()}))}));}
- const ensureIdle=()=>{if(loading||navigating||state.busy||voiceOwned)throw new Error('Сначала завершите запись или остановите ответ.');};
+ const ensureIdle=()=>{if(loading||navigating||state.busy||voiceOwned||!canExit())throw new Error('Сначала завершите запись или остановите ответ.');};
  function eventHandler(event,epoch){
   if(epoch!==generation||disposed)return;
-  if(event.type==='agent_start')state.busy=true;
-  if(event.type==='agent_end'){state.busy=false;rpc?.request('get_messages').then(data=>{if(epoch===generation){state.messages=publicMessages(data?.messages||[]);changed();}}).catch(()=>{});}
-  if(event.type==='message_start'&&['user','assistant'].includes(event.message?.role))state.messages.push(publicMessage(event.message));
+  if(event.type==='agent_start'){state.busy=true;state.error=null;}
+  if(event.type==='agent_end'){rpc?.request('get_messages').then(data=>{if(epoch===generation){state.messages=reconcileMessages(state.messages,publicMessages(data?.messages||[]));changed();}}).catch(()=>{});}
+  if(event.type==='message_start'&&['user','assistant'].includes(event.message?.role))state.messages.push({...publicMessage(event.message),status:event.message.role==='assistant'?'streaming':'done'});
   if(event.type==='message_update'){
-   const delta=event.assistantMessageEvent,last=state.messages.at(-1);
-   if(last?.role==='assistant'&&event.message)state.messages[state.messages.length-1]=publicMessage(event.message);
-   else if(last?.role==='assistant'&&delta?.type==='text_delta')last.text+=delta.delta;
-   if(last?.role==='assistant'&&delta?.type==='toolcall_end'&&delta.toolCall){const c=delta.toolCall;if(!last.tools.some(t=>t.id===c.id))last.tools.push({id:c.id,label:activityLabel(c.name,c.arguments||{})});}
+   const delta=event.assistantMessageEvent,index=state.messages.findLastIndex(m=>m.role==='assistant');
+   if(index>=0){let last=state.messages[index];
+    if(event.message)last=state.messages[index]=mergeMessage(last,{...publicMessage(event.message),status:'streaming'});
+    else if(delta?.type==='text_delta')last.text+=delta.delta;
+    else if(delta?.type==='thinking_delta')last.thinking=(last.thinking||'')+delta.delta;
+    if(delta?.type==='toolcall_end'&&delta.toolCall&&!last.tools.some(t=>t.id===delta.toolCall.id))last.tools.push(toolView(delta.toolCall));
+   }
   }
-  if(event.type==='message_end'&&['user','assistant'].includes(event.message?.role)){const m=publicMessage(event.message);if(state.messages.at(-1)?.role===m.role)state.messages[state.messages.length-1]=m;else state.messages.push(m);if(m.error)state.error=m.error;}
-  if(event.type==='tool_execution_start'||event.type==='tool_execution_end'){
-   for(const m of state.messages)for(const tool of m.tools)if(tool.id===event.toolCallId)tool.status=event.type==='tool_execution_start'?'running':event.isError?'error':'done';
+  if(event.type==='message_end'&&['user','assistant'].includes(event.message?.role)){const m=publicMessage(event.message);if(state.messages.at(-1)?.role===m.role)state.messages[state.messages.length-1]=mergeMessage(state.messages.at(-1),m,true);else state.messages.push(m);if(m.error)state.pendingError=m.error;}
+  if(['tool_execution_start','tool_execution_update','tool_execution_end'].includes(event.type)){
+   let found=false;
+   for(const m of state.messages)m.tools=m.tools.map(tool=>{if(tool.id!==event.toolCallId)return tool;found=true;return updateTool(tool,event);});
+   if(!found){let m=state.messages.findLast(m=>m.role==='assistant');if(!m){m=publicMessage({role:'assistant'});state.messages.push(m);}m.tools.push(updateTool(toolView({id:event.toolCallId,name:event.toolName,arguments:event.args}),event));}
   }
-  if(event.type==='process_error'){state.busy=false;state.error=event.message;}
+  if(event.type==='auto_retry_start'){state.busy=true;state.notice=`Повтор подключения · попытка ${event.attempt} из ${event.maxAttempts}. Уже полученный текст сохранён.`;}
+  if(event.type==='auto_retry_end'){state.notice=event.success?'Подключение восстановлено.':'';if(!event.success){state.busy=false;state.error=event.finalError||'Не удалось восстановить подключение.';}}
+  if(event.type==='agent_settled'){state.busy=false;const last=state.messages.findLast(m=>m.role==='assistant');state.error=last?.error||null;state.pendingError=null;state.notice='';}
+  if(event.type==='agent_end')for(const m of state.messages)if(m.status==='streaming')m.status='done';
+  if(event.type==='process_error'){state.busy=false;state.error=event.message;for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}}
   if(event.type==='extension_ui_request'){
    if(['select','confirm','input','editor'].includes(event.method)){state.questions.push({...event,expires:event.timeout?Date.now()+event.timeout:null});}
-   if(event.method==='notify'){if(event.notifyType==='error')state.error=clean(event.message);else state.notice=clean(event.message);}
+   if(event.method==='notify'){if(event.notifyType==='error'){if(state.busy)state.pendingError=clean(event.message);else state.error=clean(event.message);}else state.notice=clean(event.message);}
    if(event.method==='setStatus'){if(event.statusText)state.statuses[event.statusKey]=clean(event.statusText);else delete state.statuses[event.statusKey];}
    if(event.method==='setWidget'){if(event.widgetLines)state.widgets[event.widgetKey]=event.widgetLines.map(clean);else delete state.widgets[event.widgetKey];}
    if(event.method==='set_editor_text')state.dictation={id:event.id,text:event.text,chat:active?.id,replace:true};
@@ -54,9 +57,10 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
   try{
    if(rpc)await rpc.dispose();rpc=undefined;
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
+   projects.markOpened?.(p.cwd);
    active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||session.firstMessage?.slice(0,80)||'Новый разговор',host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
    state={...state,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],statuses:{},widgets:{}};
-   if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state'),rpc.request('get_messages')]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;state.busy=Boolean(current?.isStreaming);state.messages=publicMessages(messages?.messages||[]);}
+   if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state'),rpc.request('get_messages')]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;state.busy=Boolean(current?.isStreaming);const preferred=getPreferredModel();if(preferred&&!state.busy){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
   }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
   finally{loading=false;broadcast();}
  }
@@ -81,6 +85,7 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
     if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:models().map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
     if(req.method!=='POST'){reply(404,{error:'Неизвестное действие.'});return;}
     const data=await body(req),action=url.pathname.slice(5);
+    if(action==='open-project'){await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Проект не найден.');projects.markOpened?.(p.cwd);reply(200,{ok:true});return;}
     if(action==='create-project'){ensureIdle();navigating=true;try{const p=projects.create(data.name);await catalog();const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
     if(action==='new-chat'){ensureIdle();navigating=true;try{await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Сначала выберите проект.');const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
     if(action==='open'){ensureIdle();navigating=true;try{await catalog();const session=allSessions.find(s=>key(s.path)===data.id);if(!session)throw new Error('Разговор не найден. Обновите проекты.');await openSession(session);reply(200,snapshot());}finally{navigating=false;}return;}
@@ -92,7 +97,7 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
      else if(voice.state.phase==='error'){await voice.start();}else throw new Error('Для голосового ввода дождитесь загрузки модели или завершения записи.');
      reply(200,{ok:true});return;
     }
-    if(action==='close'){ensureIdle();reply(200,{ok:true});setTimeout(()=>void close(),50);return;}
+    if(action==='close'){ensureIdle();if(!canExit())throw new Error('Сначала остановите текущую работу.');navigating=true;reply(200,{ok:true});setTimeout(async()=>{await close();await onExit();},50);return;}
     if(!rpc||!active||active.readOnly)throw new Error(active?.readOnly?'Этот чат открыт в консоли. Создайте новый чат в этом проекте.':'Сначала откройте чат в проекте.');
     if(data.chat!==active.id)throw new Error('Чат был переключён в другом окне. Проверьте текущий разговор.');
     if(action==='prompt'){
@@ -106,8 +111,8 @@ export async function startWebServer({projects,listSessions,readSession,makeRpc,
      }catch(error){if(epoch===generation){state.busy=false;state.error=error.message;changed();}throw error;}
      return;
     }
-    if(action==='abort'){await rpc.request('abort');state.busy=false;changed();reply(200,{ok:true});return;}
-    if(action==='model'){ensureIdle();const model=models().find(m=>m.id===data.id&&m.provider===data.provider);if(!model)throw new Error('Модель недоступна.');await rpc.request('set_model',{provider:model.provider,modelId:model.id});active.model={id:model.id,name:model.name,provider:model.provider};changed();reply(200,{ok:true});return;}
+    if(action==='abort'){await rpc.request('abort');state.busy=false;for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}changed();reply(200,{ok:true});return;}
+    if(action==='model'){ensureIdle();const model=models().find(m=>m.id===data.id&&m.provider===data.provider);if(!model)throw new Error('Модель недоступна.');await rpc.request('set_model',{provider:model.provider,modelId:model.id});onModelSelected(model);active.model={id:model.id,name:model.name,provider:model.provider};changed();reply(200,{ok:true});return;}
     if(action==='answer'){const q=state.questions.find(q=>q.id===data.id);if(!q)throw new Error('Запрос уже закрыт.');rpc.respond({id:q.id,...(data.cancelled?{cancelled:true}:q.method==='confirm'?{confirmed:data.confirmed===true}:{value:String(data.value||'')})});state.questions=state.questions.filter(q=>q!==q);changed();reply(200,{ok:true});return;}
     reply(404,{error:'Неизвестное действие.'});return;
    }

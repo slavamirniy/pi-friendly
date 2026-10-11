@@ -43,3 +43,13 @@ test('only registered project folders can start a chat, never the launch folder'
  assert.throws(()=>store.createChat(temp),/проект/);assert.throws(()=>store.createChat(store.root),/проект/);
  assert.ok(store.createChat(project.cwd));
 });
+
+test('recently opened projects persist and current chat does not pin an older project',t=>{
+ const temp=fixture(t),options={root:join(temp,'projects'),registry:join(temp,'registry.jsonl'),SessionManager:manager,sessionDir:temp};
+ const store=createProjectStore(options),a=store.create('А'),b=store.create('Б');
+ store.markOpened(a.cwd);store.markOpened(b.cwd);
+ assert.deepEqual(createProjectStore(options).list().map(p=>p.name),['Б','А']);
+ assert.equal(projectCatalog([],store.list(),a.cwd)[0].name,'Б');
+ store.markOpened(a.cwd);assert.equal(store.list()[0].name,'А');
+ assert.throws(()=>store.markOpened(temp),/Проект/);assert.equal(store.list().length,2);
+});

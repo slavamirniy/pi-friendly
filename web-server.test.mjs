@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {startWebServer,publicMessage} from './web-server.mjs';
-async function fixture(t,{host=false}={}){
+async function fixture(t,{host=false,options={}}={}){
  const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
  const calls=[];let emit;
  const projects={list:()=>projectsList,isProject:()=>true,create:name=>{if(!name?.trim())throw new Error('Введите название');const p={cwd:process.cwd()+'/new',name};projectsList.push(p);return p;},createChat:cwd=>{const s={cwd,path:'/test/new.jsonl'};sessions.push(s);return s.path;}};
- const web=await startWebServer({projects,listSessions:async()=>sessions,readSession:()=>[{role:'user',content:'Привет'}],models:()=>[{id:'test',name:'Тест',provider:'local'}],hostSession:()=>host?sessions[0].path:undefined,makeRpc:options=>{calls.push(options);emit=options.onEvent;return{request:async(type,data)=>{calls.push({type,data});if(type==='get_state')return{model:{id:'test',provider:'local'}};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};if(type==='prompt')emit({type:'agent_start'});},respond:data=>calls.push(data),dispose:async()=>calls.push('dispose')};}});
+ const web=await startWebServer({projects,listSessions:async()=>sessions,readSession:()=>[{role:'user',content:'Привет'}],models:()=>[{id:'test',name:'Тест',provider:'local'}],hostSession:()=>host?sessions[0].path:undefined,makeRpc:options=>{calls.push(options);emit=options.onEvent;return{request:async(type,data)=>{calls.push({type,data});if(type==='get_state')return{model:{id:'test',provider:'local'}};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};if(type==='prompt')emit({type:'agent_start'});},respond:data=>calls.push(data),dispose:async()=>calls.push('dispose')};},...options});
  t.after(()=>web.close());let cookie;
  const request=async(path,data,headers={})=>{const res=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{...(cookie?{cookie}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});return{status:res.status,data:await res.json()};};
  const res=await fetch(web.origin+'/api/auth',{method:'POST',body:JSON.stringify({token:web.url.split('#')[1]})});cookie=res.headers.get('set-cookie').split(';')[0];
@@ -37,6 +37,43 @@ test('terminal-owned chat stays read only; new project uses its own folder',asyn
  assert.equal((await h.request('prompt',{chat:opened.data.active.id,text:'нет'})).status,400);
  const created=await h.request('create-project',{name:'Новый'});assert.equal(created.status,200);assert.equal(h.calls[0].cwd,process.cwd()+'/new');assert.equal(created.data.active.projectName,'Новый');
 });
-test('public messages omit reasoning and render hostile strings as data',()=>{
- const message=publicMessage({role:'assistant',content:[{type:'thinking',thinking:'hidden'},{type:'text',text:'<script>alert(1)</script>'}]});assert.equal(message.text,'<script>alert(1)</script>');assert.ok(!JSON.stringify(message).includes('hidden'));
+test('public messages expose model thinking separately and keep hostile strings as data',()=>{
+ const message=publicMessage({role:'assistant',content:[{type:'thinking',thinking:'hidden'},{type:'text',text:'<script>alert(1)</script>'}]});assert.equal(message.text,'<script>alert(1)</script>');assert.equal(message.thinking,'hidden');
+});
+
+test('preferred model is applied when opening chats; explicit choice is persisted',async t=>{
+ const saved=[];const h=await fixture(t,{options:{getPreferredModel:()=>({id:'test',provider:'local',name:'Тест'}),onModelSelected:m=>saved.push(m)}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ assert.ok(h.calls.some(c=>c.type==='set_model'&&c.data.modelId==='test'));
+ const state=await h.state();await h.request('model',{chat:state.active.id,id:'test',provider:'local'});
+ assert.equal(saved[0].id,'test');await h.request('new-chat',{project:p.id});
+ assert.equal(h.calls.filter(c=>c.type==='set_model').length,3);
+});
+test('exit rejects an active host and calls shutdown only after disposal',async t=>{
+ let idle=false,exit;const exited=new Promise(resolve=>exit=resolve);
+ const h=await fixture(t,{options:{canExit:()=>idle,onExit:()=>exit()}});
+ assert.equal((await h.request('close',{})).status,400);assert.equal(h.web.closed,false);
+ idle=true;assert.equal((await h.request('close',{})).status,200);await exited;assert.equal(h.web.closed,true);
+});
+test('tool results and streamed drafts survive an empty final snapshot',async t=>{
+ const h=await fixture(t),p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ h.emit({type:'message_start',message:{role:'assistant',content:[]}});
+ h.emit({type:'message_update',assistantMessageEvent:{type:'thinking_delta',delta:'Проверю файлы'}});
+ h.emit({type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'Часть ответа'}});
+ h.emit({type:'tool_execution_start',toolCallId:'x',toolName:'write',args:{path:'index.html'}});
+ h.emit({type:'tool_execution_end',toolCallId:'x',toolName:'write',isError:true,result:{content:[{type:'text',text:'Ошибка записи'}]}});
+ h.emit({type:'message_end',message:{role:'assistant',content:[],stopReason:'error',errorMessage:'Router error'}});
+ assert.equal((await h.state()).error,null);h.emit({type:'agent_settled'});
+ const state=await h.state(),last=state.messages.at(-1);assert.equal(last.text,'Часть ответа');assert.equal(last.thinking,'Проверю файлы');assert.equal(last.tools[0].status,'error');assert.equal(last.tools[0].output,'Ошибка записи');assert.equal(state.error,'Router error');
+});
+
+test('transient connection errors stay hidden through retry and disappear after success',async t=>{
+ const h=await fixture(t),p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ h.emit({type:'agent_start'});h.emit({type:'message_start',message:{role:'assistant',content:[]}});
+ h.emit({type:'message_end',message:{role:'assistant',content:[],errorMessage:'Connection failed',stopReason:'error'}});
+ assert.equal((await h.state()).error,null);
+ h.emit({type:'auto_retry_start',attempt:1,maxAttempts:3});assert.equal((await h.state()).busy,true);
+ h.emit({type:'message_start',message:{role:'assistant',content:[]}});
+ h.emit({type:'message_end',message:{role:'assistant',content:'Готово',stopReason:'stop'}});
+ h.emit({type:'agent_settled'});assert.equal((await h.state()).error,null);assert.equal((await h.state()).busy,false);
 });
