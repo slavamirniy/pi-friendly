@@ -214,7 +214,13 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const capacity=Math.max(0,contentBottom-3);
   scroll=Math.min(scroll,Math.max(0,content.length-capacity));
   const start=Math.max(0,content.length-capacity-scroll);
-  if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold(s.needsProject?'С чего начнём?':'Чем могу помочь?'),cw));put(y+2,center(s.needsProject?'Новый проект — отдельная папка для вашей задачи.':'Напишите, что хотите сделать.',cw),p.canvas,p.muted);if(actions.web&&y+6<editorTop){put(y+4,centered('Открыть веб-интерфейс ↗',cw,truncate,measure),hovering(side+pad,y+4,cw,1)?shade(p.bubble):p.bubble,p.accent);put(y+5,centered('Более удобный и наглядный интерфейс в браузере',cw,truncate,measure),p.canvas,p.muted);targets.push({x:side+pad,y:y+4,w:cw,h:1,run:actions.web});}}
+  if(!content.length && !failure && editorTop>7){const y=Math.max(4,Math.floor(editorTop/2)-1);put(y,center(bold(s.needsProject?'С чего начнём?':'Чем могу помочь?'),cw));put(y+2,center(s.needsProject?'Новый проект — отдельная папка для вашей задачи.':'Напишите, что хотите сделать.',cw),p.canvas,p.muted);if(actions.web&&y+6<editorTop){
+    const bw=Math.min(34,cw),bx=pad+Math.floor((cw-bw)/2),by=y+4;
+    const bg=hovering(side+bx,by,bw,3)?shade(p.bubble):p.bubble;
+    buttonRows('Открыть веб-интерфейс',bw,truncate,measure).forEach((row,n)=>{right[by+n]=paint('',bx)+paint(row,bw,bg,p.accent)+paint('',main-bx-bw);});
+    if(y+9<editorTop)put(y+8,centered('Более удобный и наглядный интерфейс в браузере',cw,truncate,measure),p.canvas,p.muted);
+    targets.push({x:side+bx,y:by,w:bw,h:3,run:actions.web});
+   }}
   content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   const frame=left.map((line,i)=>line+right[i]);contextTargets=[];
