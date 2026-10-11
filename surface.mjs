@@ -57,16 +57,16 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   left[1]=paint('  '+bold('Просто pi'),side,p.sidebar,p.text);
   const button=(y,label,run,primary=false,danger=false,disabled=false)=>{
    if(y<3||y+2>=height-2)return;
-   const w=side-4,bg=disabled?p.button:danger?p.errorBg:primary?(s.paneOpen?p.selection:p.bubble):p.sidebar,fg=disabled?p.muted:danger?p.error:primary?(s.paneOpen?p.text:p.accent):p.text;
+   const w=side,bg=disabled?p.button:danger?p.errorBg:primary?(s.paneOpen?p.selection:p.bubble):p.button,fg=disabled?p.muted:danger?p.error:primary?(s.paneOpen?p.text:p.accent):p.text;
    const rows=buttonRows(label,w,truncate,measure);
-   for(let dy=0;dy<3;dy++)left[y+dy]=paint('  ',2,p.sidebar)+paint(rows[dy],w,bg,fg)+paint('  ',2,p.sidebar);
-   if(!disabled)targets.push({x:2,y,w,h:3,run});
+   for(let dy=0;dy<3;dy++)left[y+dy]=paint(dy===2?'─'.repeat(w):rows[dy],w,bg,dy===2?p.border:fg);
+   if(!disabled)targets.push({x:0,y,w,h:3,run});
   };
   if(height>=18)button(4,s.paneOpen?(side<24?'← В чат':'Вернуться к чату'):side<24?'Новый чат':'Новый разговор',actions.newChat,true);
-  if(height>=23)button(8,'Проекты',actions.history);
+  if(height>=23)button(7,'Проекты',actions.history);
   const utilities=[['Модель',actions.model],[s.scheme==='dark'?'Светлая тема':'Тёмная тема',actions.theme]];
-  if(height>=27)utilities.forEach(([label,run],i)=>button(12+i*4,label,run));
-  else if(height>=23)button(12,'Ещё',actions.more);
+  if(height>=27)utilities.forEach(([label,run],i)=>button(10+i*3,label,run));
+  else if(height>=23)button(10,'Ещё',actions.more);
   else if(height>=18)button(height-11,'Ещё',actions.more);
   button(height-7,'Выйти',actions.exit,false,true,!ctx.isIdle());
   left[height-3]=paint('  '+clean(ctx.model?.name||ctx.model?.id||'Выберите модель'),side,p.sidebar,p.muted);
@@ -81,7 +81,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const micW=voice?(sendHeight===3?6:4):0;
   const micEnabled=Boolean(voice)&&(['installing','downloading','loading','error'].includes(voice.phase)||(ctx.isIdle()||voice.phase==='recording')&&['ready','recording'].includes(voice.phase));
   const extra=voiceHint&&!voiceBusy?2:0;
-  const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+2+(micW?micW+1:0):0));
+  const editorWidth=Math.max(4,cw-4-(inlineSend?sendW+1+(micW?micW+1:0):0));
   let editorAll=delegate.render(editorWidth);
   const rule=line=>/^[─━╌┄↑↓0-9\s]+$/.test(clean(line));
   if(editorAll.length>=3&&rule(editorAll[0])&&rule(editorAll.at(-1)))editorAll=editorAll.slice(1,-1);
@@ -118,7 +118,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    }
    const sendButton=hasSend?paint(sendHeight===3?buttonRows(send,sendW,truncate,measure)[y-actionY]:centered(send,sendW,truncate,measure),sendW,enabled?p.accent:p.button,enabled?p.onAccent:p.muted):inlineSend?paint('',sendW):'';
    const micButton=hasMic?paint(sendHeight===3?buttonRows(micLabel,micW,truncate,measure)[y-micY]:centered(micLabel,micW,truncate,measure),micW,voice.phase==='recording'?p.errorBg:p.button,micEnabled?(voice.phase==='recording'?p.error:p.text):p.muted):inlineSend&&micW?paint('',micW):'';
-   const middle=inlineSend?paint(text,editorWidth,p.canvas,voiceBusy?p.accent:p.text)+paint('',2)+(micW?micButton+paint('',1):'')+sendButton:paint(text,cw-4-(hasSend?sendW:hasMic?micW:0))+micButton+sendButton;
+   const middle=inlineSend?paint(text,editorWidth,p.canvas,voiceBusy?p.accent:p.text)+paint('│',1,p.canvas,p.border)+(micW?micButton+paint('│',1,p.canvas,p.border):'')+sendButton:paint(text,cw-4-(hasSend?sendW:hasMic?micW:0))+micButton+sendButton;
    right[y]=paint('',pad)+paint('│ ',2,p.canvas,p.border)+middle+paint(' │',2,p.canvas,p.border)+paint('',main-pad-cw);
   }
   if(micW&&micEnabled)targets.push({x:inlineSend?side+pad+cw-sendW-micW-3:side+pad+cw-micW-2,y:micY,w:micW,h:sendHeight,run:actions.voice});

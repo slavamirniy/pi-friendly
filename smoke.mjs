@@ -40,3 +40,15 @@ for(const draft of ['Привет мир','Одна строка\nДругая �
 editor.setText('привет мир');moveCursor(editor,3);assert.equal(cursorOffset(editor),3);
 const selection=createSelection(editor);selection.set(6,3);assert.equal(selection.text(),'вет');selection.remove();editor.insertTextAtCursor('мер');assert.equal(editor.getText(),'пример мир');
 console.log('PASS: native editor selection, wrapped Russian/emoji text and replacement.');
+
+const {createSurface,palettes}=await import('./surface.mjs');
+tui.terminal.columns=120;tui.terminal.rows=36;editor.setText('Выделите этот текст');
+const liveSelection=createSelection(editor);
+const surface=createSurface({tui,delegate:editor,ctx:{isIdle:()=>true},state:()=>({scheme:'dark'}),actions:{selection:liveSelection,placeCursor:n=>moveCursor(editor,n)},rendering:{truncate:truncateToWidth,measure:visibleWidth,matchesKey}});
+let screen=surface.render(120),plain=screen.map(clean),y=plain.findIndex(r=>r.includes('Выделите этот текст')),x=plain[y].indexOf('Выделите этот текст');
+surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);surface.render(120);
+surface.onMouse(`\x1b[<32;${x+9};${y+1}M`);
+assert.equal(liveSelection.text(),'Выделите');screen=surface.render(120);
+assert.ok(screen[y].includes(`\x1b[48;2;${palettes.dark.selection}mВ`),'Selection must be visibly painted before mouse release');
+assert.ok(screen.every(row=>visibleWidth(row)===120));
+console.log('PASS: live drag highlight before release with native pi renderer.');

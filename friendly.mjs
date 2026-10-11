@@ -35,17 +35,32 @@ export function installFriendly(pi, rendering) {
 
   async function choose(ctx, title, items, searchable = false, subtitle = "", form = false, bottom = false, layout = 'cards') {
     return ctx.ui.custom((tui, theme, _keys, done) => {
-      let lastFrame;
-      const finish=value=>{if((value?.navigation||value?.session||value?.id==='new'||value?.id==='current')&&lastFrame)workspace?.holdFrame(lastFrame);done(value);};
-      const inner = form ? createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}) : createMenu({ ...rendering, tui, theme, done:finish, title, subtitle, items, searchable, bottom, layout, panel: Boolean(workspace), palette: rendering.makeEditor ? palettes[view.scheme] : undefined, statuses: () => [modelLabel(ctx), ...statuses()] });
-      activeMenu = !workspace ? inner : {
+      let lastFrame, inner, creating=false;
+      const finish=value=>{
+        if(!creating&&value?.id==='create'){
+          creating=true;
+          inner=createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]});
+          workspace?.clearHeldFrame();tui.requestRender();return;
+        }
+        if(creating){
+          if(typeof value==='string'&&value.trim()){done({id:'create',name:value});return;}
+          creating=false;inner=makeMenu();tui.requestRender();return;
+        }
+        if((value?.navigation||value?.session||value?.id==='new'||value?.id==='current')&&lastFrame)workspace?.holdFrame(lastFrame);
+        done(value);
+      };
+      const makeMenu=()=>form?createProjectForm({...rendering,tui,done:finish,palette:palettes[view.scheme]}):createMenu({...rendering,tui,theme,done:finish,title,subtitle,items,searchable,bottom,layout,panel:Boolean(workspace),palette:rendering.makeEditor?palettes[view.scheme]:undefined,statuses:()=>[modelLabel(ctx),...statuses()]});
+      inner=makeMenu();
+      activeMenu = {
         invalidate: () => inner.invalidate(), dispose: () => inner.dispose(),
         render(width) {
+          if(!workspace)return inner.render(width);
           const side=width>=100?26:18;
           const background=workspace.renderSurface(width), pane=inner.render(width-side);
           lastFrame=pane.map((row,i)=>rendering.truncate(background[i]||'',side,'')+row);workspace.clearHeldFrame();return lastFrame;
         },
         handleInput(data) {
+          if(!workspace){inner.handleInput(data);return;}
           const mouse=mouseEvent(data),side=tui.terminal.columns>=100?26:18;
           if(mouse && mouse.x<side){
             if(mouse.press&&mouse.button===0){
@@ -101,11 +116,12 @@ export function installFriendly(pi, rendering) {
     if(!projects){await command(ctx,'/new');return;}
     await switchChat(ctx,projects.createChat(cwd));
   }
-  async function createProject(ctx,onBack){
-    const name=await dialog(ctx,()=>choose(ctx,'Новый проект',[],false,'',true));
+  async function createProject(ctx,onBack,providedName){
+    const name=providedName??await dialog(ctx,()=>choose(ctx,'Новый проект',[],false,'',true));
     if(name?.back){await onBack?.();return;}
     if(!name?.trim())return;
-    const project=projects.create(name);await startChat(ctx,project.cwd);
+    try{const project=projects.create(name);await startChat(ctx,project.cwd);}
+    finally{workspace?.clearHeldFrame();workspace?.redraw();}
   }
   async function newConversation(ctx){
     if(!ctx.isIdle()){ctx.ui.notify('Сначала остановите текущую работу.','info');return;}
@@ -117,7 +133,7 @@ export function installFriendly(pi, rendering) {
       {id:'projects',label:'Выбрать проект',description:'Открыть существующий проект и его чаты'},
     ],false,current?'Чаты и файлы сохранятся. Черновик — в новый чат.':'Каждый проект — отдельная папка. Ваш текст сохранён.',false,true));
     if(choice?.id==='current')await startChat(ctx,currentFolder(ctx));
-    if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx));
+    if(choice?.id==='create')await createProject(ctx,()=>newConversation(ctx),choice.name);
     if(choice?.id==='projects')await history(ctx);
   }
   async function history(ctx){
@@ -133,12 +149,11 @@ export function installFriendly(pi, rendering) {
       while(!stopped){
         if(!project){
           const picked=await choose(ctx,'Проекты',[
-            {id:'create',navigation:true,kind:'primary',label:'+ Новый проект'},
-            {id:'attach',navigation:true,kind:'action',label:'+ Добавить папку'},
-            ...(other.length?[{id:'other',navigation:true,kind:'action',label:'Другие разговоры · '+other.length}]:[]),
+            {id:'create',navigation:true,kind:'primary',toolbar:true,label:'Создать проект'},
             ...catalog.map(p=>({project:p,navigation:true,label:p.name,description:p.chats.length+' чатов · '+p.cwd,current:folderKey(p.cwd)===folderKey(currentFolder(ctx))})),
-          ],true,catalog.length?'Выберите проект, чтобы открыть его чаты':'Создайте проект или добавьте свою папку',false,false,'list');
-          if(!picked||picked.id==='create'||picked.id==='attach')return picked;
+            ...(other.length?[{id:'other',navigation:true,label:'Другие разговоры · '+other.length}]:[]),
+          ],true,catalog.length?'Выберите проект, чтобы открыть его чаты':'Создайте первый проект',false,false,'list');
+          if(!picked||picked.id==='create')return picked;
           if(picked.id==='other'){
             const old=await choose(ctx,'Другие разговоры',[
               {id:'back',navigation:true,kind:'back',label:'← Все проекты'},
@@ -159,11 +174,7 @@ export function installFriendly(pi, rendering) {
         return picked;
       }
     });
-    if(choice?.id==='create')await createProject(ctx,()=>history(ctx));
-    else if(choice?.id==='attach'){
-      const folder=await ctx.ui.input('Добавить папку','Полный путь к папке проекта');
-      if(folder?.trim()){projects.attach(folder);await history(ctx);}
-    }
+    if(choice?.id==='create')await createProject(ctx,()=>history(ctx),choice.name);
     else if(choice?.session)await switchChat(ctx,choice.session.path);
     else if(choice?.id==='new')await startChat(ctx,choice.project.cwd);
   }

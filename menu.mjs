@@ -53,12 +53,22 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         const compact=height<16;
         if(!compact)put(3,color(clean(subtitle),'muted'));
         let y=compact?2:5;
-        for(const action of actions){
+        for(const action of actions.filter(item=>!item.toolbar)){
           const index=list.indexOf(action);
           put(y,color((selected===index?'› ':'  ')+clean(action.label),'accent'),selected===index);
           targets.push({y,x:left,end:left+cw,index});y+=compact?1:2;
         }
-        if(searchable)put(y++,color('Поиск: '+(query||'название или папка…'),'muted'));
+        const toolbar=actions.find(item=>item.toolbar);
+        if(toolbar){
+          const index=list.indexOf(toolbar),bw=Math.min(20,cw-3),sw=Math.max(0,cw-bw-2),bh=compact?1:3;
+          for(let n=0;n<bh;n++){
+            const text=n===Math.floor(bh/2)?centered(clean(toolbar.label),bw,truncate,measure):' '.repeat(bw);
+            const search=n===Math.floor(bh/2)?color('Поиск: '+(query||'название…'),'muted'):'';
+            rows[y+n]=paint('',left)+paint(search,sw)+paint('',2)+paint(text,bw,index===selected?true:'card')+paint('',width-left-cw);
+            targets.push({y:y+n,x:left+cw-bw,end:left+cw,index});
+          }
+          y+=bh;
+        }else if(searchable)put(y++,color('Поиск: '+(query||'название или папка…'),'muted'));
         const start=y+(compact?0:1),step=!compact&&height-y>=6?3:1,capacity=Math.max(1,Math.floor((height-start-2)/step));
         const entryIndex=Math.max(0,selected-actions.length);
         offset=Math.max(0,Math.min(offset,Math.max(0,entries.length-capacity)));
@@ -100,10 +110,10 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
           const primary=item.kind==='primary',bg=primary?p.accent:i===selected?(p.selection||p.bubble):item.kind==='back'?p.button:p.sidebar;
           const color=primary?p.onAccent:p.text;
           if(step===5){
-            put(y,fg('╭'+'─'.repeat(cw-2)+'╮',color),bg);
+            put(y,fg('┌'+'─'.repeat(cw-2)+'┐',color),bg);
             put(y+1,fg('│'+centered(clean(item.label),cw-2,truncate,measure)+'│',color),bg);
             put(y+2,fg('│'+centered(clean(item.description||'Нажмите, чтобы выбрать'),cw-2,truncate,measure)+'│',primary?p.onAccent:p.muted),bg);
-            put(y+3,fg('╰'+'─'.repeat(cw-2)+'╯',color),bg);
+            put(y+3,fg('└'+'─'.repeat(cw-2)+'┘',color),bg);
           }else put(y,fg(centered(clean(item.label),cw,truncate,measure),color),bg);
           for(let n=0;n<(step===5?4:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
         }

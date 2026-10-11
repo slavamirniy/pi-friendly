@@ -134,7 +134,7 @@ test('voice replaces draft without growing composer and stop icon is centered',(
   for(const phase of ['recording','transcribing']){
    h.data.voice={phase,levels:[.2,.5,1],percent:42};const rows=h.surface.render(width).map(strip);
    assert.equal(top(rows),top(before));assert.ok(!rows.join('').includes('Сохранённый черновик'));assert.equal(h.delegate.getText(),'Сохранённый черновик');
-   if(phase==='recording'&&height>=20)assert.ok(rows.some(r=>r.includes('│ ██ │')));
+   if(phase==='recording'&&height>=20)assert.ok(rows.some(r=>r.includes('  ██  ')));
   }
   h.data.voice={phase:'ready'};assert.ok(h.surface.render(width).map(strip).join('').includes('Сохранённый черновик'));
  }
@@ -156,7 +156,7 @@ test('left drag selects draft without Shift and compact context menu offers copy
  const selection=createSelection(delegate),calls=[];
  const surface=createSurface({tui,delegate,ctx:{isIdle:()=>true},state:()=>({}),actions:{selection,copy:()=>calls.push(selection.text())},rendering:{truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,matchesKey:(s,k)=>s===k}});
  const rows=surface.render(120).map(strip),y=rows.findIndex(r=>r.includes('Привет мир')),x=rows[y].indexOf('Привет мир');
- surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);surface.onMouse(`\x1b[<32;${x+7};${y+1}M`);surface.onMouse(`\x1b[<0;${x+7};${y+1}m`);
+ surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);surface.onMouse(`\x1b[<32;${x+7};${y+1}M`);assert.equal(selection.text(),'Привет');surface.onMouse(`\x1b[<0;${x+7};${y+1}m`);
  assert.equal(selection.text(),'Привет');
  surface.onMouse(`\x1b[<2;${x+2};${y+1}M`);const popup=surface.render(120).map(strip);
  const copy=popup.findIndex(r=>r.includes('Копировать')),paste=popup.findIndex(r=>r.includes('Вставить')),clear=popup.findIndex(r=>r.includes('Удалить всё'));

@@ -21,7 +21,7 @@ for(const mode of ['work','error','history','chats','form','exit','project-choic
  data.paneOpen=['history','chats','form'].includes(mode);
  let rows=surface.render(120);
  if(['history','chats','form'].includes(mode)){
-  const projectItems=[{kind:'primary',label:'+ Новый проект',description:'Создать проект с отдельной папкой'},{label:'Сайт пекарни',description:'2 чата · открыть список чатов'},{label:'Магазин цветов',description:'1 чат · открыть список чатов'}];
+  const projectItems=[{id:'create',toolbar:true,kind:'primary',label:'Создать проект'},{label:'Сайт пекарни',description:'2 чата · открыть список чатов'},{label:'Магазин цветов',description:'1 чат · открыть список чатов'}];
   const chatItems=[{kind:'back',label:'← Все проекты',description:'Выбрать другой проект'},{kind:'primary',label:'+ Новый чат',description:'Начать разговор в этом проекте'},{label:'Главная страница',description:'09.10.2026 · сообщений: 8'},{label:'Меню и контакты',description:'09.10.2026 · сообщений: 5'}];
   const menu=mode==='form'?createProjectForm({...rendering,tui,done(){},palette:palettes.light,makeInput:()=>{const input=new Input();input.setValue('Сайт пекарни');return input;}}):createMenu({...rendering,tui,theme:{fg:(_c,s)=>s,bg:(_c,s)=>s,bold:s=>s},done(){},title:mode==='history'?'Проекты':'Сайт пекарни',subtitle:mode==='history'?'Шаг 1 из 2 · выберите проект':'Шаг 2 из 2 · выберите чат',searchable:true,panel:true,layout:'list',palette:palettes.light,items:mode==='history'?projectItems:chatItems});
   rows=menu.render(94).map((row,i)=>truncateToWidth(rows[i],26,'')+row);menu.dispose();

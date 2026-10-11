@@ -6,7 +6,7 @@ export function acquireMouse(terminal) {
   if (!state) {
     state = { count: 0 };
     terminals.set(terminal, state);
-    terminal.write("\x1b[?1002s\x1b[?1000s\x1b[?1006s\x1b[?1002h\x1b[?1000h\x1b[?1006h");
+    terminal.write("\x1b[?1002s\x1b[?1000s\x1b[?1006s\x1b[?1000h\x1b[?1002h\x1b[?1006h");
   }
   state.count++;
   let released = false;

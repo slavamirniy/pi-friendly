@@ -70,8 +70,9 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
       notify: text => notifications.push(text), confirm: async () => true,
       custom: async (factory, options) => {
         assert.equal(options.overlayOptions.row, 0);
-        let result;
-        const component = factory({ terminal: { rows: 30, columns: 100, write() {} }, requestRender() {} }, theme, {}, value => { result = value; });
+        let result,finished=false;
+        const component = factory({ terminal: { rows: 30, columns: 100, write() {} }, requestRender() {} }, theme, {}, value => { result = value;finished=true; });
+        for(let step=0;step<8&&!finished;step++){
         const rows = component.render(100);screens.push(rows.join("\n"));
         const choice = choices.shift();
         if (choice === undefined) component.handleInput("escape");
@@ -82,6 +83,8 @@ function harness({ mode = "tui", flags = {}, sessions = [], projects } = {}) {
           const x=clean(rows[y]).indexOf(choice)+1;
           component.handleInput(`\x1b[<0;${x};${y + 1}M`);
         }
+        }
+        assert.ok(finished,"Dialog must resolve or stay interactive until the next choice");
         component.dispose(); return result;
       },
     },
@@ -241,4 +244,30 @@ test('project input uses active session folder rather than launch folder',async(
  const projects={isProject:cwd=>cwd==='/actual-project',isHub:()=>false,name:()=> 'Проект'};
  const h=harness({projects});h.ctx.cwd='/launch-folder';h.ctx.sessionManager={getCwd:()=>'/actual-project'};
  assert.equal(await h.emit('input',{text:'Создай сайт',source:'interactive'}),undefined);
+});
+
+
+test('create project opens its form inside the same pane and removes folder import',async()=>{
+ const created=[];const projects={list:()=>[],isProject:()=>false,create:name=>{created.push(name);return{cwd:'/projects/'+name};},createChat:cwd=>cwd+'/chat.jsonl'};
+ const h=harness({projects});h.choices.push('Создать проект','Пекарня');await h.open('history');
+ assert.deepEqual(created,['Пекарня']);assert.deepEqual(h.calls,['/projects/Пекарня/chat.jsonl']);
+ assert.ok(h.screens.some(s=>s.includes('Название проекта')));assert.ok(h.screens.every(s=>!s.includes('Добавить папку')));
+});
+
+test('project creation sits right of search and project rows follow directly',async()=>{
+ const {palettes}=await import('./surface.mjs');const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
+ const h=panel({layout:'list',searchable:true,palette:palettes.light,truncate:(s,w)=>strip(s).slice(0,w),measure:s=>strip(s).length,items:[{id:'create',kind:'primary',toolbar:true,label:'Создать проект'},{label:'Пекарня',description:'2 чата'}]});
+ const rows=h.menu.render(90).map(strip),y=rows.findIndex(r=>r.includes('Создать проект')),x=rows[y].indexOf('Создать проект');
+ assert.ok(rows[y].includes('Поиск:'));assert.ok(x>rows[y].indexOf('Поиск:'));assert.ok(rows.findIndex(r=>r.includes('Пекарня'))>y);
+ h.menu.handleInput(`\x1b[<0;${x+1};${y+1}M`);assert.equal(h.results[0].id,'create');
+});
+
+test('drag reporting is the last mouse tracking mode enabled',()=>{
+ const h=panel();const enabled=h.writes[0];assert.ok(enabled.indexOf('1002h')>enabled.indexOf('1000h'));h.menu.dispose();
+});
+
+
+test('cancel creation returns to projects and permits creating again',async()=>{
+ const created=[];const projects={list:()=>[],isProject:()=>false,create:name=>{created.push(name);return{cwd:'/projects/'+name};},createChat:cwd=>cwd+'/chat.jsonl'};
+ const h=harness({projects});h.choices.push('Создать проект',undefined,'Создать проект','Повтор');await h.open('history');assert.deepEqual(created,['Повтор']);
 });
