@@ -5,7 +5,7 @@ import {runInNewContext} from 'node:vm';
 const source=readFileSync(new URL('./web/app.js',import.meta.url),'utf8');
 function fixture(api){
  const nodes={draft:{value:'Мой вопрос'},composer:{}},storage=new Map();let pending;
- const context={$:id=>nodes[id],state:{active:{id:'chat'},messages:[]},api,store:(id,text)=>storage.set(id,text),saved:id=>storage.get(id)||'',autoGrow(){},showError(){},renderStatus(){},task:fn=>{pending=fn();},renderMessages(){},renderRoute(){},lastChat:'chat',dictationId:undefined};
+ const context={performance:{now:()=>0},clockBase:0,clockAt:0,clockRequest:undefined,billingUI:{update(){}},$:id=>nodes[id],state:{active:{id:'chat'},messages:[]},api,store:(id,text)=>storage.set(id,text),saved:id=>storage.get(id)||'',autoGrow(){},showError(){},renderStatus(){},task:fn=>{pending=fn();},renderMessages(){},renderRoute(){},lastChat:'chat',dictationId:undefined};
  runInNewContext(source.slice(source.indexOf("$('composer').onsubmit="),source.indexOf("$('mic').onclick=")),context);
  return {nodes,storage,context,submit(){nodes.composer.onsubmit({preventDefault(){}});return pending;}};
 }

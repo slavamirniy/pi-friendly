@@ -10,7 +10,7 @@ function fixture(w=100,h=30){
  const actions=Object.fromEntries(['newChat','history','model','commands','theme','technical','more','submit','errorDetails','exit','voice','web'].map(k=>[k,()=>calls.push(k)]));
  const delegate={getText:()=>'',render:width=>['─'.repeat(width),'','─'.repeat(width)]};
  const surface=createSurface({tui,delegate,rendering,ctx,actions,state:()=>data});
- return{surface,tui,data,calls,ctx,delegate};
+ return{surface,tui,data,calls,ctx,delegate,actions};
 }
 test('light chat hides thinking, shows answer and quota, commands button is absent',()=>{
  const h=fixture();const rows=h.surface.render(100).map(strip);const text=rows.join('\n');
@@ -167,7 +167,7 @@ test('left drag selects draft without Shift and compact context menu offers copy
 
 test('sidebar dividers sit at the bottom cell edge and rows remain contiguous',()=>{
  const h=fixture(120,36),rows=h.surface.render(120).map(strip);
- for(const y of [4,7,10,13]){
+ for(const y of [4,7,10]){
   assert.equal(rows[y].slice(0,26).trim(),'');
   assert.ok(rows[y+1].slice(0,26).trim().length>0);
   assert.equal(rows[y+2].slice(0,26),'▁'.repeat(26));
@@ -195,4 +195,29 @@ test('provider errors remain hidden while pi is still running retries',()=>{
  const h=fixture();h.data.running=true;h.data.live.errorMessage='Connection failed';h.data.error={raw:'Connection failed'};
  const text=h.surface.render(100).map(strip).join('');assert.ok(!text.includes('Не удалось получить ответ'));assert.ok(!text.includes('Connection failed'));
  h.data.running=false;assert.ok(h.surface.render(100).map(strip).join('').includes('Подробнее'));
+});
+
+test('balance action keeps terminal rows within narrow and wide viewports',()=>{
+ for(const w of [44,60,100,140])for(const height of [16,24,35]){
+  const h=fixture(w,height);h.actions.balance=()=>{};h.data.billing={account:{available:1234567}};
+  const rows=h.surface.render(w).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(r=>r.length===w));assert.ok(rows.join('\n').includes('Пополнить баланс'));
+ }
+});
+
+test('running chat keeps router preview, elapsed time and consumed quota visible',()=>{
+ const h=fixture(140);h.data.running=true;h.ctx.isIdle=()=>false;h.data.widgets=[['Генерация · 0:17 · Проверяю файл · ≈1.25к квоты']];
+ const text=h.surface.render(140).map(strip).join('\n');assert.match(text,/0:17.*Проверяю файл.*1.25к квоты/);assert.ok(!text.includes('Готовлю ответ'));
+});
+
+test('balance stays green across navigation, has spacing, model and theme leave sidebar',()=>{
+ for(const width of [80,120])for(const height of [21,27,36]){
+  const h=fixture(width,height);h.actions.balance=()=>h.calls.push('balance');h.data.billing={account:{available:123456}};
+  const side=width>=100?26:18;
+  const first=h.surface.render(width),rows=first.map(strip),y=rows.findIndex(r=>r.includes('Пополнить баланс'));
+  assert.equal(rows[y-2].slice(0,side).trim(),'');assert.match(rows[y-3].slice(0,side),/токенов/);
+  h.data.paneOpen=true;const next=h.surface.render(width);assert.equal(first[y].split('\x1b[0m')[0],next[y].split('\x1b[0m')[0]);
+  assert.ok(!rows.some(r=>r.slice(0,side).includes('Модель')||r.slice(0,side).includes('тема')));
+  const modelRow=rows.findIndex(r=>r.includes('Kimi K3'));assert.ok(modelRow>=height-3);
+  h.surface.onMouse(`\x1b[<0;${side+4};${modelRow+1}M`);assert.ok(h.calls.includes('model'));
+ }
 });

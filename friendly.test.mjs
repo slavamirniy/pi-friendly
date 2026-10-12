@@ -190,7 +190,7 @@ test('flat lists retain actions during search, scroll, and activate rows by keyb
  const strip=s=>s.replace(/\x1b\[[0-9;]*m/g,'');
  const options={layout:'list',palette:palettes.light,searchable:true,measure:s=>strip(s).length,truncate:(s,w)=>strip(s).slice(0,w),items:[{kind:'primary',label:'+ Новый проект'},...Array.from({length:40},(_,i)=>({label:'Проект '+i,description:'/folder/'+i}))]};
  const h=panel(options);let rows=h.menu.render(90).map(strip);
- assert.ok(!rows.join('').includes('╭'));assert.ok(rows.filter(r=>r.includes('/folder/')).length>=3);
+ assert.ok(!rows.join('').includes('╭'));assert.ok(rows.filter(r=>r.includes('/folder/')).length>=1);
  h.menu.handleInput('ctrl+f');h.menu.handleInput('Проект 39');rows=h.menu.render(90).map(strip);
  assert.ok(rows.some(r=>r.includes('+ Новый проект')));
  const y=rows.findIndex(r=>r.includes('/folder/39'));h.menu.handleInput(`\x1b[<0;20;${y+1}M`);

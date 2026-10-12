@@ -41,13 +41,13 @@ test('public messages expose model thinking separately and keep hostile strings 
  const message=publicMessage({role:'assistant',content:[{type:'thinking',thinking:'hidden'},{type:'text',text:'<script>alert(1)</script>'}]});assert.equal(message.text,'<script>alert(1)</script>');assert.equal(message.thinking,'hidden');
 });
 
-test('preferred model is applied when opening chats; explicit choice is persisted',async t=>{
+test('unchanged model avoids redundant RPC; explicit choice is persisted',async t=>{
  const saved=[];const h=await fixture(t,{options:{getPreferredModel:()=>({id:'test',provider:'local',name:'Тест'}),onModelSelected:m=>saved.push(m)}});
  const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
- assert.ok(h.calls.some(c=>c.type==='set_model'&&c.data.modelId==='test'));
+ assert.equal(h.calls.filter(c=>c.type==='set_model').length,0);
  const state=await h.state();await h.request('model',{chat:state.active.id,id:'test',provider:'local'});
  assert.equal(saved[0].id,'test');await h.request('new-chat',{project:p.id});
- assert.equal(h.calls.filter(c=>c.type==='set_model').length,3);
+ assert.equal(h.calls.filter(c=>c.type==='set_model').length,1);
 });
 test('exit rejects an active host and calls shutdown only after disposal',async t=>{
  let idle=false,exit;const exited=new Promise(resolve=>exit=resolve);
@@ -93,4 +93,12 @@ test('web folder browser lists directories and attach-project accepts an explici
  assert.equal(sub.status,200);
  const attached=await h.request('attach-project',{path:home.data.path});
  assert.equal(attached.status,200);assert.ok(attached.data.project);
+});
+
+test('bundled router preview crosses RPC independently of model text and resets between requests',async t=>{
+ const h=await fixture(t),p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ h.emit({type:'agent_start'});h.emit({type:'friendly_router_progress',progress:{state:'generating',preview:'Подготовка',quota:123,available:877}});
+ assert.equal((await h.state()).routerProgress.preview,'Подготовка');
+ h.emit({type:'friendly_router_progress',progress:{state:'retrying',preview:'Новый фрагмент',quota:0}});assert.equal((await h.state()).routerProgress.preview,'Новый фрагмент');
+ h.emit({type:'agent_start'});assert.equal((await h.state()).routerProgress,null);
 });
