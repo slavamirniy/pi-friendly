@@ -102,3 +102,16 @@ test('bundled router preview crosses RPC independently of model text and resets 
  h.emit({type:'friendly_router_progress',progress:{state:'retrying',preview:'Новый фрагмент',quota:0}});assert.equal((await h.state()).routerProgress.preview,'Новый фрагмент');
  h.emit({type:'agent_start'});assert.equal((await h.state()).routerProgress,null);
 });
+
+
+test('web entry and its local module dependencies are served as JavaScript',async t=>{
+ const h=await fixture(t),queue=['/app.js'],seen=new Set();
+ while(queue.length){
+  const path=queue.shift();if(seen.has(path))continue;seen.add(path);
+  const res=await fetch(h.web.origin+path);
+  assert.equal(res.status,200,path);assert.match(res.headers.get('content-type'),/javascript/,path);
+  const code=await res.text();assert.ok(code.length>0,path);
+  for(const match of code.matchAll(/(?:from\s*|import\s*)['"](\.[^'"]+)['"]/g))queue.push(new URL(match[1],h.web.origin+path).pathname);
+ }
+ assert.ok(seen.has('/message-versions.js'));
+});

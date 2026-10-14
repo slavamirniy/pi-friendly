@@ -83,9 +83,31 @@ h2{font-size:21px;margin:0 0 12px}
 #messages{overflow:auto;flex:1;padding:32px max(24px,calc((100% - 860px)/2));scrollbar-gutter:stable}
 .message{max-width:100%;margin:0 0 24px}
 .message.user{margin-left:auto;max-width:78%;width:fit-content}
-.user-bubble{background:var(--accent);color:var(--bg);padding:13px 18px;border-radius:16px 16px 4px 16px}
+.user-message-wrapper{position:relative}
+.user-bubble{background:var(--accent);color:var(--bg);padding:13px 18px;border-radius:16px 16px 4px 16px;position:relative}
 :root[data-theme=dark] .user-bubble{color:#0b1a17}
 .user-bubble a{color:inherit}
+
+/* Version navigation */
+.version-nav{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.15)}
+:root[data-theme=dark] .version-nav{border-top-color:rgba(255,255,255,.1)}
+.version-btn{min-width:32px;width:32px;height:32px;padding:4px;border-radius:8px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s}
+.version-btn:hover:not(:disabled){background:rgba(255,255,255,.25)}
+.version-btn:disabled{opacity:.3;cursor:default}
+.version-btn svg{width:16px;height:16px;stroke-width:2}
+.version-counter{font-size:12px;font-weight:600;opacity:.9;min-width:40px;text-align:center}
+
+/* User message controls */
+.user-message-controls{display:flex;gap:6px;margin-top:8px;opacity:0;transition:opacity .2s}
+.user-message-wrapper:hover .user-message-controls{opacity:1}
+.user-control-btn{min-width:36px;width:36px;height:36px;padding:6px;border-radius:8px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
+.user-control-btn svg{width:18px;height:18px}
+.user-control-btn:hover:not(:disabled){background:var(--hover)}
+
+/* Message editing */
+.message-edit-box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.message-edit-textarea{width:100%;min-height:80px;padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;resize:vertical;font-family:inherit;line-height:1.5}
+.message-edit-actions{display:flex;gap:10px;margin-top:12px;justify-content:flex-end}
 .message.assistant{display:flex;gap:14px}
 .assistant-mark{flex:none;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-style:italic;font-family:Georgia,serif;font-size:19px;margin-top:2px}
 .assistant-body{min-width:0;flex:1}
