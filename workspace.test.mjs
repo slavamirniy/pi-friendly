@@ -102,3 +102,17 @@ test('internal chat navigation bypasses recording guard and editor completion, a
 test('clean workspace enables native cursor and restores preference on dispose',()=>{
  const h=harness(true);assert.equal(h.tui.getShowHardwareCursor(),true);assert.ok(h.writes.includes('\x1b[5 q'));h.w.dispose();assert.equal(h.tui.getShowHardwareCursor(),false);
 });
+
+
+test('older TUI without focus getter renders and respects the editor focus flag',()=>{
+ const h=harness();delete h.tui.getFocusedComponent;
+ h.delegate.focused=true;
+ assert.doesNotThrow(()=>h.render());
+ h.input('\x1b[<0;4;1M');assert.deepEqual(h.calls,['menu']);
+ h.delegate.focused=false;
+ h.input('\x1b[<0;4;1M');assert.equal(h.calls.length,1);
+ delete h.delegate.focused;
+ assert.doesNotThrow(()=>h.render());
+ h.input('\x1b[<0;4;1M');assert.equal(h.calls.length,1);
+ h.w.dispose();
+});
