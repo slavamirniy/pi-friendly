@@ -3978,3 +3978,167 @@ button.image-job-visual { cursor: pointer; }
   color: var(--red-ink);
   box-shadow: 0 0 0 1px var(--red);
 }
+
+/* Fullscreen image viewer */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  background: rgba(12, 12, 12, 0.94);
+}
+.image-lightbox[hidden] { display: none; }
+.lightbox-stage {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+}
+.lightbox-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 48px);
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.35);
+}
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--ring);
+  font-size: 17px;
+}
+.lightbox-close:hover { background: var(--surface-raised); }
+.lightbox-info {
+  flex: none;
+  width: 360px;
+  max-width: 42vw;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 26px 22px 20px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: -1px 0 0 0 var(--divider);
+}
+.lightbox-info-head { display: grid; gap: 4px; padding-right: 34px; }
+.lightbox-eyebrow {
+  color: var(--muted);
+  font: 500 10px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lightbox-info h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+.lightbox-section { display: grid; gap: 5px; }
+.lightbox-section h3 {
+  margin: 0;
+  color: var(--muted);
+  font: 500 10px/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lightbox-section p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lightbox-specs {
+  display: grid;
+  gap: 0;
+  box-shadow: 0 1px 0 0 var(--divider);
+}
+.lightbox-specs div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  box-shadow: 0 1px 0 0 var(--divider);
+}
+.lightbox-specs span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.lightbox-specs strong {
+  min-width: 0;
+  color: var(--text);
+  font: 500 11.5px/1.4 var(--mono);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.lightbox-path {
+  display: block;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: 10.5px/1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+.lightbox-refs { display: flex; flex-wrap: wrap; gap: 6px; }
+.lightbox-refs img {
+  width: 54px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: var(--ring);
+}
+.lightbox-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+}
+.lightbox-actions .button {
+  height: 34px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--ring);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.lightbox-actions .button:hover:not(:disabled) {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--text);
+}
+.lightbox-actions .button svg { width: 13px; height: 13px; }
+.lightbox-actions .button.ghost { background: var(--bg); color: var(--text-2); box-shadow: var(--ring); }
+.lightbox-actions .button.danger { background: var(--bg); color: var(--red-ink); box-shadow: var(--ring); }
+.lightbox-actions .button.danger:hover:not(:disabled) { background: var(--red-tint); color: var(--red-ink); box-shadow: 0 0 0 1px var(--red); }
+@media (max-width: 900px) {
+  .image-lightbox { flex-direction: column; }
+  .lightbox-stage { flex: 1 1 58dvh; min-height: 0; padding: 14px; }
+  .lightbox-stage img { max-height: calc(58dvh - 28px); }
+  .lightbox-info { width: 100%; max-width: none; height: auto; max-height: 42dvh; flex: none; padding: 18px 16px 16px; }
+  .lightbox-actions { margin-top: 0; }
+}

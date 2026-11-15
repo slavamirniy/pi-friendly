@@ -106,6 +106,7 @@ let pendingImageDelete = null;
 let imageImages = [];
 let imageGalleryScope = "chat";
 let imageGallerySelected = null;
+let imageLightboxImage = null;
 let imageStudioSource = null;
 let imageComposeOpen = false;
 let imagePanelOpen = false;
@@ -695,14 +696,16 @@ function wireChrome() {
       event.stopPropagation();
       $("drop-overlay").hidden = true;
       clear();
+      const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
+      if (file) {
+        uploadImageSource(file, target);
+        return;
+      }
       const image = imageDropData(event);
       if (image) {
         if (target === "panel") addPanelRef(image);
         else setImageSource(image);
-        return;
       }
-      const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
-      if (file) uploadImageSource(file, target);
     });
   };
   wireImageDrop($("panel-refs-drop"), "panel");
@@ -720,20 +723,48 @@ function wireChrome() {
     event.preventDefault();
     event.stopPropagation();
     $("drop-overlay").hidden = true;
+    const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
+    if (file) {
+      uploadImageSource(file, "panel");
+      return;
+    }
     const image = imageDropData(event);
     if (image) {
       const targetCard = event.target.closest?.(".gallery-card") || null;
       if (targetCard && targetCard === draggingImageCard) return;
       addPanelRef(image);
-      return;
     }
-    const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
-    if (file) uploadImageSource(file, "panel");
   });
   $("gallery-grid").onscroll = () => {
     const grid = $("gallery-grid");
     if (!imagePanelOpen || imageGallerySelected || grid.hidden) return;
     if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 160) appendGalleryBatch();
+  };
+  $("lightbox-close").onclick = () => closeImageLightbox();
+  $("lightbox-stage").onclick = (event) => {
+    if (event.target === $("lightbox-stage")) closeImageLightbox();
+  };
+  $("image-lightbox").onclick = (event) => {
+    if (event.target === $("image-lightbox")) closeImageLightbox();
+  };
+  $("lightbox-copy").onclick = () => {
+    if (imageLightboxImage) copyText(imageLightboxImage.path);
+  };
+  $("lightbox-edit").onclick = () => {
+    if (!imageLightboxImage) return;
+    const image = imageLightboxImage;
+    closeImageLightbox();
+    closeImagePanel();
+    openImageCompose(image);
+  };
+  $("lightbox-delete").onclick = () => {
+    if (!imageLightboxImage) return;
+    pendingImageDelete = { project: activeProjectId(), image: imageLightboxImage };
+    pendingChatDelete = null;
+    pendingArchivedDelete = null;
+    $("chat-confirm-title").textContent = "Удалить изображение?";
+    $("chat-confirm-text").textContent = `«${imageName(imageLightboxImage.path)}» будет удалено из проекта.`;
+    $("chat-confirm").showModal();
   };
   $("gallery-delete").onclick = () => {
     if (!imageGallerySelected) return;
@@ -800,6 +831,10 @@ function wireChrome() {
   document.addEventListener("focusin", (event) => collapseRecent(event.target));
   document.addEventListener("pointerdown", (event) => collapseRecent(event.target), true);
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("image-lightbox").hidden) {
+      closeImageLightbox();
+      return;
+    }
     if (
       event.key === "Escape" &&
       state.busy &&
@@ -1179,6 +1214,7 @@ function confirmDeleteChat() {
     run("Удаляю изображение…", async () => {
       await api("image-delete", { project: item.project, path: item.image.path }, 30000);
       imageGallerySelected = null;
+      closeImageLightbox();
       await refreshImageLibrary();
       renderGallery();
       showHint("Изображение удалено.");
@@ -1759,10 +1795,11 @@ function renderMessages() {
   let assistantContent = null;
   let assistantText = "";
   let assistantStreaming = false;
+  let assistantRunningTools = false;
   let assistantAnswer = null;
   let assistantImageLoaders = 0;
 
-  const finishAssistant = () => {
+  const finishAssistant = (final = false) => {
     if (!assistantContent) return;
     if (assistantImageLoaders) {
       assistantContent.append(imageToolLoader(assistantImageLoaders));
@@ -1771,7 +1808,8 @@ function renderMessages() {
     if (assistantStreaming && assistantAnswer) {
       assistantAnswer.append(el("span", "▍", "typing-caret"));
     }
-    if (assistantStreaming) {
+    const active = assistantStreaming || (state.busy && (assistantRunningTools || final));
+    if (active) {
       const quota = Number.isFinite(state.routerProgress?.quota)
         ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
         : Number.isFinite(state.billing?.account?.available)
@@ -1794,6 +1832,7 @@ function renderMessages() {
     assistantContent = null;
     assistantText = "";
     assistantStreaming = false;
+    assistantRunningTools = false;
     assistantAnswer = null;
     assistantImageLoaders = 0;
   };
@@ -1899,6 +1938,7 @@ function renderMessages() {
       }
       for (const tool of message.tools || []) {
         const status = tool.status || "pending";
+        if (status === "running" || status === "pending") assistantRunningTools = true;
         const labels = { pending: "ожидает", running: "выполняется", done: "готово", error: "ошибка", stopped: "остановлено" };
         const body = el("div", null, "tool-detail");
         if (tool.path) body.append(el("p", tool.path, "file-path"));
@@ -1957,7 +1997,7 @@ function renderMessages() {
       previousAssistant = true;
     }
   });
-  finishAssistant();
+  finishAssistant(true);
 
   if (state.active && state.ready === false && !state.busy) {
     const connecting = el("div", null, "inline-generation connecting");
@@ -2309,12 +2349,13 @@ function openImagePanelAt(image) {
   imageComposeOpen = false;
   imagePanelOpen = true;
   imageWorkspaceChatId = state.active?.id || null;
-  imageGallerySelected = image;
+  imageGallerySelected = null;
   imageGalleryScope = image.chatId && image.chatId !== state.active?.sessionId ? "project" : "chat";
   if (image?.path) addPanelRef(image);
   renderImageWorkspace();
-  renderGallery();
+  renderGallery({ reset: true });
   renderPanelJobs();
+  openImageLightbox(image);
   refreshImageLibrary();
 }
 
@@ -2454,9 +2495,50 @@ function appendGalleryBatch() {
   }
 }
 
+function lightboxRefs(image) {
+  if (Array.isArray(image?.sources) && image.sources.length) return image.sources.filter(Boolean);
+  return image?.source ? [image.source] : [];
+}
+
+function openImageLightbox(image) {
+  if (!image?.path) return;
+  imageLightboxImage = image;
+  const prompt = String(image.prompt || "").trim();
+  $("lightbox-image").src = imageUrl(image);
+  $("lightbox-image").alt = prompt || "Изображение";
+  $("lightbox-title").textContent = prompt || "Изображение";
+  $("lightbox-prompt").textContent = prompt;
+  $("lightbox-prompt-section").hidden = !prompt;
+  const actual = image.width && image.height ? `${image.width}×${image.height}` : "";
+  const requested = image.size && image.size !== "auto" ? image.size.replace("x", "×") : "";
+  $("lightbox-size").textContent = [actual, requested && requested !== actual ? requested : ""].filter(Boolean).join(" · ") || "—";
+  $("lightbox-format").textContent = String(image.format || imageName(image.path).split(".").pop() || "—").toUpperCase();
+  $("lightbox-date").textContent = image.createdAt ? dateLabel(image.createdAt) : "—";
+  $("lightbox-chat").textContent = image.chatName || "—";
+  $("lightbox-path").textContent = image.path;
+  $("lightbox-download").href = imageUrl(image);
+  $("lightbox-download").download = imageName(image.path);
+  const refs = lightboxRefs(image);
+  const refBox = $("lightbox-refs");
+  refBox.replaceChildren();
+  for (const ref of refs) {
+    const img = el("img");
+    img.src = imageUrl({ path: ref });
+    img.alt = "Референс";
+    img.title = imageName(ref);
+    refBox.append(img);
+  }
+  $("lightbox-ref-section").hidden = !refs.length;
+  $("image-lightbox").hidden = false;
+}
+
+function closeImageLightbox() {
+  $("image-lightbox").hidden = true;
+  imageLightboxImage = null;
+}
+
 function openGalleryImage(image) {
-  imageGallerySelected = image;
-  renderGallery();
+  openImageLightbox(image);
 }
 
 function showGalleryGrid() {

@@ -256,6 +256,52 @@
     </main>
   </div>
 
+  <div id="image-lightbox" class="image-lightbox" hidden>
+    <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Закрыть">✕</button>
+    <div id="lightbox-stage" class="lightbox-stage">
+      <img id="lightbox-image" alt="Изображение">
+    </div>
+    <aside class="lightbox-info">
+      <div class="lightbox-info-head">
+        <span class="lightbox-eyebrow">Изображение</span>
+        <h2 id="lightbox-title">Без названия</h2>
+      </div>
+      <section id="lightbox-prompt-section" class="lightbox-section">
+        <h3>Запрос</h3>
+        <p id="lightbox-prompt"></p>
+      </section>
+      <section class="lightbox-specs">
+        <div><span>Модель</span><strong>gpt-image-2.5</strong></div>
+        <div><span>Размер</span><strong id="lightbox-size"></strong></div>
+        <div><span>Формат</span><strong id="lightbox-format"></strong></div>
+        <div><span>Дата</span><strong id="lightbox-date"></strong></div>
+        <div><span>Чат</span><strong id="lightbox-chat"></strong></div>
+      </section>
+      <section id="lightbox-ref-section" class="lightbox-section" hidden>
+        <h3>Референсы</h3>
+        <div id="lightbox-refs" class="lightbox-refs"></div>
+      </section>
+      <section class="lightbox-section">
+        <h3>Путь</h3>
+        <code id="lightbox-path" class="lightbox-path"></code>
+      </section>
+      <div class="lightbox-actions">
+        <button type="button" id="lightbox-edit" class="button">
+          <span data-icon="edit" aria-hidden="true"></span><span>Редактировать</span>
+        </button>
+        <a id="lightbox-download" class="button" download>
+          <span data-icon="download" aria-hidden="true"></span><span>Скачать</span>
+        </a>
+        <button type="button" id="lightbox-copy" class="button ghost">
+          <span data-icon="copy" aria-hidden="true"></span><span>Копировать путь</span>
+        </button>
+        <button type="button" id="lightbox-delete" class="button danger">
+          <span data-icon="trash" aria-hidden="true"></span><span>Удалить</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+
   <div id="ui-hint" role="status" hidden></div>
   <div id="drop-overlay" class="drop-overlay" hidden>
     <div class="drop-card">
