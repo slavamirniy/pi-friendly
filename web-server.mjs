@@ -199,7 +199,14 @@ export async function startWebServer({billing,projects,listSessions,readSession,
       }
       void rpc.request('get_state').then(current=>{if(epoch===generation&&typeof current?.isStreaming==='boolean'){state.busy=current.isStreaming;changed();}}).catch(()=>{});
       reply(200,{ok:true,queued,queue:state.queue});
-     }catch(error){if(epoch===generation){if(!queued)state.busy=false;state.error=error.message;changed();}throw error;}
+     }catch(error){
+      if(epoch===generation){
+       if(queued){const pending=[...state.queue.followUp],index=pending.lastIndexOf(message);if(index>=0)pending.splice(index,1);state.queue={...state.queue,followUp:pending};}
+       if(!queued)state.busy=false;
+       state.error=error.message;changed();
+      }
+      throw error;
+     }
      return;
     }
     if(action==='clear-queue'){
