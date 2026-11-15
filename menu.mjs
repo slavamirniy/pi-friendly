@@ -52,12 +52,12 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
         nav.rows.forEach((row,n)=>rows[n]=row);
         targets.push({y:0,h:3,x:width-nav.width-2,end:width-2,index:-1});
         if(backItem){const bw=Math.min(20,width-nav.width-4);buttonRows('← Все проекты',bw,truncate,measure).forEach((row,n)=>{rows[n]=paint(row,bw,'card')+paint('',width-bw-nav.width-2)+paint(buttonRows('× Закрыть',nav.width,truncate,measure)[n],nav.width,'card')+paint('',2);});targets.push({y:0,h:3,x:0,end:bw,index:-2});}
-        put(3,color(centered(clean(title),cw,truncate,measure),'accent'));
-        if(!compact)put(5,color(centered(clean(subtitle),cw,truncate,measure),'muted'));
+        put(3,centered(clean(title),cw,truncate,measure),false,p?.accent);
+        if(!compact)put(5,centered(clean(subtitle),cw,truncate,measure),false,p?.muted);
         let y=compact?4:7;
         for(const action of actions.filter(item=>!item.toolbar)){
           const index=list.indexOf(action);
-          put(y,color((selected===index?'› ':'  ')+clean(action.label),'accent'),selected===index);
+          put(y,(selected===index?'› ':'  ')+clean(action.label),selected===index,p?.accent);
           targets.push({y,x:left,end:left+cw,index});y+=compact?1:2;
         }
         const toolbar=actions.find(item=>item.toolbar);
@@ -71,23 +71,23 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
           if(toolbar)for(let n=0;n<bh;n++)targets.push({y:y+n,x:bx+sw,end:bx+sw+bw,index});
           if(searchable)for(let n=1;n<bh;n++)targets.push({y:y+n,x:bx,end:bx+sw,index:-3});
           y+=bh;
-          if(searchOpen&&searchable)put(y++,color('Поиск: '+(query||'начните печатать…'),'muted'));
+          if(searchOpen&&searchable)put(y++,'Поиск: '+(query||'начните печатать…'),false,p?.muted);
         }
-        const start=y+(compact?0:1),step=!compact&&height-y>=10?5:3,capacity=Math.max(1,Math.floor((height-start-2)/step));
+        const start=y+(compact?0:1),step=compact?2:3,capacity=Math.max(1,Math.floor((height-start-2)/step));
         const entryIndex=Math.max(0,selected-actions.length);
         offset=Math.max(0,Math.min(offset,Math.max(0,entries.length-capacity)));
         if(selected>=actions.length){if(entryIndex<offset)offset=entryIndex;if(entryIndex>=offset+capacity)offset=entryIndex-capacity+1;}
         for(let i=offset;i<Math.min(entries.length,offset+capacity);i++){
           const item=entries[i],index=list.indexOf(item),active=index===selected,row=start+(i-offset)*step;
-          const hovered=pointer&&pointer.x>=left&&pointer.x<left+cw&&pointer.y>=row&&pointer.y<row+3;
+          const hovered=pointer&&pointer.x>=left&&pointer.x<left+cw&&pointer.y>=row&&pointer.y<row+2;
           const bg=active||hovered?true:'card';
           const label=clean(item.label)+(item.current?' · текущий':'');
-          buttonRows(label,cw,truncate,measure).forEach((text,n)=>put(row+n,text,bg));
-          if(step===5)put(row+3,color(centered(clean(item.description),cw,truncate,measure),'muted'));
-          targets.push({y:row,h:step===5?4:3,x:left,end:left+cw,index});
+          put(row,(active?'▸ ':'  ')+label,bg,p?.text);
+          put(row+1,'   '+clean(item.description||'Нажмите, чтобы открыть'),bg,p?.muted);
+          targets.push({y:row,h:2,x:left,end:left+cw,index});
         }
-        if(!entries.length)put(start,color(query?'Ничего не найдено':'Список пока пуст','muted'));
-        put(height-1,color('↑↓ выбор · Enter открыть · Ctrl+F поиск · Esc закрыть'+(entries.length>capacity?` · ${Math.min(entryIndex+1,entries.length)}/${entries.length}`:''),'muted'));
+        if(!entries.length)put(start,query?'Ничего не найдено':'Список пока пуст',false,p?.muted);
+        put(height-1,'↑↓ выбор · Enter открыть · Ctrl+F поиск · Esc закрыть'+(entries.length>capacity?` · ${Math.min(entryIndex+1,entries.length)}/${entries.length}`:''),false,p?.muted);
         return rows;
       }
       if(panel && palette && layout==='billing') {
@@ -136,11 +136,11 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
           back.forEach((row,y)=>{rows[y]=paint('  ',2)+paint(row,bw,p.button)+paint('',width-bw-nav.width-4)+paint(buttonRows('× Закрыть',nav.width,truncate,measure)[y],nav.width,p.button)+paint('  ',2);targets.push({y,x:2,end:2+bw,index:-2});});
         }
         const list=filtered();selected=Math.min(selected,Math.max(0,list.length-1));
-        const step=layout==='billing'?(height>=14?3:2):height>=18?5:1,capacity=Math.max(1,Math.floor((height-10)/step));
+        const step=layout==='billing'?(height>=14?3:2):height>=18?3:2,capacity=Math.max(1,Math.floor((height-10)/step));
         const shift=bottom?Math.max(0,height-10-Math.min(list.length,capacity)*step):0;
-        put(3+shift,fg(clean(title),p.accent));
-        put(4+shift,fg(clean(subtitle),p.muted));
-        if(layout!=='billing')put(6+shift,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие');
+        put(3+shift,clean(title),p.canvas,p.accent);
+        put(4+shift,clean(subtitle),p.canvas,p.muted);
+        if(layout!=='billing')put(6+shift,searchable?'Поиск: '+(query||'начните печатать…'):'Выберите действие',p.canvas,p.muted);
         offset=Math.max(0,Math.min(offset,Math.max(0,list.length-capacity)));
         if(selected<offset)offset=selected;
         if(selected>=offset+capacity)offset=selected-capacity+1;
@@ -148,16 +148,18 @@ export function createMenu({ tui, theme, done, title, subtitle = "", items, stat
           const y=8+shift+(i-offset)*step,item=list[i];
           const primary=item.kind==='primary',bg=primary?p.accent:i===selected?(p.selection||p.bubble):item.kind==='back'?p.button:p.sidebar;
           const color=primary?p.onAccent:p.text;
-          if(layout==='billing'){put(y,fg(centered(clean(item.label),cw,truncate,measure),color),bg);put(y+1,fg(centered(clean(item.description||''),cw,truncate,measure),p.muted),bg);}else if(step===5){
-            put(y,fg('┌'+'─'.repeat(cw-2)+'┐',color),bg);
-            put(y+1,fg('│'+centered(clean(item.label),cw-2,truncate,measure)+'│',color),bg);
-            put(y+2,fg('│'+centered(clean(item.description||'Нажмите, чтобы выбрать'),cw-2,truncate,measure)+'│',primary?p.onAccent:p.muted),bg);
-            put(y+3,fg('└'+'─'.repeat(cw-2)+'┘',color),bg);
-          }else put(y,fg(centered(clean(item.label),cw,truncate,measure),color),bg);
-          for(let n=0;n<(layout==='billing'?2:step===5?4:1);n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
+          if(layout==='billing'){
+            put(y,centered(clean(item.label),cw,truncate,measure),bg,color);
+            put(y+1,centered(clean(item.description||''),cw,truncate,measure),bg,primary?p.onAccent:p.muted);
+          }else{
+            const marker=primary?'◆ ':i===selected?'▸ ':'  ';
+            put(y,marker+clean(item.label),bg,color);
+            put(y+1,'  '+clean(item.description||'Нажмите, чтобы выбрать'),bg,primary?p.onAccent:p.muted);
+          }
+          for(let n=0;n<2;n++)targets.push({y:y+n,x:left,end:left+cw,index:i});
         }
-        if(!list.length)put(8,'Ничего не найдено');
-        put(height-2,fg('↑↓ выбор · Enter · Esc закрыть'+(list.length>capacity?` · ${selected+1}/${list.length}`:''),p.muted));
+        if(!list.length)put(8,'Ничего не найдено',p.canvas,p.muted);
+        put(height-2,'↑↓ выбор · Enter · Esc закрыть'+(list.length>capacity?` · ${selected+1}/${list.length}`:''),p.canvas,p.muted);
         return hoverRows(rows,targets,pointer,sliceByColumn,measure);
       }
       const contentWidth = Math.min(width - 4, searchable ? 76 : 48);

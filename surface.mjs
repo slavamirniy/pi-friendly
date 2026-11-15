@@ -70,12 +70,27 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    left[y]=paint('  '+truncate(label,side-4,''),side,bg,fg);
    if(!disabled)targets.push({x:0,y,w:side,h:1,run});
   };
+  const sidebarCard=(y,label,run,{primary=false,disabled=false}={})=>{
+   const w=side-4,x=2,bg=disabled?p.sidebar:primary?p.accent:p.button,fg=disabled?p.muted:primary?p.onAccent:p.text;
+   const rows=buttonRows(label,w,truncate,measure);
+   for(let n=0;n<3;n++){if(y+n>=height)break;const rowBg=!disabled&&hovering(x,y,w,3)?shade(bg):bg;left[y+n]=paint('',x)+paint(rows[n],w,rowBg,fg)+paint('',side-x-w);}
+   if(!disabled)targets.push({x,y,w,h:3,run});
+  };
   const section=(y,label)=>{if(y>=2&&y<height)left[y]=paint('  '+bold(label),side,p.sidebar,p.muted);};
-  sidebarRow(4,s.paneOpen?'←  Вернуться в чат':'＋  Новый чат',actions.newChat,{primary:true});
-  sidebarRow(6,'▦  Проекты',actions.history);
-  if(actions.web)sidebarRow(7,'↗  Веб-интерфейс',actions.web);
-  section(10,'ПРОЕКТ');
-  if(11<height)left[11]=paint('  '+truncate(s.projectName?clean(s.projectName):'Не выбран',side-4,''),side,p.sidebar,s.projectName?p.text:p.muted);
+  const tall=height>=24;
+  if(tall){
+   sidebarCard(4,s.paneOpen?'← Вернуться в чат':'＋ Новый чат',actions.newChat,{primary:true});
+   sidebarCard(8,'▦  Проекты',actions.history);
+   if(actions.web)sidebarCard(12,'↗  Веб-интерфейс',actions.web);
+   section(16,'ПРОЕКТ');
+   if(17<height)left[17]=paint('  '+truncate(s.projectName?clean(s.projectName):'Не выбран',side-4,''),side,p.sidebar,s.projectName?p.text:p.muted);
+  }else{
+   sidebarRow(4,s.paneOpen?'← Вернуться в чат':'＋ Новый чат',actions.newChat,{primary:true});
+   sidebarRow(6,'▦  Проекты',actions.history);
+   if(actions.web)sidebarRow(7,'↗  Веб-интерфейс',actions.web);
+   section(10,'ПРОЕКТ');
+   if(11<height)left[11]=paint('  '+truncate(s.projectName?clean(s.projectName):'Не выбран',side-4,''),side,p.sidebar,s.projectName?p.text:p.muted);
+  }
   const exitY=height-1;
   const balanceY=height-6;
   sidebarRow(exitY,'⏻  Выйти',actions.exit,{danger:true,disabled:!ctx.isIdle()});

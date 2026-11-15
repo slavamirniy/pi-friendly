@@ -168,11 +168,11 @@ test('left drag selects draft without Shift and compact context menu offers copy
 test('sidebar uses compact rows, project context and no divider slabs',()=>{
  const h=fixture(120,36),rows=h.surface.render(120).map(strip);
  assert.ok(rows[1].slice(0,28).includes('Просто pi'));
- assert.ok(rows[4].slice(0,28).includes('Новый чат'));
+ assert.ok(rows[5].slice(0,28).includes('Новый чат'));
  assert.equal(rows[4].slice(0,28).includes('▁'),false);
- assert.ok(rows[6].slice(0,28).includes('Проекты'));
- assert.ok(rows[7].slice(0,28).includes('Веб-интерфейс'));
- assert.ok(rows[10].slice(0,28).includes('ПРОЕКТ'));
+ assert.ok(rows[9].slice(0,28).includes('Проекты'));
+ assert.ok(rows[13].slice(0,28).includes('Веб-интерфейс'));
+ assert.ok(rows[16].slice(0,28).includes('ПРОЕКТ'));
 });
 test('web entry is visible at compact heights, exit is last and hover does not activate',()=>{
  for(const height of [21,24,27,36]){
