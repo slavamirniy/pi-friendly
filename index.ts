@@ -31,7 +31,7 @@ export default function friendly(pi: ExtensionAPI) {
     parameters:Type.Object({
       prompt:Type.String(),
       source:Type.Optional(Type.String({description:'Relative path to a source PNG or JPEG in this project'})),
-      size:Type.Optional(Type.String({enum:IMAGE_SIZES,description:'auto, 1024x1024, 1024x1536, 1536x1024, 1920x1080, 2048x1152, 2048x2048 or 2560x1440'})),
+      size:Type.Optional(Type.String({enum:IMAGE_SIZES,description:'auto, 1024x1024, 1024x1536, 1536x1024, 1920x1080, 1080x1920, 2048x1152, 2048x2048 or 2560x1440'})),
     }),
     async execute(_id:any,params:any,signal:any,_update:any,ctx:any){
       const result=await runImageTool({...params,sessionId:ctx.sessionManager.getSessionId()},ctx.cwd,await getConnection(),signal);

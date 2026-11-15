@@ -86,6 +86,7 @@
         <span id="image-count" class="image-count" hidden>0</span>
       </button>
 
+      <div class="chat-workspace" id="chat-workspace" hidden>
       <section id="chat" hidden>
         <div id="messages" tabindex="0" aria-label="Переписка"></div>
         <div class="composer-wrap">
@@ -135,6 +136,113 @@
           </form>
         </div>
       </section>
+
+      <section id="image-compose" class="image-compose" hidden aria-label="Генерация изображения">
+        <header class="compose-head">
+          <button type="button" id="image-compose-back" class="compose-back">← В чат</button>
+          <div class="compose-title">
+            <h2>Генерация изображения</h2>
+            <span class="compose-model">gpt-image-2.5</span>
+          </div>
+          <button type="button" id="image-compose-gallery" class="button ghost">Все изображения</button>
+        </header>
+        <div class="compose-scroll">
+          <div class="compose-refs">
+            <div class="compose-label">Референсы</div>
+            <div class="compose-ref-row">
+              <div id="image-ref-list" class="image-ref-list"></div>
+              <div class="image-ref-add-wrap">
+                <button type="button" id="image-ref-add" class="image-ref-add" title="Добавить референс" aria-label="Добавить референс">
+                  <span data-icon="plus" aria-hidden="true"></span>
+                </button>
+                <div id="image-source-menu" class="source-menu" hidden>
+                  <button type="button" id="image-source-pc">С компьютера</button>
+                  <button type="button" id="image-source-generated">Из сгенерированных</button>
+                  <div id="image-source-generated-list" class="source-menu-gallery" hidden></div>
+                </div>
+              </div>
+              <input id="image-file-input" type="file" accept="image/png,image/jpeg" hidden>
+            </div>
+            <p class="compose-hint">Один референс, PNG или JPEG до 11 МБ.</p>
+          </div>
+          <div class="compose-prompt-box">
+            <label class="sr-only" for="image-prompt">Описание</label>
+            <textarea id="image-prompt" class="compose-prompt" rows="4" placeholder="Опишите изображение или изменения…"></textarea>
+            <div class="compose-controls">
+              <label class="compose-field">Пропорции
+                <select id="image-aspect">
+                  <option value="auto">Авто</option>
+                  <option value="1024x1024">1:1</option>
+                  <option value="1536x1024">3:2</option>
+                  <option value="1024x1536">2:3</option>
+                  <option value="1920x1080">16:9</option>
+                  <option value="1080x1920">9:16</option>
+                </select>
+              </label>
+              <label class="compose-field">Количество
+                <select id="image-count-select">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select>
+              </label>
+              <span id="image-studio-note" class="compose-price">500 000 кредитов / изображение</span>
+              <button type="button" id="image-generate" class="button primary">Сгенерировать</button>
+            </div>
+          </div>
+          <div id="image-jobs" class="image-jobs compose-jobs"></div>
+        </div>
+      </section>
+
+      <aside id="image-panel" class="image-panel" hidden aria-label="Изображения проекта">
+        <header class="image-panel-head">
+          <h2>Изображения</h2>
+          <button type="button" id="gallery-close" class="image-panel-close" aria-label="Закрыть">✕</button>
+        </header>
+        <div class="gallery-tabs">
+          <button type="button" id="gallery-chat" class="gallery-tab active">Этот чат</button>
+          <button type="button" id="gallery-project" class="gallery-tab">Проект</button>
+          <span id="gallery-count" class="gallery-count"></span>
+        </div>
+        <div id="gallery-grid" class="gallery-grid"></div>
+        <div id="gallery-view" class="gallery-view" hidden>
+          <button type="button" id="gallery-back" class="back">← Все изображения</button>
+          <img id="gallery-image" alt="Сгенерированное изображение">
+          <div id="gallery-meta" class="gallery-meta"></div>
+          <div class="gallery-actions">
+            <button type="button" id="gallery-edit" class="button">Редактировать</button>
+            <a id="gallery-download" class="button" download>Скачать</a>
+            <button type="button" id="gallery-copy" class="button ghost">Копировать путь</button>
+            <button type="button" id="gallery-delete" class="button danger">Удалить</button>
+          </div>
+        </div>
+        <div id="panel-jobs" class="image-jobs panel-jobs"></div>
+        <form id="panel-prompt-form" class="panel-prompt">
+          <div id="panel-source" class="panel-source" hidden>
+            <span data-icon="image" aria-hidden="true"></span>
+            <span id="panel-source-name"></span>
+            <button type="button" id="panel-source-remove" aria-label="Убрать референс">✕</button>
+          </div>
+          <div class="panel-prompt-row">
+            <label class="sr-only" for="panel-prompt">Описание изображения</label>
+            <textarea id="panel-prompt" rows="1" placeholder="Опишите изображение…"></textarea>
+            <label class="sr-only" for="panel-aspect">Пропорции</label>
+            <select id="panel-aspect" title="Пропорции">
+              <option value="auto">Авто</option>
+              <option value="1024x1024">1:1</option>
+              <option value="1536x1024">3:2</option>
+              <option value="1024x1536">2:3</option>
+              <option value="1920x1080">16:9</option>
+              <option value="1080x1920">9:16</option>
+            </select>
+            <button type="submit" id="panel-generate" class="send" title="Сгенерировать" aria-label="Сгенерировать">
+              <span data-icon="arrow-up" aria-hidden="true"></span>
+            </button>
+          </div>
+        </form>
+      </aside>
+      </div>
     </main>
   </div>
 
@@ -175,76 +283,6 @@
     <div class="dialog-actions">
       <button type="button" id="archive-cancel">Закрыть</button>
     </div>
-  </dialog>
-
-  <dialog id="image-studio" class="image-studio">
-    <div class="studio-head">
-      <h2>Генерация изображения</h2>
-      <button type="button" id="image-studio-close" class="browser-close" aria-label="Закрыть">✕</button>
-    </div>
-    <div class="studio-body">
-      <label class="studio-label" for="image-prompt">Описание</label>
-      <textarea id="image-prompt" class="studio-prompt" rows="2" placeholder="Например, обложка для сайта кофейни: тёплый свет, чашка на деревянном столе"></textarea>
-      <div id="image-source" class="image-source" hidden>
-        <span class="attachment-icon" data-icon="image" aria-hidden="true"></span>
-        <span id="image-source-name" class="image-source-name"></span>
-        <button type="button" id="image-source-remove" class="attachment-remove" title="Убрать исходник" aria-label="Убрать исходник">
-          <span data-icon="close" aria-hidden="true"></span>
-        </button>
-      </div>
-      <div class="studio-row">
-        <label>Размер
-          <select id="image-size">
-            <option value="auto">Авто</option>
-            <option value="1024x1024">1024 × 1024</option>
-            <option value="1024x1536">1024 × 1536</option>
-            <option value="1536x1024">1536 × 1024</option>
-            <option value="1920x1080">1920 × 1080</option>
-            <option value="2048x1152">2048 × 1152</option>
-            <option value="2048x2048">2048 × 2048</option>
-            <option value="2560x1440">2560 × 1440</option>
-          </select>
-        </label>
-        <label>Количество
-          <select id="image-count-select">
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-          </select>
-        </label>
-      </div>
-      <div id="image-jobs" class="image-jobs"></div>
-      <div class="studio-foot">
-        <span id="image-studio-note" class="studio-note">500 000 AI-кредитов за изображение</span>
-        <button type="button" id="image-generate" class="button primary">Сгенерировать</button>
-      </div>
-    </div>
-  </dialog>
-
-  <dialog id="image-gallery" class="gallery-dialog">
-    <div class="browser-head">
-      <h2>Изображения</h2>
-      <button type="button" id="gallery-close" class="browser-close" aria-label="Закрыть">✕</button>
-    </div>
-    <div class="gallery-tabs">
-      <button type="button" id="gallery-chat" class="gallery-tab active">Этот чат</button>
-      <button type="button" id="gallery-project" class="gallery-tab">Проект</button>
-      <span id="gallery-count" class="gallery-count"></span>
-    </div>
-    <div id="gallery-grid" class="gallery-grid"></div>
-    <div id="gallery-view" class="gallery-view" hidden>
-      <button type="button" id="gallery-back" class="back">← Все изображения</button>
-      <img id="gallery-image" alt="Сгенерированное изображение">
-      <div id="gallery-meta" class="gallery-meta"></div>
-      <div class="gallery-actions">
-        <button type="button" id="gallery-edit" class="button">Редактировать</button>
-        <a id="gallery-download" class="button" download>Скачать</a>
-        <button type="button" id="gallery-copy" class="button ghost">Копировать путь</button>
-        <button type="button" id="gallery-delete" class="button danger">Удалить</button>
-      </div>
-    </div>
-    <div class="dialog-actions"><button type="button" id="gallery-cancel">Закрыть</button></div>
   </dialog>
 
   <dialog id="folder-dialog" class="browser-dialog">

@@ -94,7 +94,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   const chatNames=new Map(allSessions.map(session=>[session.id,session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Чат')]));
   const records=[];
   for(const chatDir of chatDirs){
-   if(!chatDir.isDirectory())continue;
+   if(!chatDir.isDirectory()||chatDir.name==='_sources')continue;
    const chatId=chatDir.name;
    let files=[];
    try{files=await readdir(join(root,chatId));}catch{continue;}
@@ -370,6 +370,25 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     }
     reply(200,{saved});return;
    }
+    if(req.method==='POST'&&url.pathname==='/api/image-source'){
+     if(!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===active.projectId);
+     if(!project)throw new Error('Проект не найден.');
+     const payload=await body(req,16*1024*1024);
+     const data=Buffer.from(String(payload.content||''),'base64');
+     if(!data.length)throw new Error('Файл пуст.');
+     if(data.length>11*1024*1024)throw new Error('Выберите PNG или JPEG до 11 МБ.');
+     const png=data.subarray(0,8).equals(Buffer.from('89504e470d0a1a0a','hex'));
+     const jpeg=data[0]===0xff&&data[1]===0xd8;
+     if(!png&&!jpeg)throw new Error('Выберите PNG или JPEG.');
+     const dir=join(project.cwd,'generated','_sources');
+     await mkdir(dir,{recursive:true});
+     const target=join(dir,`source-${Date.now()}-${randomBytes(4).toString('hex')}.${jpeg?'jpg':'png'}`);
+     await writeFile(target,data,{flag:'wx',mode:0o600});
+     reply(200,{path:relative(project.cwd,target).split(sep).join('/'),name:sanitizeUploadName(payload.name)||basename(target)});
+     return;
+    }
     if(req.method==='POST'&&url.pathname==='/api/drop-attach'){
      if(!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
      const payload=await body(req,140*1024*1024);

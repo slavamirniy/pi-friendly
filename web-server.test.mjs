@@ -450,6 +450,9 @@ test('image endpoints list, serve, generate and delete project images',async t=>
  const list=await request('images',{project:project.id});assert.equal(list.status,200);assert.equal(list.data.images.length,1);assert.equal(list.data.images[0].chatName,'Чат с картинкой');
  const served=await request('image?project='+encodeURIComponent(project.id)+'&path='+encodeURIComponent(record.path));assert.equal(served.status,200);assert.deepEqual(served.data,png);
  const opened=await request('open',{id:project.chats[0].id});assert.equal(opened.status,200);
+ const uploaded=await request('image-source',{name:'ref.png',content:png.toString('base64')});assert.equal(uploaded.status,200);assert.match(uploaded.data.path,/^generated[\/]_sources[\/].+\.png$/);assert.equal(uploaded.data.name,'ref.png');
+ const sourceBytes=await readFile(join(cwd,uploaded.data.path));assert.deepEqual(sourceBytes,png);
+ const listAfterSource=await request('images',{project:project.id});assert.equal(listAfterSource.data.images.length,1);
  const made=await request('image-generate',{prompt:'сделай круг',size:'1024x1024'});assert.equal(made.status,200);assert.equal(generated[0].sessionId,'chat-1');assert.equal(generated[0].size,'1024x1024');assert.equal(made.data.image.id,'pic-2');
  const removed=await request('image-delete',{project:project.id,path:record.path});assert.equal(removed.status,200);
  const after=await request('images',{project:project.id});assert.equal(after.data.images.length,0);

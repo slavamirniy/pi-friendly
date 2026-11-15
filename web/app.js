@@ -107,6 +107,10 @@ let imageImages = [];
 let imageGalleryScope = "chat";
 let imageGallerySelected = null;
 let imageStudioSource = null;
+let imageComposeOpen = false;
+let imagePanelOpen = false;
+let imageWorkspaceChatId = null;
+let imageSourceUploading = false;
 let imageJobs = [];
 let imageProgressTimer = null;
 try {
@@ -542,17 +546,34 @@ function wireChrome() {
     event.preventDefault();
     navigate("projects");
   };
-  $("image-open").onclick = () => openImageStudio();
-  $("image-gallery-open").onclick = () => openGallery();
-  $("image-studio-close").onclick = () => $("image-studio").close();
-  $("image-source-remove").onclick = () => {
-    imageStudioSource = null;
-    updateImageSource();
+  $("image-open").onclick = () => openImageCompose();
+  $("image-gallery-open").onclick = () => openImagePanel();
+  $("image-compose-back").onclick = () => closeImageCompose();
+  $("image-compose-gallery").onclick = () => {
+    closeImageCompose();
+    openImagePanel();
+  };
+  $("image-ref-add").onclick = (event) => {
+    event.stopPropagation();
+    toggleSourceMenu();
+  };
+  $("image-source-pc").onclick = () => {
+    closeSourceMenu();
+    $("image-file-input").click();
+  };
+  $("image-source-generated").onclick = async () => {
+    await refreshImageLibrary();
+    renderSourceMenuGallery();
+  };
+  $("image-file-input").onchange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) uploadImageSource(file);
   };
   const resizeImagePrompt = () => {
     const area = $("image-prompt");
     area.style.height = "auto";
-    area.style.height = `${Math.min(area.scrollHeight, 120)}px`;
+    area.style.height = `${Math.min(area.scrollHeight, 240)}px`;
   };
   $("image-prompt").oninput = () => {
     resizeImagePrompt();
@@ -564,28 +585,48 @@ function wireChrome() {
     if (!$("image-generate").disabled) generateImages();
   };
   $("image-generate").onclick = () => generateImages();
-  $("gallery-close").onclick = () => $("image-gallery").close();
-  $("gallery-cancel").onclick = () => $("image-gallery").close();
+  $("panel-prompt-form").onsubmit = (event) => {
+    event.preventDefault();
+    if (!$("panel-generate").disabled) generatePanelImage();
+  };
+  $("panel-prompt").oninput = () => updatePanelGenerateButton();
+  $("panel-prompt").onkeydown = (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    if (!$("panel-generate").disabled) generatePanelImage();
+  };
+  $("panel-source-remove").onclick = () => showGalleryGrid();
+  $("gallery-close").onclick = () => closeImagePanel();
   $("gallery-chat").onclick = () => {
     imageGalleryScope = "chat";
     imageGallerySelected = null;
+    updatePanelSource();
     renderGallery();
   };
   $("gallery-project").onclick = () => {
     imageGalleryScope = "project";
     imageGallerySelected = null;
+    updatePanelSource();
     renderGallery();
   };
   $("gallery-back").onclick = () => showGalleryGrid();
   $("gallery-edit").onclick = () => {
     if (!imageGallerySelected) return;
-    const source = imageGallerySelected.path;
-    $("image-gallery").close();
-    openImageStudio(source);
+    const source = imageGallerySelected;
+    closeImagePanel();
+    openImageCompose(source);
   };
   $("gallery-copy").onclick = () => {
     if (imageGallerySelected) copyText(imageGallerySelected.path);
   };
+  document.addEventListener("click", (event) => {
+    if ($("image-source-menu").hidden) return;
+    if (event.target.closest(".image-ref-add-wrap")) return;
+    closeSourceMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("image-source-menu").hidden) closeSourceMenu();
+  });
   $("gallery-delete").onclick = () => {
     if (!imageGallerySelected) return;
     pendingImageDelete = { project: activeProjectId(), image: imageGallerySelected };
@@ -1148,7 +1189,7 @@ function renderRoute() {
   updateImageBadge();
   const chatPage = page === "chat" && state.active;
   $("page").hidden = chatPage;
-  $("chat").hidden = !chatPage;
+  renderImageWorkspace(chatPage);
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.classList.toggle(
       "active",
@@ -1428,6 +1469,15 @@ function renderChatsPage(project) {
     const pages = Math.max(1, Math.ceil(chats.length / CHAT_PAGE_SIZE));
     chatPage = Math.min(Math.max(1, chatPage), pages);
     const visible = chats.slice((chatPage - 1) * CHAT_PAGE_SIZE, chatPage * CHAT_PAGE_SIZE);
+    const create = el("button", null, "row-item row-create row-create-chat");
+    create.type = "button";
+    create.disabled = Boolean(state.busy);
+    create.append(icon("plus"));
+    const createCopy = el("span", null, "row-copy");
+    createCopy.append(el("strong", "Создать чат"));
+    create.append(createCopy);
+    create.onclick = () => newBranch();
+    list.append(create);
     for (const chat of visible) {
       const row = el("button", null, "row-item" + (chat.id === state.active?.id ? " selected" : ""));
       row.type = "button";
@@ -1453,7 +1503,7 @@ function renderChatsPage(project) {
         emptyState(
           term ? "Ничего не найдено" : "Пока нет чатов",
           term ? "Попробуйте другое название." : "Создайте чат — он будет хранить свою переписку.",
-          term ? null : { label: "Новый чат", primary: true, run: newBranch },
+          null,
         ),
       );
     }
@@ -1602,9 +1652,14 @@ function renderMessages() {
   let assistantText = "";
   let assistantStreaming = false;
   let assistantAnswer = null;
+  let assistantImageLoaders = 0;
 
   const finishAssistant = () => {
     if (!assistantContent) return;
+    if (assistantImageLoaders) {
+      assistantContent.append(imageToolLoader(assistantImageLoaders));
+      assistantImageLoaders = 0;
+    }
     if (assistantStreaming && assistantAnswer) {
       assistantAnswer.append(el("span", "▍", "typing-caret"));
     }
@@ -1632,6 +1687,7 @@ function renderMessages() {
     assistantText = "";
     assistantStreaming = false;
     assistantAnswer = null;
+    assistantImageLoaders = 0;
   };
 
   messages.forEach((message, index) => {
@@ -1761,7 +1817,7 @@ function renderMessages() {
         if (Array.isArray(tool.images) && tool.images.length) {
           content.append(toolImageGrid(tool.images));
         } else if (tool.name === "generate_image" && (status === "running" || status === "pending")) {
-          content.append(imageToolLoader());
+          assistantImageLoaders += 1;
         }
       }
       if (showFailure) {
@@ -2022,7 +2078,7 @@ function updateImageBadge() {
   const count = $("image-count");
   if (!button || !count) return;
   const project = activeProjectId();
-  button.hidden = !project || page === "create";
+  button.hidden = !project || page !== "chat" || !state.active || imageComposeOpen || imagePanelOpen;
   if (!project) return;
   const chatId = state.active?.sessionId;
   const number = chatId
@@ -2044,32 +2100,117 @@ async function refreshImageLibrary() {
     imageImages = result.images || [];
   } catch {}
   updateImageBadge();
-  if ($("image-gallery").open) renderGallery();
+  if ($("image-panel") && !$("image-panel").hidden) renderGallery();
+  if ($("image-source-menu") && !$("image-source-menu").hidden && !$("image-source-generated-list").hidden) {
+    renderSourceMenuGallery();
+  }
 }
 
-function openGallery() {
-  if (!activeProjectId()) {
-    showHint("Сначала выберите проект.", true);
+function renderImageWorkspace(chatPage = page === "chat" && Boolean(state.active)) {
+  const workspace = $("chat-workspace");
+  if (!workspace) return;
+  if (!chatPage) {
+    imageComposeOpen = false;
+    imagePanelOpen = false;
+    imageWorkspaceChatId = null;
+  } else if (imageWorkspaceChatId && state.active?.id !== imageWorkspaceChatId) {
+    imageComposeOpen = false;
+    imagePanelOpen = false;
+    imageWorkspaceChatId = null;
+  }
+  const compose = Boolean(chatPage && imageComposeOpen);
+  const panel = Boolean(chatPage && imagePanelOpen && !compose);
+  workspace.hidden = !chatPage;
+  $("chat").hidden = !chatPage || compose;
+  $("image-compose").hidden = !compose;
+  $("image-panel").hidden = !panel;
+  workspace.classList.toggle("with-panel", panel);
+  updateImageBadge();
+}
+
+function normalizeImageSource(source) {
+  if (!source) return null;
+  if (typeof source === "string") return { path: source, name: imageName(source) };
+  if (!source.path) return null;
+  return { ...source, path: source.path, name: source.name || imageName(source.path) };
+}
+
+function openImageCompose(source = null) {
+  if (!activeProjectId() || !state.active) {
+    showHint("Сначала откройте чат в проекте.", true);
     return;
   }
+  imageComposeOpen = true;
+  imagePanelOpen = false;
+  imageWorkspaceChatId = state.active?.id || null;
+  closeSourceMenu();
+  imageStudioSource = normalizeImageSource(source);
+  imageJobs = imageJobs.filter((job) => job.surface !== "compose" || job.status === "loading");
+  $("image-prompt").value = "";
+  $("image-prompt").style.height = "";
+  $("image-aspect").value = "auto";
+  $("image-count-select").value = "1";
+  $("image-jobs").replaceChildren();
+  renderImageSource();
+  updateImageGenerateButton();
+  renderImageWorkspace();
+  renderImageJobs();
+  refreshImageLibrary();
+  setTimeout(() => {
+    $("image-prompt").focus();
+    $("image-prompt").style.height = "";
+  }, 0);
+}
+
+function closeImageCompose() {
+  imageComposeOpen = false;
+  closeSourceMenu();
+  renderImageWorkspace();
+  $("draft").focus({ preventScroll: true });
+}
+
+function openImagePanel() {
+  if (!activeProjectId() || !state.active) {
+    showHint("Сначала откройте чат в проекте.", true);
+    return;
+  }
+  imageComposeOpen = false;
+  imagePanelOpen = true;
+  imageWorkspaceChatId = state.active?.id || null;
+  closeSourceMenu();
   const chatId = state.active?.sessionId;
   if (!chatId || !imageImages.some((image) => image.chatId === chatId)) imageGalleryScope = "project";
   imageGallerySelected = null;
-  $("image-gallery").showModal();
+  updatePanelSource();
+  renderImageWorkspace();
   renderGallery();
+  renderPanelJobs();
   refreshImageLibrary();
 }
 
-function openGalleryAt(image) {
-  if (!activeProjectId()) {
-    showHint("Сначала выберите проект.", true);
+function openImagePanelAt(image) {
+  if (!activeProjectId() || !state.active) {
+    showHint("Сначала откройте чат в проекте.", true);
     return;
   }
+  imageComposeOpen = false;
+  imagePanelOpen = true;
+  imageWorkspaceChatId = state.active?.id || null;
   imageGallerySelected = image;
   imageGalleryScope = image.chatId && image.chatId !== state.active?.sessionId ? "project" : "chat";
-  if (!$("image-gallery").open) $("image-gallery").showModal();
+  updatePanelSource();
+  renderImageWorkspace();
   renderGallery();
+  renderPanelJobs();
   refreshImageLibrary();
+}
+
+function closeImagePanel() {
+  imagePanelOpen = false;
+  imageGallerySelected = null;
+  updatePanelSource();
+  renderImageWorkspace();
+  $("draft").focus({ preventScroll: true });
 }
 
 function galleryTabs() {
@@ -2077,16 +2218,21 @@ function galleryTabs() {
   $("gallery-project").classList.toggle("active", imageGalleryScope === "project");
 }
 
+function galleryImages() {
+  const chatId = state.active?.sessionId;
+  return imageGalleryScope === "chat" && chatId
+    ? imageImages.filter((image) => image.chatId === chatId)
+    : imageImages;
+}
+
 function renderGallery() {
   galleryTabs();
   const selected = imageGallerySelected;
-  const chatId = state.active?.sessionId;
-  const images = imageGalleryScope === "chat" && chatId
-    ? imageImages.filter((image) => image.chatId === chatId)
-    : imageImages;
+  const images = galleryImages();
   $("gallery-grid").hidden = Boolean(selected);
   $("gallery-view").hidden = !selected;
   $("gallery-count").textContent = selected ? "" : String(images.length);
+  if (!selected) updatePanelSource();
   if (selected) {
     const image = selected;
     $("gallery-image").src = imageUrl(image);
@@ -2099,6 +2245,7 @@ function renderGallery() {
     $("gallery-download").download = imageName(image.path);
     $("gallery-edit").disabled = !image.path;
     $("gallery-delete").disabled = !image.path;
+    updatePanelSource();
     return;
   }
 
@@ -2108,7 +2255,7 @@ function renderGallery() {
     const empty = el("div", null, "gallery-empty");
     empty.append(
       el("strong", imageGalleryScope === "chat" ? "В этом чате пока нет изображений" : "В проекте пока нет изображений"),
-      el("span", "Откройте генерацию и создайте первое изображение."),
+      el("span", "Напишите запрос внизу панели, чтобы создать первое."),
     );
     grid.append(empty);
     return;
@@ -2137,7 +2284,7 @@ function renderGallery() {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(image);
     }
-    for (const [key, group] of groups) {
+    for (const [, group] of groups) {
       const section = el("div", null, "gallery-group");
       section.append(el("div", group[0].chatName || "Чат", "gallery-group-title"));
       const row = el("div", null, "gallery-cards");
@@ -2154,53 +2301,146 @@ function renderGallery() {
 
 function openGalleryImage(image) {
   imageGallerySelected = image;
+  updatePanelSource();
   renderGallery();
 }
 
 function showGalleryGrid() {
   imageGallerySelected = null;
+  updatePanelSource();
   renderGallery();
 }
 
-function updateImageSource() {
-  const box = $("image-source");
-  const name = $("image-source-name");
-  if (!imageStudioSource) {
+function updatePanelSource() {
+  const box = $("panel-source");
+  const name = $("panel-source-name");
+  const prompt = $("panel-prompt");
+  if (!box || !name || !prompt) return;
+  if (!imageGallerySelected) {
     box.hidden = true;
     name.textContent = "";
+    prompt.placeholder = "Опишите изображение…";
     return;
   }
   box.hidden = false;
-  name.textContent = imageName(imageStudioSource);
-  box.title = imageStudioSource;
+  name.textContent = imageName(imageGallerySelected.path);
+  prompt.placeholder = "Опишите изменения…";
 }
 
-function openImageStudio(source = null) {
-  if (!activeProjectId()) {
-    showHint("Сначала выберите проект.", true);
+function renderImageSource() {
+  const list = $("image-ref-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!imageStudioSource) return;
+  const item = el("div", null, "image-ref");
+  item.title = imageStudioSource.name || imageName(imageStudioSource.path);
+  const img = el("img");
+  img.src = imageUrl(imageStudioSource);
+  img.alt = item.title;
+  const remove = el("button", null, "image-ref-remove");
+  remove.type = "button";
+  remove.title = "Убрать референс";
+  remove.setAttribute("aria-label", "Убрать референс");
+  remove.textContent = "✕";
+  remove.onclick = (event) => {
+    event.stopPropagation();
+    setImageSource(null);
+  };
+  item.append(img, remove);
+  list.append(item);
+}
+
+function setImageSource(source) {
+  imageStudioSource = normalizeImageSource(source);
+  renderImageSource();
+  closeSourceMenu();
+  updateImageGenerateButton();
+}
+
+function closeSourceMenu() {
+  const menu = $("image-source-menu");
+  const list = $("image-source-generated-list");
+  if (menu) menu.hidden = true;
+  if (list) list.hidden = true;
+}
+
+function toggleSourceMenu() {
+  const menu = $("image-source-menu");
+  if (!menu) return;
+  if (!menu.hidden) {
+    closeSourceMenu();
     return;
   }
-  imageStudioSource = source || null;
-  imageJobs = [];
-  stopImageTimer();
-  $("image-prompt").value = "";
-  $("image-prompt").style.height = "";
-  $("image-jobs").replaceChildren();
-  updateImageSource();
-  updateImageGenerateButton();
-  if (!$("image-studio").open) $("image-studio").showModal();
-  setTimeout(() => {
-    $("image-prompt").focus();
-    $("image-prompt").style.height = "";
-  }, 0);
+  menu.hidden = false;
+  $("image-source-generated-list").hidden = true;
+  refreshImageLibrary();
+}
+
+function renderSourceMenuGallery() {
+  const list = $("image-source-generated-list");
+  if (!list) return;
+  list.hidden = false;
+  list.replaceChildren();
+  if (!imageImages.length) {
+    list.append(el("div", "Нет сгенерированных изображений.", "source-menu-empty"));
+    return;
+  }
+  for (const image of imageImages.slice(0, 24)) {
+    const button = el("button");
+    button.type = "button";
+    button.title = image.prompt || imageName(image.path);
+    const img = el("img");
+    img.src = imageUrl(image);
+    img.loading = "lazy";
+    img.alt = button.title;
+    button.append(img);
+    button.onclick = () => setImageSource(image);
+    list.append(button);
+  }
+}
+
+async function uploadImageSource(file) {
+  if (!file) return;
+  if (!/image\/(png|jpeg)/.test(file.type) && !/\.(png|jpe?g)$/i.test(file.name)) {
+    showHint("Выберите PNG или JPEG.", true);
+    return;
+  }
+  if (file.size > 11 * 1024 * 1024) {
+    showHint("Файл больше 11 МБ.", true);
+    return;
+  }
+  if (imageSourceUploading) return;
+  imageSourceUploading = true;
+  showHint("Загружаю референс…");
+  try {
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (let index = 0; index < buffer.length; index += 0x8000)
+      binary += String.fromCharCode(...buffer.subarray(index, index + 0x8000));
+    const result = await api("image-source", { name: file.name, content: btoa(binary) }, 60000);
+    setImageSource(result);
+    showHint("Референс добавлен.");
+  } catch (error) {
+    showHint(error.message, true);
+  } finally {
+    imageSourceUploading = false;
+  }
 }
 
 function updateImageGenerateButton() {
   const button = $("image-generate");
   if (!button) return;
-  const loading = imageJobs.some((job) => job.status === "loading");
+  const loading = imageJobs.some((job) => job.surface === "compose" && job.status === "loading");
   button.disabled = loading || !$("image-prompt").value.trim();
   button.textContent = loading ? "Генерирую…" : "Сгенерировать";
+}
+
+function updatePanelGenerateButton() {
+  const button = $("panel-generate");
+  if (!button) return;
+  const loading = imageJobs.some((job) => job.surface === "panel" && job.status === "loading");
+  button.disabled = loading || !$("panel-prompt").value.trim();
+  button.setAttribute("aria-busy", String(loading));
 }
 
 function stopImageTimer() {
@@ -2217,8 +2457,10 @@ function startImageTimer() {
       loading = true;
       job.progress = Math.min(92, job.progress + Math.max(0.7, (92 - job.progress) * 0.06));
     }
-    if (loading) renderImageJobs();
-    else stopImageTimer();
+    if (loading) {
+      renderImageJobs();
+      renderPanelJobs();
+    } else stopImageTimer();
   }, 400);
 }
 
@@ -2227,11 +2469,16 @@ function imageJobElapsed(job) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function renderImageJobs() {
-  const box = $("image-jobs");
+function imageJobSize(job) {
+  if (!job.size || job.size === "auto") return "авто";
+  const labels = { "1024x1024": "1:1", "1536x1024": "3:2", "1024x1536": "2:3", "1920x1080": "16:9", "1080x1920": "9:16" };
+  return labels[job.size] || job.size;
+}
+
+function renderJobCards(box, jobs) {
   if (!box) return;
   box.replaceChildren();
-  for (const job of imageJobs) {
+  for (const job of jobs) {
     const card = el("div", null, "image-job " + job.status);
     card.dataset.job = job.id;
     if (job.status === "loading") {
@@ -2242,7 +2489,7 @@ function renderImageJobs() {
       fill.style.width = Math.round(job.progress) + "%";
       progress.append(fill);
       const meta = el("div", null, "image-job-meta");
-      meta.append(el("span", imageJobElapsed(job)), el("span", job.size && job.size !== "auto" ? job.size : "авто"));
+      meta.append(el("span", imageJobElapsed(job)), el("span", imageJobSize(job)));
       card.append(visual, progress, meta);
     } else if (job.status === "done" && job.image) {
       const visual = el("button", null, "image-job-visual done");
@@ -2252,7 +2499,7 @@ function renderImageJobs() {
       img.src = imageUrl(job.image);
       img.alt = job.prompt;
       visual.append(img);
-      visual.onclick = () => { openGalleryAt(job.image); };
+      visual.onclick = () => openImagePanelAt(job.image);
       const meta = el("div", null, "image-job-meta");
       meta.append(el("span", imageMeta(job.image)), el("span", "готово", "image-job-ok"));
       card.append(visual, meta);
@@ -2277,7 +2524,16 @@ function renderImageJobs() {
     }
     box.append(card);
   }
+}
+
+function renderImageJobs() {
+  renderJobCards($("image-jobs"), imageJobs.filter((job) => job.surface !== "panel"));
   updateImageGenerateButton();
+}
+
+function renderPanelJobs() {
+  renderJobCards($("panel-jobs"), imageJobs.filter((job) => job.surface === "panel"));
+  updatePanelGenerateButton();
 }
 
 function runImageJob(job) {
@@ -2287,6 +2543,7 @@ function runImageJob(job) {
   job.error = null;
   job.image = null;
   renderImageJobs();
+  renderPanelJobs();
   startImageTimer();
   api("image/generate", {
     prompt: job.prompt,
@@ -2299,6 +2556,12 @@ function runImageJob(job) {
       job.status = "done";
       job.progress = 100;
       job.image = result.image;
+      if (job.surface === "panel" && imagePanelOpen) {
+        imageGallerySelected = result.image;
+        imageGalleryScope = "chat";
+        updatePanelSource();
+        renderGallery();
+      }
     })
     .catch((error) => {
       job.status = "error";
@@ -2308,6 +2571,7 @@ function runImageJob(job) {
     })
     .finally(() => {
       renderImageJobs();
+      renderPanelJobs();
       if (!imageJobs.some((item) => item.status === "loading")) stopImageTimer();
       refreshImageLibrary();
     });
@@ -2325,19 +2589,21 @@ function generateImages() {
     $("image-prompt").focus();
     return;
   }
-  if (!activeProjectId()) {
-    showHint("Сначала выберите проект.", true);
+  if (!activeProjectId() || !state.active) {
+    showHint("Сначала откройте чат в проекте.", true);
     return;
   }
   const count = Math.max(1, Math.min(4, Number($("image-count-select").value) || 1));
-  const size = $("image-size").value;
-  imageJobs = [];
+  const size = $("image-aspect").value;
+  const source = imageStudioSource?.path;
+  imageJobs = imageJobs.filter((job) => job.surface !== "compose");
   for (let index = 0; index < count; index += 1) {
     const job = {
       id: crypto.randomUUID(),
+      surface: "compose",
       prompt,
       size,
-      source: imageStudioSource,
+      source,
       status: "loading",
       progress: 4,
       startedAt: Date.now(),
@@ -2348,6 +2614,36 @@ function generateImages() {
     runImageJob(job);
   }
   renderImageJobs();
+}
+
+function generatePanelImage() {
+  const prompt = $("panel-prompt").value.trim();
+  if (!prompt) {
+    showHint("Опишите изображение.", true);
+    $("panel-prompt").focus();
+    return;
+  }
+  if (!activeProjectId() || !state.active) {
+    showHint("Сначала откройте чат в проекте.", true);
+    return;
+  }
+  const job = {
+    id: crypto.randomUUID(),
+    surface: "panel",
+    prompt,
+    size: $("panel-aspect").value,
+    source: imageGallerySelected?.path || undefined,
+    status: "loading",
+    progress: 4,
+    startedAt: Date.now(),
+    image: null,
+    error: null,
+  };
+  imageJobs.push(job);
+  $("panel-prompt").value = "";
+  $("panel-prompt").style.height = "";
+  updatePanelGenerateButton();
+  runImageJob(job);
 }
 
 function toolImageGrid(images) {
@@ -2361,15 +2657,17 @@ function toolImageGrid(images) {
     img.loading = "lazy";
     img.alt = image.prompt || "Изображение";
     button.append(img);
-    button.onclick = () => openGalleryAt(image);
+    button.onclick = () => openImagePanelAt(image);
     box.append(button);
   }
   return box;
 }
 
-function imageToolLoader() {
-  const box = el("div", null, "tool-image-loading");
-  box.append(el("span", null, "image-loading-spinner"), el("span", "Генерирую изображение…"));
+function imageToolLoader(count = 1) {
+  const box = el("div", null, "tool-image-skeletons");
+  for (let index = 0; index < Math.max(1, count); index += 1) {
+    box.append(el("span", null, "tool-image-skeleton"));
+  }
   return box;
 }
 
