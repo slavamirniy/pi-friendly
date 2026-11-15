@@ -510,9 +510,9 @@ function wireChrome() {
     if (
       event.key === "Escape" &&
       state.busy &&
-      !$("draft").value &&
+      !$("draft").value.trim() &&
       !state.questions?.length &&
-      !$("ui-hint").hidden
+      !document.querySelector("dialog[open]")
     ) {
       abortGeneration();
     }
