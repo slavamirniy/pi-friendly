@@ -115,11 +115,14 @@
 }
 
 html {
-  scrollbar-gutter: stable;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
+  height: 100%;
   margin: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font: 13.5px/1.5 var(--font);
@@ -182,6 +185,7 @@ svg {
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
   height: 100dvh;
   min-height: 420px;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -279,34 +283,42 @@ svg {
 /* current project + branches */
 
 .return-chat {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  margin: 10px 0 2px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--accent-tint);
   color: var(--accent-ink);
-  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
 }
 .return-chat:hover {
-  filter: brightness(0.96);
+  filter: brightness(0.97);
 }
 .return-chat svg {
   width: 13px;
   height: 13px;
 }
+.return-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .return-busy-dot {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--orange);
   animation: pulse 1.1s ease-in-out infinite;
+  flex: none;
 }
 .return-chat:not(.busy) .return-busy-dot {
   display: none;
@@ -1038,6 +1050,24 @@ h1 {
 .row-item:hover:not(:disabled) {
   background: var(--surface);
 }
+.row-create {
+  margin-bottom: 4px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  box-shadow: none;
+  color: var(--accent-ink);
+}
+.row-create:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+.row-create > svg:first-child {
+  color: var(--accent-ink);
+}
+.row-create .row-copy strong {
+  color: var(--accent-ink);
+  font-weight: 500;
+}
 .row-item.selected {
   background: var(--accent-tint);
   box-shadow: 0 1px 0 0 var(--divider);
@@ -1244,14 +1274,6 @@ h1 {
 .message.assistant.continued {
   padding-left: 34px;
   margin-top: -8px;
-}
-.message.assistant.continued .assistant-body::before {
-  content: "";
-  display: block;
-  width: 22px;
-  height: 1px;
-  margin: 0 0 8px;
-  background: var(--divider);
 }
 .assistant-mark {
   flex: none;
@@ -2133,38 +2155,20 @@ h1 {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-  color: var(--accent-ink);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-}
-.inline-generation-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.inline-generation-dots {
-  width: 24px;
-  height: 5px;
-  flex: none;
-  background: radial-gradient(circle at 3px 2.5px, currentColor 2.2px, transparent 2.6px),
-    radial-gradient(circle at 12px 2.5px, currentColor 2.2px, transparent 2.6px),
-    radial-gradient(circle at 21px 2.5px, currentColor 2.2px, transparent 2.6px);
-  animation: pulse 1.1s ease-in-out infinite;
-}
-.inline-generation-meta {
-  margin-left: auto;
+  gap: 7px;
+  margin-top: 6px;
   color: var(--muted);
   font: 10.5px/1.4 var(--mono);
   font-variant-numeric: tabular-nums;
+}
+.inline-generation-meta {
+  color: var(--muted);
   white-space: nowrap;
 }
 .inline-generation.connecting {
   color: var(--muted);
-  font-weight: 400;
+  font-family: var(--font);
+  font-size: 12px;
 }
 .inline-generation-spinner {
   width: 8px;

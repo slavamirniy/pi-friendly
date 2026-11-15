@@ -90,6 +90,7 @@ let pendingOpenId = null;
 let openPrevious = null;
 let queueCollapsed = false;
 let recentExpanded = false;
+let renderedBranches = "";
 let projectPage = 1;
 let chatPage = 1;
 const PROJECT_PAGE_SIZE = 10;
@@ -842,9 +843,22 @@ function renderRecentProjects() {
 }
 
 function renderBranches() {
+  const project = projectOf(activeProjectId());
+  const signature = JSON.stringify([
+    page,
+    project?.id || null,
+    project?.name || null,
+    (project?.chats || []).map((chat) => [chat.id, chat.name, chat.count, chat.terminal]),
+    catalog.map((item) => [item.id, item.name]),
+    state.active?.id || null,
+    state.active?.name || null,
+    Boolean(state.busy),
+    recentExpanded,
+  ]);
+  if (signature === renderedBranches) return;
+  renderedBranches = signature;
   renderReturnChat();
   renderRecentProjects();
-  const project = projectOf(activeProjectId());
   const panel = $("branches-panel");
   if (!project) {
     panel.hidden = true;
@@ -1224,6 +1238,16 @@ function renderProjectsPage() {
           term ? null : { label: "Новый проект", primary: true, run: openCreateProject },
         ),
       );
+    }
+    if (projectPage === 1 && projects.length) {
+      const create = el("button", null, "row-item row-create");
+      create.type = "button";
+      create.append(icon("plus"));
+      const copy = el("span", null, "row-copy");
+      copy.append(el("strong", "Создать проект"));
+      create.append(copy);
+      create.onclick = () => openCreateProject();
+      list.append(create);
     }
     for (const project of visible) {
       const row = el("button", null, "row-item");
@@ -1614,11 +1638,9 @@ function renderMessages() {
           : Number.isFinite(state.billing?.account?.available)
             ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
             : "";
-        const generation = el("div", null, "inline-generation");
-        const stateLabel = el("span", null, "inline-generation-state");
-        stateLabel.append(el("span", null, "inline-generation-dots"), document.createTextNode("Пишет ответ…"));
-        generation.append(stateLabel);
         const meta = [progressTime(), quota].filter(Boolean).join(" · ");
+        const generation = el("div", null, "inline-generation");
+        generation.append(el("span", null, "inline-generation-spinner"));
         if (meta) generation.append(el("span", meta, "inline-generation-meta"));
         content.append(generation);
       }
@@ -1640,9 +1662,10 @@ function renderMessages() {
 
   if (state.active && state.ready === false && !state.busy) {
     const connecting = el("div", null, "inline-generation connecting");
-    const stateLabel = el("span", null, "inline-generation-state");
-    stateLabel.append(el("span", null, "inline-generation-spinner"), document.createTextNode("Подключаюсь к чату…"));
-    connecting.append(stateLabel);
+    connecting.append(
+      el("span", null, "inline-generation-spinner"),
+      document.createTextNode("Подключаюсь к чату…"),
+    );
     frag.append(connecting);
   }
   if (!frag.childNodes.length) {
