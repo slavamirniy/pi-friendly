@@ -2496,21 +2496,22 @@ function renderGallery({ reset = false } = {}) {
   }
 
   const grid = $("gallery-grid");
+  const columns = $("gallery-columns");
   if (reset) {
-    grid.replaceChildren();
+    columns.replaceChildren();
     grid.scrollTop = 0;
     galleryRendered = 0;
   }
   renderPanelSkeletons();
   if (!images.length) {
-    if (!grid.querySelector(".gallery-skeleton")) {
-      grid.replaceChildren();
+    if (!columns.querySelector(".gallery-skeleton")) {
+      columns.replaceChildren();
       const empty = el("div", null, "gallery-empty");
       empty.append(
         el("strong", imageGalleryScope === "chat" ? "В этом чате пока нет изображений" : "В проекте пока нет изображений"),
         el("span", "Напишите запрос внизу панели или перетащите картинку в референсы."),
       );
-      grid.append(empty);
+      columns.append(empty);
     }
     return;
   }
@@ -2523,7 +2524,8 @@ function panelLoadingJobs() {
 
 function renderPanelSkeletons() {
   const grid = $("gallery-grid");
-  if (!grid) return;
+  const columns = $("gallery-columns");
+  if (!grid || !columns) return;
   const entries = panelLoadingJobs().map((job) => ({
     key: job.id,
     label: Math.round(job.progress) + "%",
@@ -2539,13 +2541,13 @@ function renderPanelSkeletons() {
       }
     }
   }
-  if (entries.length) grid.querySelector(".gallery-empty")?.remove();
+  if (entries.length) columns.querySelector(".gallery-empty")?.remove();
   const ids = new Set(entries.map((entry) => entry.key));
-  for (const node of grid.querySelectorAll(".gallery-skeleton")) {
+  for (const node of columns.querySelectorAll(".gallery-skeleton")) {
     if (!ids.has(node.dataset.job)) node.remove();
   }
   const existing = new Map(
-    [...grid.querySelectorAll(".gallery-skeleton")].map((node) => [node.dataset.job, node]),
+    [...columns.querySelectorAll(".gallery-skeleton")].map((node) => [node.dataset.job, node]),
   );
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
@@ -2554,7 +2556,7 @@ function renderPanelSkeletons() {
       card = el("div", null, "gallery-skeleton");
       card.dataset.job = entry.key;
       card.append(el("span", null, "gallery-skeleton-spinner"), el("span", null, "gallery-skeleton-percent"));
-      grid.prepend(card);
+      columns.prepend(card);
     }
     const percent = card.querySelector(".gallery-skeleton-percent");
     if (percent) percent.textContent = entry.label;
@@ -2588,15 +2590,16 @@ function galleryCard(image) {
 
 function appendGalleryBatch() {
   const grid = $("gallery-grid");
-  if (!grid || imageGallerySelected) return;
+  const columns = $("gallery-columns");
+  if (!grid || !columns || imageGallerySelected) return;
   const images = galleryImages();
   const end = Math.min(images.length, galleryRendered + GALLERY_BATCH);
   if (galleryRendered >= end) return;
   const frag = document.createDocumentFragment();
   for (let index = galleryRendered; index < end; index += 1) frag.append(galleryCard(images[index]));
-  grid.append(frag);
+  columns.append(frag);
   galleryRendered = end;
-  if (galleryRendered < images.length && grid.scrollHeight <= grid.clientHeight + 10) {
+  if (galleryRendered < images.length && columns.scrollHeight <= grid.clientHeight + 10) {
     appendGalleryBatch();
   }
 }

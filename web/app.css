@@ -4320,3 +4320,40 @@ button.image-job-visual { cursor: pointer; }
 
 .image-panel .gallery-card { width: calc(50% - 3px); }
 .image-panel .gallery-card img { width: 100%; height: auto !important; min-height: 0; aspect-ratio: auto !important; object-fit: cover; }
+
+.image-panel .gallery-grid {
+  display: block;
+  overflow-x: hidden;
+  padding: 8px 10px 12px;
+}
+.image-panel .gallery-columns {
+  column-width: 118px;
+  column-gap: 6px;
+}
+.image-panel .gallery-card,
+.image-panel .gallery-skeleton {
+  display: block;
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 6px;
+  break-inside: avoid;
+}
+.image-panel .gallery-empty { column-span: all; }
+
+:root {
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+}
+:root[data-theme="dark"] {
+  --link: #60a5fa;
+  --link-hover: #93c5fd;
+}
+.answer a,
+.user-bubble a {
+  color: var(--link);
+}
+.answer a:hover,
+.user-bubble a:hover {
+  color: var(--link-hover);
+}
