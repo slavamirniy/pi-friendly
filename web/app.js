@@ -88,11 +88,8 @@ let queueCollapsed = false;
 let recentExpanded = false;
 let projectPage = 1;
 let chatPage = 1;
-let sidebarChatPage = 1;
-let sidebarProjectId = null;
 const PROJECT_PAGE_SIZE = 10;
 const CHAT_PAGE_SIZE = 10;
-const SIDEBAR_CHAT_PAGE_SIZE = 8;
 let editingQueueIndex = null;
 let queueEditDraft = "";
 let queueEditAttachments = [];
@@ -114,6 +111,7 @@ let modelsLoaded = false;
 let modelsLoading = false;
 let modelsError = "";
 let modelRetryAfter = 0;
+let modelSwitching = false;
 let clockBase = 0;
 let clockAt = 0;
 let clockRequest;
@@ -788,15 +786,15 @@ function renderRecentProjects() {
   }
 
   list.append(projectButton(current, true));
-  if (others.length) {
-    const toggle = el("button", null, "recent-toggle" + (recentExpanded ? " expanded" : ""));
+  if (others.length && !recentExpanded) {
+    const toggle = el("button", null, "recent-toggle");
     toggle.type = "button";
-    toggle.title = recentExpanded ? "Свернуть проекты" : "Развернуть проекты";
+    toggle.title = "Развернуть проекты";
     toggle.setAttribute("aria-label", toggle.title);
-    toggle.append(icon("chevron-down"), el("span", recentExpanded ? "Свернуть" : "Развернуть"));
+    toggle.append(icon("chevron-down"), el("span", "Развернуть"));
     toggle.onclick = (event) => {
       event.stopPropagation();
-      recentExpanded = !recentExpanded;
+      recentExpanded = true;
       renderRecentProjects();
     };
     list.append(toggle);
@@ -814,17 +812,6 @@ function renderBranches() {
     return;
   }
   panel.hidden = false;
-  if (sidebarProjectId !== project.id) {
-    sidebarProjectId = project.id;
-    sidebarChatPage = 1;
-  }
-  const allChats = project.chats || [];
-  const sidebarPages = Math.max(1, Math.ceil(allChats.length / SIDEBAR_CHAT_PAGE_SIZE));
-  sidebarChatPage = Math.min(Math.max(1, sidebarChatPage), sidebarPages);
-  const visibleChats = allChats.slice(
-    (sidebarChatPage - 1) * SIDEBAR_CHAT_PAGE_SIZE,
-    sidebarChatPage * SIDEBAR_CHAT_PAGE_SIZE,
-  );
   const list = $("branch-list");
   list.replaceChildren();
   const create = el("button", null, "branch-row branch-create");
@@ -834,7 +821,7 @@ function renderBranches() {
   create.append(icon("plus"), el("span", "Создать чат", "branch-name"));
   create.onclick = () => newBranch();
   list.append(create);
-  for (const chat of visibleChats) {
+  for (const chat of project.chats || []) {
     const active = chat.id === state.active?.id;
     const row = el("div", null, "branch-row has-actions" + (active ? " active" : ""));
     row.setAttribute("role", "listitem");
@@ -868,17 +855,6 @@ function renderBranches() {
     row.append(open, actions);
     list.append(row);
   }
-  const nav = pager(
-    allChats.length,
-    sidebarChatPage,
-    SIDEBAR_CHAT_PAGE_SIZE,
-    (next) => {
-      sidebarChatPage = next;
-      renderBranches();
-    },
-    "pager compact",
-  );
-  if (nav) list.append(nav);
 }
 
 function archiveChat(chat) {
@@ -1095,17 +1071,17 @@ function pager(total, page, limit, onPage, cls = "pager") {
   prev.type = "button";
   prev.title = "Предыдущая страница";
   prev.setAttribute("aria-label", "Предыдущая страница");
-  prev.append(icon("prev"));
+  prev.append(icon("prev"), el("span", "Назад"));
   prev.disabled = current <= 1;
   prev.onclick = () => onPage(current - 1);
   const next = el("button", null, "pager-button");
   next.type = "button";
   next.title = "Следующая страница";
   next.setAttribute("aria-label", "Следующая страница");
-  next.append(icon("next"));
+  next.append(el("span", "Вперёд"), icon("next"));
   next.disabled = current >= pages;
   next.onclick = () => onPage(current + 1);
-  bar.append(prev, el("span", `${current} / ${pages}`, "pager-info"), next);
+  bar.append(prev, el("span", `Страница ${current} из ${pages}`, "pager-info"), next);
   return bar;
 }
 
@@ -1230,6 +1206,7 @@ function renderProjectsPage() {
         const nav = pager(projects.length, projectPage, PROJECT_PAGE_SIZE, (next) => {
           projectPage = next;
           renderList(searchValue);
+          scrollPageTop();
         });
         if (nav) wrap.append(nav);
         container.replaceChildren(wrap);
@@ -1312,6 +1289,7 @@ function renderChatsPage(project) {
       const nav = pager(chats.length, chatPage, CHAT_PAGE_SIZE, (next) => {
         chatPage = next;
         renderList(searchValue);
+        scrollPageTop();
       });
       if (nav) wrap.append(nav);
       container.replaceChildren(wrap);
@@ -1875,6 +1853,10 @@ function copyText(text) {
 
 /* ============================== queue ============================== */
 
+function scrollPageTop() {
+  $("page").scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function iconAction(name, title, run, cls = "queue-action") {
   const button = el("button", null, cls);
   button.type = "button";
@@ -2267,7 +2249,7 @@ function renderStatus() {
   send.disabled = !connected || navigating || recording || readOnly || !ready || (!busy && !draftText && !attachments.length);
   $("readonly").hidden = !readOnly;
 
-  renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading || !ready));
+  renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading || !ready || modelSwitching));
   renderQuestions();
   renderVoice(voice, recording);
   renderQuota();
@@ -2388,8 +2370,14 @@ function drawWave(levels) {
 function renderModelSelect(blocked = false) {
   const select = $("model-select");
   const current = state.active?.model;
-  select.disabled = Boolean(blocked || !connected || !state.active || state.active.readOnly || state.ready === false);
+  select.disabled = Boolean(blocked || modelSwitching || !connected || !state.active || state.active.readOnly || state.ready === false);
   if (select.disabled && modelMenu.matches(":popover-open")) modelMenu.hidePopover();
+  if (modelSwitching) {
+    select.dataset.name = "";
+    select.replaceChildren(el("span", "Переключаю модель…"), el("span", null, "model-spinner"));
+    select.title = "Переключение модели…";
+    return;
+  }
   const name = current?.name || current?.id || "Модель";
   if (select.dataset.name !== name) {
     select.replaceChildren(el("span", name), icon("chevron-down"));
@@ -2469,12 +2457,23 @@ function renderModelMenu() {
     option.append(copy, icon("check"));
     option.onclick = () => {
       modelMenu.hidePopover();
-      if (chosen) return;
-      run("Меняю модель…", async () => {
-        await api("model", { chat: state.active.id, id: model.id, provider: model.provider }, 30000);
-        state.active = { ...state.active, model };
-        renderModelSelect();
-      });
+      if (chosen || modelSwitching) return;
+      modelSwitching = true;
+      beginTask("Переключаю модель…");
+      renderModelSelect();
+      renderStatus();
+      api("model", { chat: state.active.id, id: model.id, provider: model.provider }, 30000)
+        .then(() => {
+          state.active = { ...state.active, model };
+          showHint(`Модель: ${model.name || model.id}`);
+        })
+        .catch((error) => showHint(error.message, true))
+        .finally(() => {
+          modelSwitching = false;
+          endTask();
+          renderModelSelect();
+          renderStatus();
+        });
     };
     modelMenu.append(option);
   }
@@ -2700,11 +2699,6 @@ function applyState(next) {
     page = "chat";
     renderRoute();
     return;
-  }
-  if (previous !== state.active?.id && state.active) {
-    const project = projectOf(state.active.projectId);
-    const index = project?.chats.findIndex((chat) => chat.id === state.active.id) ?? -1;
-    if (index >= 0) sidebarChatPage = Math.floor(index / SIDEBAR_CHAT_PAGE_SIZE) + 1;
   }
   if (!state.active && page === "chat") {
     page = "chats";
