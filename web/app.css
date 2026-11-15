@@ -2176,7 +2176,6 @@ h1 {
   flex: none;
 }
 #error {
-#error {
   margin: 0 0 8px;
   padding: 7px 10px;
   border-radius: var(--radius);
@@ -2736,6 +2735,7 @@ dialog p {
 
 .billing-dialog {
   width: min(540px, calc(100vw - 32px));
+  max-width: 540px;
   max-height: calc(100dvh - 40px);
   padding: 22px;
   overflow: auto;
