@@ -4422,3 +4422,45 @@ button.image-job-visual { cursor: pointer; }
 .panel-mic:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
 .panel-mic:disabled { color: var(--disabled); }
 .panel-mic svg { width: 15px; height: 15px; }
+
+.lightbox-stage { position: relative; }
+.lightbox-pager {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #171717;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+}
+.lightbox-pager[hidden] { display: none; }
+.lightbox-pager-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #171717;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.lightbox-pager-button:hover:not(:disabled) { background: #f0f0f0; }
+.lightbox-pager-button:disabled { opacity: 0.3; }
+.lightbox-pager-button svg { width: 12px; height: 12px; }
+.lightbox-pager-info {
+  min-width: 112px;
+  color: #4d4d4d;
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}

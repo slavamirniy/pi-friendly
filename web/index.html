@@ -276,6 +276,15 @@
     <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Закрыть">✕</button>
     <div id="lightbox-stage" class="lightbox-stage">
       <img id="lightbox-image" alt="Изображение">
+      <div id="lightbox-pager" class="lightbox-pager" hidden>
+        <button type="button" id="lightbox-prev" class="lightbox-pager-button">
+          <span data-icon="prev" aria-hidden="true"></span><span>Назад</span>
+        </button>
+        <span id="lightbox-page" class="lightbox-pager-info"></span>
+        <button type="button" id="lightbox-next" class="lightbox-pager-button">
+          <span>Вперёд</span><span data-icon="next" aria-hidden="true"></span>
+        </button>
+      </div>
     </div>
     <aside class="lightbox-info">
       <div class="lightbox-info-head">

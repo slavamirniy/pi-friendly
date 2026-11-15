@@ -107,6 +107,8 @@ let imageImages = [];
 let imageGalleryScope = "chat";
 let imageGallerySelected = null;
 let imageLightboxImage = null;
+let lightboxImages = [];
+let lightboxIndex = 0;
 let imageStudioSource = null;
 let imageComposeOpen = false;
 let imagePanelOpen = false;
@@ -147,6 +149,7 @@ let progressValue = 0;
 let progressTimer;
 let progressHideTimer;
 let progressActive = false;
+let chatClockTimer = null;
 const modelMenu = el("div", null, "model-menu");
 modelMenu.id = "model-menu";
 modelMenu.setAttribute("popover", "auto");
@@ -764,6 +767,14 @@ function wireChrome() {
     if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 160) appendGalleryBatch();
   };
   $("lightbox-close").onclick = () => closeImageLightbox();
+  $("lightbox-prev").onclick = (event) => {
+    event.stopPropagation();
+    showLightboxAt(lightboxIndex - 1);
+  };
+  $("lightbox-next").onclick = (event) => {
+    event.stopPropagation();
+    showLightboxAt(lightboxIndex + 1);
+  };
   $("lightbox-stage").onclick = (event) => {
     if (event.target === $("lightbox-stage")) closeImageLightbox();
   };
@@ -864,8 +875,12 @@ function wireChrome() {
   });
   document.addEventListener("pointerdown", (event) => collapseRecent(event.target), true);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("image-lightbox").hidden) {
-      closeImageLightbox();
+    if (!$("image-lightbox").hidden) {
+      if (event.key === "Escape") closeImageLightbox();
+      else if (event.key === "ArrowLeft") showLightboxAt(lightboxIndex - 1);
+      else if (event.key === "ArrowRight") showLightboxAt(lightboxIndex + 1);
+      else return;
+      event.preventDefault();
       return;
     }
     if (
@@ -1852,6 +1867,26 @@ function renderChatSkeleton() {
   area.replaceChildren(wrap);
 }
 
+function syncGenerationClock() {
+  clearInterval(chatClockTimer);
+  chatClockTimer = null;
+  const nodes = [...document.querySelectorAll("[data-chat-clock]")];
+  if (!nodes.length) return;
+  const update = () => {
+    if (!nodes.some((node) => node.isConnected)) {
+      clearInterval(chatClockTimer);
+      chatClockTimer = null;
+      return;
+    }
+    for (const node of nodes) {
+      if (!node.isConnected) continue;
+      node.textContent = [progressTime(), node.dataset.quota].filter(Boolean).join(" · ");
+    }
+  };
+  update();
+  chatClockTimer = setInterval(update, 1000);
+}
+
 function messageSignature() {
   return JSON.stringify([
     state.messages || [],
@@ -1897,10 +1932,13 @@ function renderMessages() {
         : Number.isFinite(state.billing?.account?.available)
           ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
           : "";
-      const meta = [progressTime(), quota].filter(Boolean).join(" · ");
+      const meta = [progressTime(), quota].filter(Boolean).join(" · ") || progressTime();
       const generation = el("div", null, "inline-generation");
       generation.append(el("span", null, "inline-generation-spinner"));
-      if (meta) generation.append(el("span", meta, "inline-generation-meta"));
+      const metaNode = el("span", meta, "inline-generation-meta");
+      metaNode.dataset.chatClock = "1";
+      metaNode.dataset.quota = quota;
+      generation.append(metaNode);
       assistantContent.append(generation);
     } else if (assistantText) {
       const foot = el("div", null, "assistant-foot");
@@ -2100,6 +2138,7 @@ function renderMessages() {
   } else {
     area.replaceChildren(frag);
   }
+  syncGenerationClock();
   if (nearBottom && !area.querySelector("details[open]")) area.scrollTop = area.scrollHeight;
   else area.scrollTop = oldTop;
   if (editingIndex != null) {
@@ -2539,7 +2578,15 @@ function renderPanelSkeletons() {
     label: Math.round(job.progress) + "%",
   }));
   if (state.busy) {
-    for (const message of state.messages || []) {
+    const messages = state.messages || [];
+    let turnStart = 0;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].role === "user") {
+        turnStart = index + 1;
+        break;
+      }
+    }
+    for (const message of messages.slice(turnStart)) {
       for (const tool of message.tools || []) {
         if (
           tool.name === "generate_image" &&
@@ -2619,8 +2666,9 @@ function lightboxRefs(image) {
   return image?.source ? [image.source] : [];
 }
 
-function openImageLightbox(image) {
-  if (!image?.path) return;
+function renderImageLightbox() {
+  const image = lightboxImages[lightboxIndex];
+  if (!image) return;
   imageLightboxImage = image;
   const prompt = String(image.prompt || "").trim();
   const shortPrompt = prompt.split(/\s+/).slice(0, 6).join(" ").slice(0, 56).trim();
@@ -2650,12 +2698,35 @@ function openImageLightbox(image) {
     refBox.append(img);
   }
   $("lightbox-ref-section").hidden = !refs.length;
+  const pager = $("lightbox-pager");
+  pager.hidden = lightboxImages.length <= 1;
+  if (!pager.hidden) {
+    $("lightbox-page").textContent = `Страница ${lightboxIndex + 1} из ${lightboxImages.length}`;
+    $("lightbox-prev").disabled = lightboxIndex <= 0;
+    $("lightbox-next").disabled = lightboxIndex >= lightboxImages.length - 1;
+  }
+}
+
+function openImageLightbox(image) {
+  if (!image?.path) return;
+  const images = galleryImages();
+  lightboxImages = images.some((item) => item.path === image.path) ? images : [image];
+  lightboxIndex = Math.max(0, lightboxImages.findIndex((item) => item.path === image.path));
+  renderImageLightbox();
   $("image-lightbox").hidden = false;
+}
+
+function showLightboxAt(index) {
+  if (!lightboxImages.length) return;
+  lightboxIndex = Math.min(Math.max(0, index), lightboxImages.length - 1);
+  renderImageLightbox();
 }
 
 function closeImageLightbox() {
   $("image-lightbox").hidden = true;
   imageLightboxImage = null;
+  lightboxImages = [];
+  lightboxIndex = 0;
 }
 
 function openGalleryImage(image) {
