@@ -5,6 +5,7 @@ import {createModelPreference} from './model-preference.mjs';
 import {createHostBridge} from './web-host.mjs';
 import {startWebServer} from './web-server.mjs';
 import {createRpc} from './web-rpc.mjs';
+import {createTitleGenerator} from './title.mjs';
 import {spawn} from 'node:child_process';
 import {readClipboardText} from './clipboard.mjs';
 import { createVoiceService } from './voice.mjs';
@@ -44,6 +45,7 @@ export default function friendly(pi: ExtensionAPI) {
         makeHostRpc:({onEvent}:any)=>createHostBridge({pi,ctx,observers:hostObservers,onEvent}),
         pickProjectFolder,onExit:()=>ctx.shutdown(),canExit:()=>ctx.isIdle(),getPreferredModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable()),onModelSelected:(model:any)=>modelPreference.save(model),
         getHostStatuses,models:()=>ctx.modelRegistry.getAvailable(),hostSession:()=>ctx.sessionManager.getSessionFile(),voice,
+        generateTitle:createTitleGenerator({complete:(model:any,context:any,options:any)=>ctx.modelRegistry.complete(model,context,options),resolveModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model}),
         makeRpc:(options: any)=>createRpc({...options,cli:join(getPackageDir(),'dist','bundle','cli.js'),model:modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model})});
       try{web=await opening;}finally{opening=undefined;}
     }

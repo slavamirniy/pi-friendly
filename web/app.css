@@ -415,6 +415,27 @@ svg {
   font-weight: 500;
   color: var(--accent-ink);
 }
+
+.branch-create {
+  margin: 2px 0 4px;
+  min-height: 34px;
+  border: 1px dashed var(--line);
+  color: var(--accent-ink);
+  background: transparent;
+  box-shadow: none;
+}
+.branch-create:hover:not(:disabled) {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+.branch-create .branch-name {
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.branch-create .branch-icon,
+.branch-create svg {
+  color: var(--accent-ink);
+}
 .branch-tree {
   color: var(--disabled);
   font-size: 10px;

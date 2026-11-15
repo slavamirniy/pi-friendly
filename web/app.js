@@ -708,11 +708,14 @@ function renderBranches() {
   $("project-name").textContent = project.name;
   const list = $("branch-list");
   list.replaceChildren();
-  if (!project.chats?.length) {
-    list.append(el("p", "Нет чатов. Создайте первый.", "branches-empty"));
-    return;
-  }
-  for (const chat of project.chats) {
+  const create = el("button", null, "branch-row branch-create");
+  create.type = "button";
+  create.title = "Создать новый чат";
+  create.disabled = Boolean(state.busy);
+  create.append(icon("plus"), el("span", "Создать чат", "branch-name"));
+  create.onclick = () => newBranch();
+  list.append(create);
+  for (const chat of project.chats || []) {
     const active = chat.id === state.active?.id;
     const row = el("button", null, "branch-row" + (active ? " active" : ""));
     row.type = "button";
@@ -1965,7 +1968,14 @@ function applyState(next) {
   if (!next.busy) clockRequest = undefined;
   billingUI.update(next.billing, next.busy);
   const previous = state.active?.id;
+  const previousName = state.active?.id && state.active.id === next.active?.id ? state.active.name : null;
   state = next;
+  if (previousName && state.active?.name && previousName !== state.active.name) {
+    const project = projectOf(state.active.projectId);
+    const chat = project?.chats.find((item) => item.id === state.active.id);
+    if (chat) chat.name = state.active.name;
+    renderBranches();
+  }
   if (state.active?.id && state.messageVersions)
     versionManager.syncFromServer(state.messageVersions, state.active.id);
   if (previous !== state.active?.id) {

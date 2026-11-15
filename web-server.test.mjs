@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {startWebServer,publicMessage} from './web-server.mjs';
 async function fixture(t,{host=false,options={}}={}){
  const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
+ const conversation=options.messages||[{role:'user',content:'Привет'}];
  const calls=[];let emit;
  const projects={list:()=>projectsList,isProject:()=>true,create:name=>{if(!name?.trim())throw new Error('Введите название');const p={cwd:process.cwd()+'/new',name};projectsList.push(p);return p;},createChat:cwd=>{const s={cwd,path:'/test/new.jsonl'};sessions.push(s);return s.path;},attach:value=>{const p={cwd:value,name:'Attached'};projectsList.push(p);return p;}};
- const web=await startWebServer({projects,listSessions:async()=>sessions,readSession:()=>[{role:'user',content:'Привет'}],models:()=>[{id:'test',name:'Тест',provider:'local'}],hostSession:()=>host?sessions[0].path:undefined,makeRpc:options=>{calls.push(options);emit=options.onEvent;return{request:async(type,data)=>{calls.push({type,data});if(type==='get_state')return{model:{id:'test',provider:'local'}};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};if(type==='prompt')emit({type:'agent_start'});},respond:data=>calls.push(data),dispose:async()=>calls.push('dispose')};},...options});
+ const web=await startWebServer({projects,listSessions:async()=>sessions,readSession:()=>conversation,models:()=>[{id:'test',name:'Тест',provider:'local'}],hostSession:()=>host?sessions[0].path:undefined,makeRpc:options=>{calls.push(options);emit=options.onEvent;return{request:async(type,data)=>{calls.push({type,data});if(type==='get_state')return{model:{id:'test',provider:'local'}};if(type==='get_messages')return{messages:conversation};if(type==='prompt')emit({type:'agent_start'});},respond:data=>calls.push(data),dispose:async()=>calls.push('dispose')};},...options});
  t.after(()=>web.close());let cookie;
  const request=async(path,data,headers={})=>{const res=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{...(cookie?{cookie}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});return{status:res.status,data:await res.json()};};
  const res=await fetch(web.origin+'/api/auth',{method:'POST',body:JSON.stringify({token:web.url.split('#')[1]})});cookie=res.headers.get('set-cookie').split(';')[0];
@@ -209,4 +210,64 @@ test('forking a later user message asks pi to create a branched session',async t
  assert.equal(calls.find(c=>c.type==='prompt').data.message,'Исправлено');
  assert.match(result.data.active.name,/Чат/);
  assert.equal(result.data.busy,true);
+});
+
+const tick=()=>new Promise(resolve=>setTimeout(resolve,30));
+
+test('the first prompt gives a new chat a clean AI title',async t=>{
+ const seen=[];
+ const h=await fixture(t,{options:{
+  readSession:()=>[],messages:[],
+  generateTitle:async(text,signal)=>{seen.push({text,signal});return '```\nНазвание: Сайт пекарни.\n```';},
+ }});
+ const p=(await h.request('catalog')).data.projects[0];
+ const created=await h.request('new-chat',{project:p.id});
+ const chat=created.data.active.id;
+ assert.equal((await h.request('prompt',{chat,text:'Сделай сайт пекарни'})).status,200);
+ await tick();
+ assert.equal(seen.length,1);assert.equal(seen[0].text,'Сделай сайт пекарни');
+ const state=await h.state();
+ assert.equal(state.active.name,'Сайт пекарни');assert.equal(state.active.named,true);
+ assert.ok(h.calls.some(c=>c.type==='set_session_name'&&c.data.name==='Сайт пекарни'));
+});
+
+test('a refused or broken title falls back to the first message',async t=>{
+ for(const generateTitle of [
+  async()=>'Извините, я не могу придумать название',
+  async()=>{throw new Error('router down');},
+  async()=>'https://example.com',
+ ]){
+  const h=await fixture(t,{options:{readSession:()=>[],messages:[],generateTitle}});
+  const p=(await h.request('catalog')).data.projects[0];
+  const created=await h.request('new-chat',{project:p.id});
+  await h.request('prompt',{chat:created.data.active.id,text:'Сделай сайт пекарни'});
+  await tick();
+  const state=await h.state();
+  assert.equal(state.active.name,'Сделай сайт пекарни');assert.equal(state.active.named,true);
+  await h.web.close();
+ }
+});
+
+test('slash commands do not trigger a title',async t=>{
+ const seen=[];
+ const h=await fixture(t,{options:{readSession:()=>[],messages:[],generateTitle:async text=>{seen.push(text);return 'Не должно использоваться';}}});
+ const p=(await h.request('catalog')).data.projects[0];
+ const created=await h.request('new-chat',{project:p.id});
+ await h.request('prompt',{chat:created.data.active.id,text:'/help'});
+ await tick();
+ assert.deepEqual(seen,[]);
+ const state=await h.state();
+ assert.equal(state.active.name,'Новый чат');assert.equal(state.active.named,false);
+});
+
+test('an explicitly named chat keeps its name',async t=>{
+ const seen=[];
+ const sessions=[{cwd:process.cwd(),path:'/test/named.jsonl',name:'Уже назван',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
+ const h=await fixture(t,{options:{listSessions:async()=>sessions,generateTitle:async text=>{seen.push(text);return 'Другое';}}});
+ const p=(await h.request('catalog')).data.projects[0];
+ const opened=await h.request('open',{id:p.chats[0].id});
+ await h.request('prompt',{chat:opened.data.active.id,text:'Измени что-нибудь'});
+ await tick();
+ assert.deepEqual(seen,[]);
+ assert.equal((await h.state()).active.name,'Уже назван');
 });

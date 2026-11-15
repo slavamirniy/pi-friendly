@@ -13,13 +13,15 @@ const isDir=async p=>{try{return (await stat(p)).isDirectory();}catch{return fal
 const exists=async p=>{try{await stat(p);return true;}catch{return false;}};
 const dirnameOf=p=>{const parent=resolve(p,'..');return parent===p||!p?resolve(p):parent;};
 import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,updateTool} from './web-messages.mjs';
+import {finalChatTitle,fallbackChatTitle,isValidChatTitle} from './title.mjs';
 export {publicMessage,publicMessages} from './web-messages.mjs';
-export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder}){
+export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
  let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
+ const titleRequests=new Set();
  const snapshot=()=>({...state,billing:billing?.snapshot(),statuses:{...state.statuses,...(active?.host?Object.fromEntries(getHostStatuses().map((s,i)=>['host-'+i,clean(s)])):{})},loading,active,messageVersions:active?Object.fromEntries([...messageVersions.entries()].filter(([key])=>key.startsWith(active.id+'-')).map(([key,versions])=>{const idx=currentVersionIndex.get(key)??versions.length-1;return[key,{versions,currentIndex:idx}];})):{}});
  const broadcast=()=>{clearTimeout(publishTimer);publishTimer=undefined;const data='data: '+JSON.stringify(snapshot())+'\n\n';for(const client of clients){if(client.writableLength>2*1024*1024){client.destroy();clients.delete(client);}else client.write(data);}};
  const changed=()=>{if(!publishTimer)publishTimer=setTimeout(broadcast,35);};
@@ -33,7 +35,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   for(const s of allSessions)known.add(key(s.path));
   return allProjects.map(p=>{
    const projectKey=key(folderKey(p.cwd));
-   const chats=allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||(s.firstMessage&&s.firstMessage!=='(no messages)'?s.firstMessage.slice(0,80):'Новый чат'),modified:s.modified,count:s.messageCount||0,parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}));
+   const chats=allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||(s.firstMessage&&s.firstMessage!=='(no messages)'?s.firstMessage.slice(0,80):'Новый чат'),modified:s.modified,count:s.messageCount||0,named:Boolean(s.name),parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}));
    // pi writes a forked session file only after the first assistant message.
    // Keep an empty fork visible as the active chat until its file exists.
    if(active?.file&&!active.host&&active.projectId===projectKey){
@@ -44,6 +46,46 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    }
    return {id:projectKey,name:p.name,folder:p.cwd,chats};
   });
+ }
+ function uniqueTitle(title,chatId){
+  const project=allProjects.find(p=>key(folderKey(p.cwd))===active?.projectId);
+  if(!project)return title;
+  const names=new Set();
+  for(const session of allSessions){
+   if(folderKey(session.cwd)!==folderKey(project.cwd)||key(session.path)===chatId)continue;
+   const name=session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'');
+   if(name)names.add(name.toLocaleLowerCase());
+  }
+  if(!names.has(title.toLocaleLowerCase()))return title;
+  for(let i=2;i<100;i++){
+   const candidate=`${title} · ${i}`;
+   if(!names.has(candidate.toLocaleLowerCase()))return candidate;
+  }
+  return title;
+ }
+ async function maybeNameChat(sourceText){
+  if(!active||active.readOnly||active.host||active.named)return;
+  const chatId=active.id,targetRpc=rpc;
+  if(!targetRpc||titleRequests.has(chatId))return;
+  const firstText=(state.messages.find(m=>m.role==='user'&&String(m.text||'').trim())?.text||sourceText||'').trim();
+  if(!firstText||firstText.startsWith('/'))return;
+  titleRequests.add(chatId);
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),8000);
+  try{
+   let raw='';
+   if(generateTitle){try{raw=await generateTitle(firstText,controller.signal);}catch{raw='';}}
+   let title=finalChatTitle(raw,firstText);
+   if(!isValidChatTitle(title))title=fallbackChatTitle(firstText);
+   if(!isValidChatTitle(title))title='Новая задача';
+   title=uniqueTitle(title,chatId);
+   if(active?.id!==chatId||active.named)return;
+   await targetRpc.request('set_session_name',{name:title},10000);
+   if(active?.id!==chatId||active.named)return;
+   active={...active,name:title,named:true};
+   await catalog();
+   changed();
+  }catch{}finally{clearTimeout(timer);titleRequests.delete(chatId);}
  }
  const ensureIdle=()=>{if(loading||navigating||state.busy||voiceOwned||!canExit())throw new Error('Сначала завершите запись или остановите ответ.');};
  function eventHandler(event,epoch){
@@ -88,7 +130,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    if(rpc)await rpc.dispose();rpc=undefined;
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
+   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name)};
    state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
    if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state',{},20000),rpc.request('get_messages',{},20000)]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;active.file=current?.sessionFile||session.path;state.busy=Boolean(current?.isStreaming);state.queue={steering:[],followUp:[]};const preferred=getPreferredModel();if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
   }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
@@ -129,7 +171,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   if(!current?.sessionFile)throw new Error('pi не сообщил файл нового чата.');
   try{await rpc.request('set_session_name',{name:label},10000);}catch{}
   const previousFile=active.file;
-  active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,parent:previousFile?key(previousFile):null,host:false,readOnly:false};
+  active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,parent:previousFile?key(previousFile):null,host:false,readOnly:false,named:true};
   const messages=await rpc.request('get_messages',{},20000);
   state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
   await catalog();
@@ -237,6 +279,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
        else throw error;
       }
       void rpc.request('get_state').then(current=>{if(epoch===generation&&typeof current?.isStreaming==='boolean'){state.busy=current.isStreaming;changed();}}).catch(()=>{});
+      if(!queued)void maybeNameChat(message);
       reply(200,{ok:true,queued,queue:state.queue});
      }catch(error){
       if(epoch===generation){
@@ -281,7 +324,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     }
     if(action==='rename-branch'){
      const name=String(data.name||'').trim();if(!name)throw new Error('Введите название ветки.');
-     await rpc.request('set_session_name',{name:name.slice(0,80)});active={...active,name:name.slice(0,80)};await catalog();changed();reply(200,{ok:true});return;
+     await rpc.request('set_session_name',{name:name.slice(0,80)});active={...active,name:name.slice(0,80),named:true};await catalog();changed();reply(200,{ok:true});return;
     }
     reply(404,{error:'Неизвестное действие.'});return;
    }
