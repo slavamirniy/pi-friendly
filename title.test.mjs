@@ -5,6 +5,7 @@ import {cleanChatTitle,isValidChatTitle,fallbackChatTitle,finalChatTitle,createT
 test('cleanChatTitle removes labels, quotes, fences and markdown',()=>{
  assert.equal(cleanChatTitle('```\nНазвание: Сайт пекарни.\n```'),'Сайт пекарни');
  assert.equal(cleanChatTitle('Title: "Bakery landing page"'),'Bakery landing page');
+ assert.equal(cleanChatTitle('Here is a title: Bakery landing page'),'Bakery landing page');
  assert.equal(cleanChatTitle('«Ремонт кухни»'),'Ремонт кухни');
  assert.equal(cleanChatTitle('## **План поездки**'),'План поездки');
  assert.equal(cleanChatTitle('  привет   мир  '),'привет мир');

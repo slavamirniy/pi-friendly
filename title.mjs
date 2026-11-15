@@ -49,6 +49,10 @@ export function cleanChatTitle(raw) {
     /^(?:название(?:\s+чата)?|title|chat\s+title|имя(?:\s+чата)?)\s*[:\-—]\s*/i,
     "",
   );
+  text = text.replace(
+    /^(?:here(?:'s| is)(?:\s+a)?(?:\s+chat)?(?:\s+title)?|the title is|suggested title|proposed title)\s*[:\-—]?\s*/i,
+    "",
+  );
   text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   text = text.replace(/[*_~`]/g, "");
   text = text.replace(/^["'«»„“”`]+|["'«»„“”`]+$/g, "");
