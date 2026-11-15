@@ -332,6 +332,24 @@ svg {
   display: grid;
   gap: 1px;
 }
+.recent-create {
+  margin-bottom: 4px;
+  border: 1px dashed var(--line);
+  color: var(--accent-ink);
+  background: transparent;
+}
+.recent-create:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.recent-create svg {
+  color: var(--accent-ink);
+}
+.recent-create .recent-project-name {
+  color: var(--accent-ink);
+  font-weight: 500;
+}
 .recent-toggle {
   display: flex;
   align-items: center;
@@ -982,6 +1000,27 @@ h1 {
 .list {
   display: grid;
   box-shadow: 0 1px 0 0 var(--divider);
+}
+#page.with-pager {
+  padding-bottom: 90px;
+}
+.floating-pager {
+  position: absolute;
+  right: 24px;
+  bottom: 16px;
+  z-index: 20;
+}
+.floating-pager .pager {
+  margin: 0;
+  padding: 4px;
+  gap: 2px;
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--menu-shadow);
+}
+.floating-pager .pager-info {
+  flex: none;
+  padding: 0 8px;
 }
 .pager {
   display: flex;
@@ -3006,6 +3045,17 @@ dialog p {
   }
   .queue-panel {
     margin-bottom: 6px;
+  }
+  .floating-pager {
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
+  }
+  .floating-pager .pager {
+    justify-content: space-between;
+  }
+  #page.with-pager {
+    padding-bottom: 82px;
   }
   #ui-hint {
     right: 10px;

@@ -807,8 +807,14 @@ function renderRecentProjects() {
   const current = projectOf(currentId);
   const others = catalog.filter((project) => project.id !== currentId).slice(0, current ? 2 : 3);
   const projects = current ? [current, ...others] : catalog.slice(0, 3);
-  panel.hidden = !projects.length;
+  panel.hidden = false;
   list.replaceChildren();
+  const create = el("button", null, "recent-project recent-create");
+  create.type = "button";
+  create.title = "Создать новый проект";
+  create.append(icon("plus"), el("span", "Создать проект", "recent-project-name"));
+  create.onclick = () => openCreateProject();
+  list.append(create);
   if (!projects.length) return;
 
   const projectButton = (project, active = false) => {
@@ -1050,6 +1056,7 @@ function setBreadcrumb(title) {
 
 function renderRoute() {
   if (page === "chat" && !state.active) page = "chats";
+  if (page !== "projects" && page !== "chats") hideFloatingPager();
   const chatPage = page === "chat" && state.active;
   $("page").hidden = chatPage;
   $("chat").hidden = !chatPage;
@@ -1136,6 +1143,25 @@ function pager(total, page, limit, onPage, cls = "pager") {
   next.onclick = () => onPage(current + 1);
   bar.append(prev, el("span", `Страница ${current} из ${pages}`, "pager-info"), next);
   return bar;
+}
+
+function hideFloatingPager() {
+  const host = $("floating-pager");
+  host.hidden = true;
+  host.replaceChildren();
+  $("page").classList.remove("with-pager");
+}
+
+function renderFloatingPager(total, page, limit, onPage) {
+  const host = $("floating-pager");
+  const bar = pager(total, page, limit, onPage);
+  if (!bar) {
+    hideFloatingPager();
+    return;
+  }
+  host.replaceChildren(bar);
+  host.hidden = false;
+  $("page").classList.add("with-pager");
 }
 
 function listToolbar(placeholder, renderList, { create = null, folder = null, branch = null } = {}) {
@@ -1264,15 +1290,12 @@ function renderProjectsPage() {
     if (container) {
       if (catalogLoading) container.replaceChildren(skeletonList());
       else {
-        const wrap = el("div");
-        wrap.append(list);
-        const nav = pager(projects.length, projectPage, PROJECT_PAGE_SIZE, (next) => {
+        container.replaceChildren(list);
+        renderFloatingPager(projects.length, projectPage, PROJECT_PAGE_SIZE, (next) => {
           projectPage = next;
           renderList(searchValue);
           scrollPageTop();
         });
-        if (nav) wrap.append(nav);
-        container.replaceChildren(wrap);
       }
     }
   };
@@ -1347,15 +1370,12 @@ function renderChatsPage(project) {
     }
     const container = $("chat-list");
     if (container) {
-      const wrap = el("div");
-      wrap.append(list);
-      const nav = pager(chats.length, chatPage, CHAT_PAGE_SIZE, (next) => {
+      container.replaceChildren(list);
+      renderFloatingPager(chats.length, chatPage, CHAT_PAGE_SIZE, (next) => {
         chatPage = next;
         renderList(searchValue);
         scrollPageTop();
       });
-      if (nav) wrap.append(nav);
-      container.replaceChildren(wrap);
     }
   };
   const searchRender = (query) => {
@@ -2210,7 +2230,6 @@ function sendMessage(text) {
   api("prompt", { chat, text: value }, 60000)
     .then(() => {
       showError("");
-      showHint("Отправлено.");
     })
     .catch((error) => {
       if (!$("draft").value) {
