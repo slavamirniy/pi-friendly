@@ -4374,3 +4374,11 @@ button.image-job-visual { cursor: pointer; }
   font-size: 9.5px;
 }
 .image-panel .gallery-tabs { margin: 0 10px 8px; }
+
+.image-panel .gallery-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
