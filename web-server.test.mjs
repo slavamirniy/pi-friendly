@@ -386,3 +386,12 @@ test('deleting and archiving chats removes or moves their session files',async t
  const state=await (async()=>{const res=await fetch(web.origin+'/api/events',{headers:{cookie}});const reader=res.body.getReader();const {value}=await reader.read();await reader.cancel();return JSON.parse(new TextDecoder().decode(value).split('data: ')[1].split('\n')[0]);})();
  assert.equal(state.active,null);
 });
+
+test('pick-attach returns native file paths without uploading them',async t=>{
+ const files=[{name:'brief.txt',path:'C:\Users\User\brief.txt',size:42}];
+ const h=await fixture(t,{options:{pickChatFiles:async()=>files}});
+ const result=await h.request('pick-attach',{});
+ assert.equal(result.status,200);
+ assert.deepEqual(result.data.files,files);
+ assert.equal(h.calls.length,0);
+});

@@ -1,5 +1,6 @@
 import { createBillingUI } from "./billing-ui.js";
 import { createVersionManager } from "./message-versions.js";
+import { splitAttachments, buildOutgoingText } from "./attachments.js";
 
 const billingUI = createBillingUI();
 const versionManager = createVersionManager();
@@ -85,6 +86,8 @@ let editingIndex = null;
 let queueCollapsed = false;
 let editingQueueIndex = null;
 let queueEditDraft = "";
+let queueEditAttachments = [];
+let attachments = [];
 let pendingChatDelete = null;
 try {
   queueCollapsed = localStorage.getItem("pf-queue-collapsed") === "1";
@@ -179,6 +182,7 @@ function endTask() {
   pending = Math.max(0, pending - 1);
   if (!pending) operationLabel = "";
   renderProgress();
+  renderStatus();
 }
 function run(label, fn) {
   return (async () => {
@@ -474,9 +478,12 @@ async function boot() {
 
 function wireChrome() {
   $("nav-projects").onclick = () => navigate("projects");
-  $("project-open").onclick = () => {
-    const project = projectOf(activeProjectId());
-    if (project) openProject(project);
+  $("return-chat").onclick = () => {
+    if (!state.active) return;
+    const project = projectOf(state.active.projectId);
+    if (project) projectId = project.id;
+    page = "chat";
+    renderRoute();
   };
   $("theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
   $("exit").onclick = () => {
@@ -504,7 +511,7 @@ function wireChrome() {
   $("composer").onsubmit = (event) => {
     event.preventDefault();
     const text = $("draft").value;
-    if (!text.trim()) return;
+    if (!text.trim() && !attachments.length) return;
     if (state.busy) queueMessage(text);
     else sendMessage(text);
   };
@@ -536,9 +543,8 @@ function wireChrome() {
     if (modelMenu.matches(":popover-open")) loadModels();
   });
   $("attach").onclick = () => {
-    if (!$("attach").disabled) $("file-input").click();
+    if (!$("attach").disabled) pickAttachments();
   };
-  $("file-input").onchange = () => uploadFiles();
   $("mic").onclick = () =>
     run("Переключаю микрофон…", async () => {
       if (["installing", "downloading", "loading"].includes(state.voice?.phase)) {
@@ -589,6 +595,7 @@ function wireChrome() {
   } catch {
     setTheme("light", false);
   }
+  renderAttachments();
 }
 
 function setTheme(value, persist = true) {
@@ -678,7 +685,7 @@ function newBranch() {
   }
   if (!canSwitch()) return;
   run("Создаю чат…", async () => {
-    const next = await api("new-chat", { project: target }, 45000);
+    const next = await api("new-chat", { project: target, fast: true }, 45000);
     applyState(next);
     page = "chat";
     projectId = next.active?.projectId || target;
@@ -709,7 +716,41 @@ async function openFolderDialog() {
 
 /* ============================== branches ============================== */
 
+function renderReturnChat() {
+  const button = $("return-chat");
+  if (!state.active || page === "chat") {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  button.classList.toggle("busy", Boolean(state.busy));
+  const name = state.active.name || "Текущий чат";
+  $("return-chat-name").textContent = state.busy ? `${name} · идёт ответ` : name;
+}
+
+function renderRecentProjects() {
+  const panel = $("recent-projects");
+  const list = $("recent-project-list");
+  const currentId = activeProjectId();
+  const current = projectOf(currentId);
+  const others = catalog.filter((project) => project.id !== currentId).slice(0, 3);
+  const projects = current ? [current, ...others] : catalog.slice(0, 4);
+  panel.hidden = !projects.length;
+  list.replaceChildren();
+  for (const project of projects) {
+    const row = el("button", null, "recent-project" + (project.id === currentId ? " active" : ""));
+    row.type = "button";
+    row.title = project.name;
+    const iconNode = icon("folder");
+    row.append(iconNode, el("span", project.name, "recent-project-name"));
+    row.onclick = () => openProject(project);
+    list.append(row);
+  }
+}
+
 function renderBranches() {
+  renderReturnChat();
+  renderRecentProjects();
   const project = projectOf(activeProjectId());
   const panel = $("branches-panel");
   if (!project) {
@@ -717,7 +758,6 @@ function renderBranches() {
     return;
   }
   panel.hidden = false;
-  $("project-name").textContent = project.name;
   const list = $("branch-list");
   list.replaceChildren();
   const create = el("button", null, "branch-row branch-create");
@@ -1118,7 +1158,7 @@ function renderCreatePage() {
     }
     submit.disabled = true;
     run("Создаю проект…", async () => {
-      const next = await api("create-project", { name: input.value }, 45000);
+      const next = await api("create-project", { name: input.value, fast: true }, 45000);
       applyState(next);
       page = "chat";
       projectId = next.active?.projectId || null;
@@ -1222,8 +1262,10 @@ function renderMessages() {
       if (editingIndex === index) {
         wrapper.append(editBox(message, index));
       } else {
+        const parsed = splitAttachments(message.text || "");
         const bubble = el("div", null, "user-bubble");
-        markdown(bubble, message.text || "");
+        if (parsed.text) markdown(bubble, parsed.text);
+        if (parsed.attachments.length) bubble.append(attachmentChips(parsed.attachments, false));
         wrapper.append(bubble);
         if (!state.busy && !state.active?.readOnly && !state.active?.host) {
           const controls = el("div", null, "message-controls");
@@ -1384,9 +1426,10 @@ function disclosure(label, body, cls = "", badge = null, key = null) {
 }
 
 function editBox(message, index) {
+  const parsed = splitAttachments(message.text || "");
   const box = el("div", null, "edit-box");
   const textarea = el("textarea");
-  textarea.value = message.text || "";
+  textarea.value = parsed.text;
   textarea.rows = 3;
   textarea.setAttribute("aria-label", "Текст сообщения");
   const note = el("div", "Сохранение создаст новую ветку. Она появится отдельным чатом слева.", "edit-note");
@@ -1408,11 +1451,96 @@ function editBox(message, index) {
     }
     editingIndex = null;
     renderedSignature = "";
-    forkMessage(index, text);
+    forkMessage(index, buildOutgoingText(text, parsed.attachments));
   };
   actions.append(cancel, save);
   box.append(textarea, note, actions);
   return box;
+}
+
+
+function formatBytes(size) {
+  if (!Number.isFinite(size) || size < 0) return "";
+  if (size < 1024) return `${size} Б`;
+  if (size < 1024 * 1024) {
+    const value = size / 1024;
+    return `${value >= 10 ? Math.round(value) : value.toFixed(1).replace(".", ",")} КБ`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1).replace(".", ",")} МБ`;
+}
+
+function attachmentChips(items, removable = false) {
+  const box = el("div", null, "message-attachments");
+  items.forEach((item, index) => {
+    const card = el("span", null, "attachment-card");
+    card.title = item.path;
+    const iconBox = el("span", null, "attachment-icon");
+    iconBox.append(icon("file"));
+    const copy = el("span", null, "attachment-copy");
+    const name = item.name || "Файл";
+    copy.append(el("span", name, "attachment-name"));
+    const extension = name.includes(".") ? name.split(".").pop().toUpperCase().slice(0, 5) : "";
+    const meta = [extension, formatBytes(item.size)].filter(Boolean).join(" · ");
+    if (meta) copy.append(el("span", meta, "attachment-meta"));
+    card.append(iconBox, copy);
+    if (removable) {
+      const remove = el("button", null, "attachment-remove");
+      remove.type = "button";
+      remove.title = "Открепить файл";
+      remove.setAttribute("aria-label", "Открепить файл");
+      remove.append(icon("close"));
+      remove.onclick = (event) => {
+        event.stopPropagation();
+        items.splice(index, 1);
+        renderAttachments();
+      };
+      card.append(remove);
+    }
+    box.append(card);
+  });
+  return box;
+}
+
+function renderAttachments() {
+  const box = $("attachments");
+  box.replaceChildren();
+  box.hidden = !attachments.length;
+  if (attachments.length) box.append(attachmentChips(attachments, true));
+  renderStatus();
+}
+
+function pickAttachments() {
+  if (!connected) {
+    showHint("Нет соединения с pi.", true);
+    return;
+  }
+  if (!state.active) {
+    showHint("Сначала откройте чат.", true);
+    return;
+  }
+  if (state.active.readOnly) {
+    showHint("Этот чат открыт в консоли.", true);
+    return;
+  }
+  run("Выбираю файлы…", async () => {
+    const result = await api("pick-attach", {}, 300000);
+    const files = result.files || [];
+    if (!files.length) return;
+    const seen = new Set(attachments.map((item) => item.path.toLowerCase()));
+    for (const file of files) {
+      if (!file?.path || seen.has(file.path.toLowerCase())) continue;
+      seen.add(file.path.toLowerCase());
+      attachments.push({
+        name: file.name || "Файл",
+        path: file.path,
+        ...(Number.isFinite(file.size) ? { size: file.size } : {}),
+      });
+    }
+    renderAttachments();
+    showHint(
+      files.length === 1 ? `Прикреплён файл: ${files[0].name}` : `Прикреплено файлов: ${files.length}`,
+    );
+  });
 }
 
 const expandedDetails = new Map();
@@ -1507,6 +1635,7 @@ function renderQueue() {
         const cancel = iconAction("close", "Отмена", () => {
           editingQueueIndex = null;
           queueEditDraft = "";
+          queueEditAttachments = [];
           queueSignature = "";
           renderQueue();
         });
@@ -1518,15 +1647,20 @@ function renderQueue() {
       }
       const row = el("div", null, "queue-item");
       row.append(el("span", String(index + 1), "queue-index"));
-      const copy = el("span", text, "queue-text");
-      copy.title = text;
+      const parsed = splitAttachments(text);
+      const copy = el("span", parsed.text || (parsed.attachments.length ? "Файл" : text), "queue-text");
+      copy.title = parsed.text || text;
+      if (parsed.attachments.length) {
+        copy.append(el("span", ` · ${parsed.attachments.length} файл(а)`, "queue-files"));
+      }
       row.append(copy);
       const itemActions = el("div", null, "queue-item-actions");
       itemActions.append(
         iconAction("send", "Отправить сейчас, прервав ответ", () => sendQueuedNow(index)),
         iconAction("edit", "Редактировать", () => {
           editingQueueIndex = index;
-          queueEditDraft = text;
+          queueEditDraft = parsed.text;
+          queueEditAttachments = parsed.attachments;
           queueSignature = "";
           renderQueue();
         }),
@@ -1546,6 +1680,7 @@ function sendQueuedNow(index) {
     state.queue = result.queue || { steering: [], followUp: [] };
     editingQueueIndex = null;
     queueEditDraft = "";
+    queueEditAttachments = [];
     queueSignature = "";
     renderQueue();
     showHint("Сообщение отправлено.");
@@ -1558,6 +1693,7 @@ function sendAllQueued() {
     state.queue = result.queue || { steering: [], followUp: [] };
     editingQueueIndex = null;
     queueEditDraft = "";
+    queueEditAttachments = [];
     queueSignature = "";
     renderQueue();
     showHint("Очередь отправлена.");
@@ -1565,9 +1701,9 @@ function sendAllQueued() {
 }
 
 function saveQueueEdit(index, text) {
-  const value = String(text || "").trim();
+  const value = buildOutgoingText(text, queueEditAttachments);
   if (!value) {
-    showHint("Введите текст сообщения.", true);
+    showHint("Введите текст сообщения или прикрепите файл.", true);
     return;
   }
   run("Сохраняю сообщение…", async () => {
@@ -1575,6 +1711,7 @@ function saveQueueEdit(index, text) {
     state.queue = result.queue || { steering: [], followUp: [] };
     editingQueueIndex = null;
     queueEditDraft = "";
+    queueEditAttachments = [];
     queueSignature = "";
     renderQueue();
     showHint("Сообщение в очереди обновлено.");
@@ -1582,13 +1719,17 @@ function saveQueueEdit(index, text) {
 }
 
 function queueMessage(text) {
-  const value = String(text || "").trim();
+  const visible = String(text || "").trim();
+  const items = [...attachments];
+  const value = buildOutgoingText(visible, items);
   if (!value || !state.active) return;
   if (!canQueue()) return;
   const chat = state.active.id;
   const before = queueOf().followUp?.length || 0;
   state.queue = { ...queueOf(), followUp: [...(queueOf().followUp || []), value] };
   renderQueue();
+  attachments = [];
+  renderAttachments();
   $("draft").value = "";
   store(chat, "");
   autoGrow();
@@ -1607,9 +1748,13 @@ function queueMessage(text) {
       queueSignature = "";
       renderQueue();
       if (!$("draft").value) {
-        $("draft").value = value;
-        store(chat, value);
+        $("draft").value = visible;
+        store(chat, visible);
         autoGrow();
+      }
+      if (!attachments.length && items.length) {
+        attachments = items;
+        renderAttachments();
       }
       showHint(error.message, true);
     })
@@ -1622,6 +1767,10 @@ function queueMessage(text) {
 function canQueue() {
   if (!connected) {
     showHint("Нет соединения с pi.", true);
+    return false;
+  }
+  if (state.ready === false) {
+    showHint("Чат ещё подключается. Подождите секунду.", true);
     return false;
   }
   if (state.active?.readOnly) {
@@ -1642,13 +1791,19 @@ function unqueue(index) {
     if (editingQueueIndex != null && editingQueueIndex >= index) {
       editingQueueIndex = null;
       queueEditDraft = "";
+      queueEditAttachments = [];
     }
     queueSignature = "";
     renderQueue();
-    if (result.removed && !$("draft").value) {
-      $("draft").value = result.removed;
-      store(state.active.id, result.removed);
-      autoGrow();
+    if (result.removed) {
+      const parsed = splitAttachments(result.removed);
+      if (!$("draft").value) {
+        $("draft").value = parsed.text;
+        store(state.active.id, parsed.text);
+        attachments = parsed.attachments;
+        renderAttachments();
+        autoGrow();
+      }
     }
   });
 }
@@ -1660,6 +1815,7 @@ function clearQueue() {
     state.queue = { steering: [], followUp: [] };
     editingQueueIndex = null;
     queueEditDraft = "";
+    queueEditAttachments = [];
     queueSignature = "";
     renderQueue();
     if (returned.length && !$("draft").value) {
@@ -1678,9 +1834,13 @@ function clearQueue() {
 /* ============================== send / edit / fork ============================== */
 
 function sendMessage(text) {
-  const value = String(text || "").trim();
+  const visible = String(text || "").trim();
+  const items = [...attachments];
+  const value = buildOutgoingText(visible, items);
   if (!value || !state.active || !canQueue()) return;
   const chat = state.active.id;
+  attachments = [];
+  renderAttachments();
   $("draft").value = "";
   store(chat, "");
   autoGrow();
@@ -1693,9 +1853,13 @@ function sendMessage(text) {
     })
     .catch((error) => {
       if (!$("draft").value) {
-        $("draft").value = value;
-        store(chat, value);
+        $("draft").value = visible;
+        store(chat, visible);
         autoGrow();
+      }
+      if (!attachments.length && items.length) {
+        attachments = items;
+        renderAttachments();
       }
       showHint(error.message, true);
     })
@@ -1713,6 +1877,7 @@ function abortGeneration() {
     state.queue = { steering: [], followUp: [] };
     editingQueueIndex = null;
     queueEditDraft = "";
+    queueEditAttachments = [];
     queueSignature = "";
     renderQueue();
     if (returned.length && !$("draft").value) {
@@ -1754,6 +1919,7 @@ function progressTime() {
 
 function renderStatus() {
   const busy = Boolean(state.busy);
+  const ready = state.ready !== false;
   const voice = state.voice;
   const recording = ["starting", "recording", "transcribing"].includes(voice?.phase);
   const navigating = Boolean(state.loading || pending || uploading);
@@ -1761,16 +1927,16 @@ function renderStatus() {
   $("exit").disabled = Boolean(busy || navigating || recording);
   $("draft").disabled = Boolean(readOnly || !connected);
   $("attach").hidden = !(page === "chat" && state.active && !readOnly);
-  $("attach").disabled = !connected || busy || recording || navigating;
-  $("mic").disabled = !connected || !state.active || readOnly || navigating || busy || voice?.phase === "transcribing";
+  $("attach").disabled = !connected || readOnly;
+  $("mic").disabled = !connected || !state.active || readOnly || voice?.phase === "transcribing";
   $("mic").replaceChildren(icon(voice?.phase === "recording" ? "stop" : "mic"));
   $("mic").setAttribute("aria-label", voice?.phase === "recording" ? "Закончить запись" : "Начать диктовку");
 
   const draftText = $("draft").value.trim();
   const queueButton = $("queue-send");
   if (queueButton) {
-    queueButton.hidden = !(busy && draftText && !readOnly && connected && !state.active?.host);
-    queueButton.disabled = !connected || !draftText;
+    queueButton.hidden = !(busy && (draftText || attachments.length) && !readOnly && connected && !state.active?.host);
+    queueButton.disabled = !connected || (!draftText && !attachments.length) || !ready;
     queueButton.onclick = (event) => {
       event.preventDefault();
       queueMessage($("draft").value);
@@ -1781,10 +1947,10 @@ function renderStatus() {
   send.replaceChildren(icon(busy ? "stop" : "arrow-up"));
   send.title = busy ? "Остановить ответ (Esc)" : "Отправить (Enter)";
   send.setAttribute("aria-label", busy ? "Остановить ответ" : "Отправить");
-  send.disabled = !connected || navigating || recording || readOnly || (!busy && !draftText);
+  send.disabled = !connected || navigating || recording || readOnly || !ready || (!busy && !draftText && !attachments.length);
   $("readonly").hidden = !readOnly;
 
-  renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading));
+  renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading || !ready));
   renderActivity(busy);
   renderQuestions();
   renderVoice(voice, recording);
@@ -1816,7 +1982,8 @@ function renderActivity(busy) {
     );
     return;
   }
-  if (uploading) activity.textContent = "Загружаю файлы в проект…";
+  if (state.active && state.ready === false) activity.textContent = "Подключаюсь к чату…";
+  else if (uploading) activity.textContent = "Загружаю файлы в проект…";
   else if (recording) activity.textContent = voice.phase === "transcribing" ? "Распознаю запись…" : "Идёт запись…";
   else if (state.questions?.length) activity.textContent = "Нужен ваш ответ.";
 }
@@ -1931,7 +2098,7 @@ function drawWave(levels) {
 function renderModelSelect(blocked = false) {
   const select = $("model-select");
   const current = state.active?.model;
-  select.disabled = Boolean(blocked || !connected || !state.active || state.active.readOnly);
+  select.disabled = Boolean(blocked || !connected || !state.active || state.active.readOnly || state.ready === false);
   if (select.disabled && modelMenu.matches(":popover-open")) modelMenu.hidePopover();
   const name = current?.name || current?.id || "Модель";
   if (select.dataset.name !== name) {
@@ -2228,6 +2395,8 @@ function applyState(next) {
     versionManager.reset();
     renderedSignature = "";
     queueSignature = "";
+    attachments = [];
+    renderAttachments();
     autoGrow();
   }
   if (state.dictation && state.dictation.id !== dictationId && saved("dictation-" + state.dictation.chat) !== state.dictation.id) {

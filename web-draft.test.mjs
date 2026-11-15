@@ -22,6 +22,9 @@ function sendFixture(api){
     beginTask(){},
     endTask(){},
     canQueue:()=>true,
+    attachments:[],
+    buildOutgoingText:(text)=>String(text||'').trim(),
+    renderAttachments(){},
     api,
   };
   runInNewContext(between('function sendMessage(','function abortGeneration('),context);

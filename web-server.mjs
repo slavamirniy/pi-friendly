@@ -14,11 +14,12 @@ const exists=async p=>{try{await stat(p);return true;}catch{return false;}};
 const dirnameOf=p=>{const parent=resolve(p,'..');return parent===p||!p?resolve(p):parent;};
 import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,updateTool} from './web-messages.mjs';
 import {finalChatTitle,fallbackChatTitle,isValidChatTitle} from './title.mjs';
+import {stripAttachments} from './web/attachments.js';
 export {publicMessage,publicMessages} from './web-messages.mjs';
-export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle}){
+export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle,pickChatFiles}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
- let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
+ let state={active:null,messages:[],busy:false,loading:false,ready:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
  const titleRequests=new Set();
@@ -67,7 +68,8 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   if(!active||active.readOnly||active.host||active.named)return;
   const chatId=active.id,targetRpc=rpc;
   if(!targetRpc||titleRequests.has(chatId))return;
-  const firstText=(state.messages.find(m=>m.role==='user'&&String(m.text||'').trim())?.text||sourceText||'').trim();
+  const rawText=(state.messages.find(m=>m.role==='user'&&String(m.text||'').trim())?.text||sourceText||'').trim();
+  const firstText=stripAttachments(rawText).trim()||(rawText?'Работа с файлом':'');
   if(!firstText||firstText.startsWith('/'))return;
   titleRequests.add(chatId);
   const controller=new AbortController();
@@ -124,17 +126,58 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   }
   changed();
  }
- async function openSession(session,{notify=true}={}){
-  loading=true;state.error=null;changed();const epoch=++generation;
+ async function openSession(session,{notify=true,waitForReady=false}={}){
+  loading=true;state.error=null;if(notify)changed();const epoch=++generation;
+  let settle;
+  const ready=new Promise(resolve=>{settle=resolve;});
   try{
-   if(rpc)await rpc.dispose();rpc=undefined;
+   const previousRpc=rpc;rpc=undefined;if(previousRpc)void previousRpc.dispose();
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name)};
-   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
-   if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state',{},20000),rpc.request('get_messages',{},20000)]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;active.file=current?.sessionFile||session.path;state.busy=Boolean(current?.isStreaming);state.queue={steering:[],followUp:[]};const preferred=getPreferredModel();if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
-  }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
-  finally{loading=false;if(notify)broadcast();}
+   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
+   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},ready:false};
+   loading=false;
+   if(active.readOnly){
+    active={...active,ready:true};state={...state,ready:true};
+    if(notify)broadcast();settle(true);return {ready};
+   }
+   // The file history is already visible. The RPC child starts in the background.
+   if(notify)broadcast();
+   void (async()=>{
+    let nextRpc;
+    try{
+     nextRpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});
+     if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
+     rpc=nextRpc;
+     const [current,messages]=await Promise.all([nextRpc.request('get_state',{},20000),nextRpc.request('get_messages',{},20000)]);
+     if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
+     active={...active,model:current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null,file:current?.sessionFile||session.path};
+     state={...state,busy:Boolean(current?.isStreaming),queue:{steering:[],followUp:[]}};
+     const preferred=getPreferredModel();
+     if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){
+      await nextRpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});
+      if(epoch===generation)active={...active,model:{id:preferred.id,provider:preferred.provider,name:preferred.name}};
+     }
+     if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
+     state={...state,messages:reconcileMessages(state.messages,publicMessages(messages?.messages||[])),ready:true,loading:false};
+     active={...active,ready:true};
+     if(notify){changed();broadcast();}
+     settle(true);
+    }catch(error){
+     if(epoch===generation){
+      if(rpc===nextRpc)rpc=undefined;
+      state={...state,ready:false,loading:false,error:error.message};
+      if(notify){changed();broadcast();}
+     }
+     try{await nextRpc?.dispose();}catch{}
+     settle(false);
+    }
+   })();
+   if(waitForReady)await ready;
+   return {ready};
+  }catch(error){
+   if(rpc)await rpc.dispose();rpc=undefined;state={...state,error:error.message,ready:false,loading:false};changed();settle(false);throw error;
+  }
  }
  async function branchAt(index,{text='',name=''}={}){
   if(!rpc||!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
@@ -153,7 +196,8 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    const project=allProjects.find(p=>key(folderKey(p.cwd))===active.projectId);
    if(!project)throw new Error('Проект не найден.');
    const nextPath=projects.createChat(project.cwd);
-   await openSession({path:nextPath,cwd:project.cwd,name:label},{notify:false});
+   await openSession({path:nextPath,cwd:project.cwd,name:label},{notify:false,waitForReady:true});
+   if(!rpc||state.ready===false)throw new Error(state.error||'Не удалось подключиться к новому чату.');
    try{await rpc.request('set_session_name',{name:label},10000);}catch{}
    active={...active,name:label};
    await catalog();
@@ -262,18 +306,23 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    if(!path){reply(200,{cancelled:true});return;}
    const p=projects.attach(path);projects.markOpened?.(p.cwd);reply(200,{project:key(folderKey(p.cwd)),projects:await catalog()});}finally{navigating=false;}return;}
     if(action==='open-project'){await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Проект не найден.');projects.markOpened?.(p.cwd);reply(200,{ok:true});return;}
-    if(action==='create-project'){ensureIdle();navigating=true;try{const p=projects.create(data.name);await catalog();const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
-    if(action==='new-chat'){ensureIdle();navigating=true;try{await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Сначала выберите проект.');const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd});reply(200,snapshot());}finally{navigating=false;}return;}
-    if(action==='open'){ensureIdle();navigating=true;try{await catalog();const session=allSessions.find(s=>key(s.path)===data.id);if(!session)throw new Error('Разговор не найден. Обновите проекты.');await openSession(session);reply(200,snapshot());}finally{navigating=false;}return;}
+    if(action==='create-project'){ensureIdle();navigating=true;try{const p=projects.create(data.name);await catalog();const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd},{waitForReady:data.fast!==true});reply(200,snapshot());}finally{navigating=false;}return;}
+    if(action==='new-chat'){ensureIdle();navigating=true;try{await catalog();const p=allProjects.find(p=>key(folderKey(p.cwd))===data.project);if(!p)throw new Error('Сначала выберите проект.');const path=projects.createChat(p.cwd);await openSession({path,cwd:p.cwd},{waitForReady:data.fast!==true});reply(200,snapshot());}finally{navigating=false;}return;}
+    if(action==='open'){ensureIdle();navigating=true;try{if(!allProjects.length||!allSessions.some(s=>key(s.path)===data.id))await catalog();const session=allSessions.find(s=>key(s.path)===data.id);if(!session)throw new Error('Разговор не найден. Обновите проекты.');await openSession(session,{waitForReady:data.fast!==true});reply(200,snapshot());}finally{navigating=false;}return;}
     if(action==='voice'){
      if(!voice)throw new Error('Голос ещё не готов. Откройте интерфейс из pi.');
      if(!active||data.chat!==active.id)throw new Error('Сначала откройте чат.');
      if(voice.state.phase==='recording'&&voiceOwned)voice.toggle({web:true,chat:active.id});
-     else if(voice.state.phase==='ready'&&!state.busy&&!loading){voiceOwned=true;voice.toggle({web:true,chat:active.id});}
+     else if(voice.state.phase==='ready'&&!loading){voiceOwned=true;voice.toggle({web:true,chat:active.id});}
      else if(voice.state.phase==='error'){await voice.start();}else throw new Error('Для голосового ввода дождитесь загрузки модели или завершения записи.');
      reply(200,{ok:true});return;
     }
     if(action==='close'){ensureIdle();if(!canExit())throw new Error('Сначала остановите текущую работу.');navigating=true;reply(200,{ok:true});setTimeout(async()=>{await close();await onExit();},50);return;}
+    if(action==='pick-attach'){
+     if(!pickChatFiles)throw new Error('Выбор файлов доступен только в локальном интерфейсе.');
+     const files=await pickChatFiles();
+     reply(200,{files:Array.isArray(files)?files:[]});return;
+    }
     if(action==='delete-chat'||action==='archive-chat'){
      const session=allSessions.find(s=>key(s.path)===data.chat);
      if(!session)throw new Error('Чат не найден. Обновите список.');
@@ -298,6 +347,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      reply(200,{ok:true,projects});return;
     }
     if(!rpc||!active||active.readOnly)throw new Error(active?.readOnly?'Этот чат открыт в консоли. Создайте новый чат в этом проекте.':'Сначала откройте чат в проекте.');
+    if(state.ready===false)throw new Error('Чат ещё подключается. Подождите секунду.');
     if(data.chat!==active.id)throw new Error('Чат был переключён в другом окне. Проверьте текущий разговор.');
     if(action==='prompt'){
      if(voiceOwned||loading||navigating)throw new Error('Дождитесь завершения текущего действия.');
@@ -412,7 +462,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     }
     reply(404,{error:'Неизвестное действие.'});return;
    }
-   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript'],'/fonts/geist-cyrillic.woff2':['web/fonts/geist-cyrillic.woff2','font/woff2'],'/fonts/geist-latin.woff2':['web/fonts/geist-latin.woff2','font/woff2'],'/fonts/geist-mono-cyrillic.woff2':['web/fonts/geist-mono-cyrillic.woff2','font/woff2'],'/fonts/geist-mono-latin.woff2':['web/fonts/geist-mono-latin.woff2','font/woff2'],'/fonts/OFL-Geist.txt':['web/fonts/OFL-Geist.txt','text/plain'],'/fonts/OFL-Geist-Mono.txt':['web/fonts/OFL-Geist-Mono.txt','text/plain']},asset=assets[url.pathname];
+   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript'],'/attachments.js':['web/attachments.js','text/javascript'],'/fonts/geist-cyrillic.woff2':['web/fonts/geist-cyrillic.woff2','font/woff2'],'/fonts/geist-latin.woff2':['web/fonts/geist-latin.woff2','font/woff2'],'/fonts/geist-mono-cyrillic.woff2':['web/fonts/geist-mono-cyrillic.woff2','font/woff2'],'/fonts/geist-mono-latin.woff2':['web/fonts/geist-mono-latin.woff2','font/woff2'],'/fonts/OFL-Geist.txt':['web/fonts/OFL-Geist.txt','text/plain'],'/fonts/OFL-Geist-Mono.txt':['web/fonts/OFL-Geist-Mono.txt','text/plain']},asset=assets[url.pathname];
    if(req.method!=='GET'||!asset){reply(404,{error:'Страница не найдена.'});return;}
    res.writeHead(200,{'Content-Type':asset[1]+'; charset=utf-8','Cache-Control':asset[1]==='font/woff2'?'public, max-age=86400':'no-store'});res.end(await readFile(fileURLToPath(new URL(asset[0],import.meta.url))));
   }catch(error){if(!res.headersSent)reply(400,{error:error.message});else res.end();}

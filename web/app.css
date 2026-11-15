@@ -278,6 +278,104 @@ svg {
 
 /* current project + branches */
 
+.return-chat {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 1px var(--accent);
+  text-align: left;
+}
+.return-chat:hover {
+  filter: brightness(0.98);
+}
+.return-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.return-chat.busy .return-dot {
+  background: var(--orange);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.return-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.return-copy strong {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent-ink);
+}
+.return-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  opacity: 0.78;
+}
+.return-arrow {
+  color: var(--accent-ink);
+  font-size: 14px;
+  line-height: 1;
+}
+.recent-projects {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+.recent-project-list {
+  display: grid;
+  gap: 1px;
+}
+.recent-project {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+}
+.recent-project:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.recent-project.active {
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.recent-project svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.recent-project.active svg {
+  color: var(--accent-ink);
+}
+.recent-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .branches {
   margin-top: 14px;
   display: grid;
@@ -1702,6 +1800,110 @@ h1 {
   gap: 2px;
 }
 
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+.attachments[hidden] {
+  display: none;
+}
+.attachments > .message-attachments {
+  width: 100%;
+  margin-top: 0;
+}
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.attachment-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--ring);
+  color: var(--text-2);
+}
+.attachment-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: var(--accent-tint);
+  color: var(--accent-ink);
+  flex: none;
+}
+.attachment-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.attachment-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 190px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.attachment-meta {
+  color: var(--muted);
+  font: 10px/1.3 var(--mono);
+}
+.attachment-remove {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  flex: none;
+}
+.attachment-remove:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.attachment-remove svg {
+  width: 11px;
+  height: 11px;
+}
+.user-bubble .attachment-card {
+  background: rgba(255, 255, 255, 0.16);
+  color: inherit;
+  box-shadow: none;
+}
+.user-bubble .attachment-icon {
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+.user-bubble .attachment-name {
+  color: inherit;
+}
+.user-bubble .attachment-meta {
+  color: inherit;
+  opacity: 0.72;
+}
+.queue-files {
+  color: var(--muted);
+  font: 10px/1.3 var(--mono);
+}
+
 /* ============================== composer ============================== */
 
 .composer-wrap {
@@ -2525,6 +2727,8 @@ dialog p {
   .brand-name,
   .nav-text,
   .branches,
+  .recent-projects,
+  .return-chat,
   .project-current,
   .section-title,
   .quota,
