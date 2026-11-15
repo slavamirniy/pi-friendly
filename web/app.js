@@ -114,6 +114,7 @@ let imageSourceUploading = false;
 let panelRefs = [];
 let galleryRendered = 0;
 const GALLERY_BATCH = 12;
+let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
 try {
@@ -707,6 +708,28 @@ function wireChrome() {
   wireImageDrop($("panel-refs-drop"), "panel");
   wireImageDrop($("panel-prompt-form"), "panel");
   wireImageDrop(document.querySelector(".compose-ref-row"), "compose");
+  const panel = $("image-panel");
+  const panelDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    $("drop-overlay").hidden = true;
+  };
+  panel.addEventListener("dragenter", panelDragOver);
+  panel.addEventListener("dragover", panelDragOver);
+  panel.addEventListener("drop", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    $("drop-overlay").hidden = true;
+    const image = imageDropData(event);
+    if (image) {
+      const targetCard = event.target.closest?.(".gallery-card") || null;
+      if (targetCard && targetCard === draggingImageCard) return;
+      addPanelRef(image);
+      return;
+    }
+    const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
+    if (file) uploadImageSource(file, "panel");
+  });
   $("gallery-grid").onscroll = () => {
     const grid = $("gallery-grid");
     if (!imagePanelOpen || imageGallerySelected || grid.hidden) return;
@@ -2404,10 +2427,14 @@ function galleryCard(image) {
   button.onclick = () => openGalleryImage(image);
   button.ondragstart = (event) => {
     if (!image.path) return;
+    draggingImageCard = button;
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData("application/x-pf-image", image.path);
     event.dataTransfer.setData("text/image-url", imageUrl(image));
     event.dataTransfer.setData("text/plain", image.path);
+  };
+  button.ondragend = () => {
+    if (draggingImageCard === button) draggingImageCard = null;
   };
   return button;
 }
@@ -2820,9 +2847,13 @@ function toolImageGrid(images) {
     button.onclick = () => openImagePanelAt(image);
     button.ondragstart = (event) => {
       if (!image.path) return;
+      draggingImageCard = button;
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData("application/x-pf-image", image.path);
       event.dataTransfer.setData("text/image-url", imageUrl(image));
+    };
+    button.ondragend = () => {
+      if (draggingImageCard === button) draggingImageCard = null;
     };
     box.append(button);
   }
