@@ -4196,3 +4196,75 @@ button.image-job-visual { cursor: pointer; }
   width: min(100%, 240px);
   margin: 0 auto;
 }
+
+.image-panel .gallery-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-x: hidden;
+  column-count: initial;
+}
+.image-panel .gallery-card,
+.image-panel .gallery-skeleton {
+  flex: 0 0 calc(50% - 3px);
+  width: calc(50% - 3px);
+  max-width: calc(50% - 3px);
+  min-width: 0;
+  margin: 0;
+}
+.image-panel .gallery-card img {
+  width: 100%;
+  max-width: 100%;
+}
+
+.recent-project-block { display: grid; gap: 1px; }
+.recent-project { grid-template-columns: 16px minmax(0, 1fr) 12px; }
+.recent-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  opacity: 0.65;
+  transition: transform 100ms linear;
+}
+.recent-project.expanded .recent-chevron { transform: rotate(180deg); }
+.recent-chats {
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 5px 23px;
+  padding-left: 6px;
+  border-left: 1px solid var(--divider);
+}
+.recent-chat {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  text-align: left;
+}
+.recent-chat:hover { background: var(--surface-raised); color: var(--text); }
+.recent-chat.active { background: var(--surface); color: var(--text); font-weight: 500; }
+.recent-chat svg { width: 12px; height: 12px; color: var(--muted); }
+.recent-chat.active svg { color: var(--text); }
+.recent-chat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-chat-create {
+  margin-top: 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+.recent-chat-create:hover { background: var(--surface-raised); color: var(--text); }
+.recent-chats-empty { padding: 5px 7px; color: var(--muted); font-size: 11px; }
+
+.recent-project .recent-chevron { width: 12px; height: 12px; }
+.recent-project.expanded { background: var(--surface-raised); }
+.recent-project.active.expanded { background: var(--accent-tint); }

@@ -91,6 +91,7 @@ let pendingOpenId = null;
 let openPrevious = null;
 let queueCollapsed = false;
 let recentExpanded = false;
+let recentProjectOpenId = null;
 let renderedBranches = "";
 let projectPage = 1;
 let chatPage = 1;
@@ -118,6 +119,7 @@ const GALLERY_BATCH = 12;
 let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
+let imageRefreshPending = false;
 try {
   queueCollapsed = localStorage.getItem("pf-queue-collapsed") === "1";
 } catch {}
@@ -545,15 +547,11 @@ async function boot() {
 /* ============================== chrome ============================== */
 
 function wireChrome() {
-  $("nav-projects").onclick = () => navigate("projects");
-  $("return-chat").onclick = () => {
-    if (!state.active) return;
-    recentExpanded = false;
-    const project = projectOf(state.active.projectId);
-    if (project) projectId = project.id;
-    page = "chat";
-    renderRoute();
+  $("nav-projects").onclick = () => {
+    if (page !== "chat" && state.active) returnToChat();
+    else navigate("projects");
   };
+  $("return-chat").onclick = () => returnToChat();
   $("theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
   $("exit").onclick = () => {
     if (!$("exit").disabled) $("exit-dialog").showModal();
@@ -852,6 +850,7 @@ function wireChrome() {
     if (!recentExpanded) return;
     if (target && $("recent-projects").contains(target)) return;
     recentExpanded = false;
+    recentProjectOpenId = null;
     renderBranches();
   };
   document.addEventListener("click", (event) => collapseRecent(event.target));
@@ -1072,16 +1071,28 @@ async function openFolderDialog() {
 
 /* ============================== branches ============================== */
 
+function returnToChat() {
+  if (!state.active) return;
+  recentExpanded = false;
+  const project = projectOf(state.active.projectId);
+  if (project) projectId = project.id;
+  page = "chat";
+  renderRoute();
+}
+
 function renderReturnChat() {
-  const button = $("return-chat");
-  if (!state.active || page === "chat") {
-    button.hidden = true;
-    return;
-  }
-  button.hidden = false;
-  button.classList.toggle("busy", Boolean(state.busy));
-  button.title = `Вернуться к чату: ${state.active.name || "текущий чат"}`;
-  button.setAttribute("aria-label", button.title);
+  const separate = $("return-chat");
+  separate.hidden = true;
+  const nav = $("nav-projects");
+  if (!nav) return;
+  const returning = Boolean(state.active) && page !== "chat";
+  nav.classList.toggle("returning", returning);
+  const iconBox = nav.querySelector(".nav-icon");
+  const text = nav.querySelector(".nav-text");
+  if (iconBox) iconBox.replaceChildren(icon(returning ? "back" : "folder"));
+  if (text) text.textContent = returning ? "Вернуться в чат" : "Проекты";
+  nav.title = returning ? `Вернуться к чату: ${state.active.name || "текущий чат"}` : "Проекты";
+  nav.setAttribute("aria-label", nav.title);
 }
 
 function renderRecentProjects() {
@@ -1090,7 +1101,9 @@ function renderRecentProjects() {
   const currentId = activeProjectId();
   const current = projectOf(currentId);
   const others = catalog.filter((project) => project.id !== currentId).slice(0, current ? 2 : 3);
-  const projects = current ? [current, ...others] : catalog.slice(0, 3);
+  let projects = current ? [current, ...others] : catalog.slice(0, 3);
+  const openProject = catalog.find((project) => project.id === recentProjectOpenId) || null;
+  if (openProject && !projects.some((project) => project.id === openProject.id)) projects = [...projects, openProject];
   panel.hidden = false;
   list.replaceChildren();
   const create = el("button", null, "recent-project recent-create");
@@ -1101,21 +1114,62 @@ function renderRecentProjects() {
   list.append(create);
   if (!projects.length) return;
 
-  const projectButton = (project, active = false) => {
-    const row = el("button", null, "recent-project" + (active ? " active" : ""));
+  const chatButton = (project, chat) => {
+    const row = el("button", null, "recent-chat" + (chat.id === state.active?.id ? " active" : ""));
     row.type = "button";
-    row.title = project.name;
-    row.append(icon("folder"), el("span", project.name, "recent-project-name"));
-    row.onclick = () => openProject(project);
+    row.title = chat.name || "Чат";
+    row.append(icon("branch"), el("span", chat.name || "Новый чат", "recent-chat-name"));
+    row.onclick = (event) => {
+      event.stopPropagation();
+      projectId = project.id;
+      recentProjectOpenId = project.id;
+      openBranch(chat);
+    };
     return row;
   };
 
+  const projectBlock = (project, active = false) => {
+    const block = el("div", null, "recent-project-block");
+    const expanded = recentProjectOpenId === project.id;
+    const row = el("button", null, "recent-project" + (active ? " active" : "") + (expanded ? " expanded" : ""));
+    row.type = "button";
+    row.title = project.name;
+    row.append(icon("folder"), el("span", project.name, "recent-project-name"), icon("chevron-down"));
+    row.lastChild.classList.add("recent-chevron");
+    row.onclick = () => {
+      recentProjectOpenId = recentProjectOpenId === project.id ? null : project.id;
+      renderBranches();
+    };
+    block.append(row);
+    if (!expanded) return block;
+
+    const chats = [...(project.chats || [])]
+      .sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0))
+      .slice(0, 3);
+    const nested = el("div", null, "recent-chats");
+    if (!chats.length) nested.append(el("div", "Пока нет чатов", "recent-chats-empty"));
+    for (const chat of chats) nested.append(chatButton(project, chat));
+    const add = el("button", null, "recent-chat recent-chat-create");
+    add.type = "button";
+    add.title = "Создать чат в проекте";
+    add.append(icon("plus"), el("span", "Создать чат", "recent-chat-name"));
+    add.onclick = (event) => {
+      event.stopPropagation();
+      projectId = project.id;
+      recentProjectOpenId = project.id;
+      newBranch();
+    };
+    nested.append(add);
+    block.append(nested);
+    return block;
+  };
+
   if (!current) {
-    for (const project of projects) list.append(projectButton(project));
+    for (const project of projects) list.append(projectBlock(project));
     return;
   }
 
-  list.append(projectButton(current, true));
+  list.append(projectBlock(current, true));
   if (others.length && !recentExpanded) {
     const toggle = el("button", null, "recent-toggle");
     toggle.type = "button";
@@ -1129,9 +1183,8 @@ function renderRecentProjects() {
     };
     list.append(toggle);
   }
-  if (recentExpanded) for (const project of others) list.append(projectButton(project));
+  if (recentExpanded) for (const project of others) list.append(projectBlock(project));
 }
-
 function renderBranches() {
   const project = projectOf(activeProjectId());
   const signature = JSON.stringify([
@@ -1144,6 +1197,7 @@ function renderBranches() {
     state.active?.name || null,
     Boolean(state.busy),
     recentExpanded,
+    recentProjectOpenId,
   ]);
   if (signature === renderedBranches) return;
   renderedBranches = signature;
@@ -1991,6 +2045,9 @@ function renderMessages() {
         );
         if (Array.isArray(tool.images) && tool.images.length) {
           content.append(toolImageGrid(tool.images));
+          if (tool.images.some((image) => !imageImages.some((item) => item.path === image.path))) {
+            void refreshImageLibrary();
+          }
         } else if (tool.name === "generate_image" && (status === "running" || status === "pending")) {
           assistantImageLoaders += 1;
         }
@@ -2265,23 +2322,29 @@ function updateImageBadge() {
 }
 
 async function refreshImageLibrary() {
-  const project = activeProjectId();
-  if (!project) {
-    imageImages = [];
-    updateImageBadge();
-    return;
-  }
+  if (imageRefreshPending) return;
+  imageRefreshPending = true;
   try {
-    const result = await api("images", { project }, 30000);
-    imageImages = result.images || [];
-  } catch {}
-  updateImageBadge();
-  if ($("image-panel") && !$("image-panel").hidden) {
-    if (imageGallerySelected) renderGallery();
-    else renderGallery({ reset: true });
-  }
-  if ($("image-source-menu") && !$("image-source-menu").hidden && !$("image-source-generated-list").hidden) {
-    renderSourceMenuGallery();
+    const project = activeProjectId();
+    if (!project) {
+      imageImages = [];
+      updateImageBadge();
+      return;
+    }
+    try {
+      const result = await api("images", { project }, 30000);
+      imageImages = result.images || [];
+    } catch {}
+    updateImageBadge();
+    if ($("image-panel") && !$("image-panel").hidden) {
+      if (imageGallerySelected) renderGallery();
+      else renderGallery({ reset: true });
+    }
+    if ($("image-source-menu") && !$("image-source-menu").hidden && !$("image-source-generated-list").hidden) {
+      renderSourceMenuGallery();
+    }
+  } finally {
+    imageRefreshPending = false;
   }
 }
 
@@ -2458,26 +2521,40 @@ function panelLoadingJobs() {
 function renderPanelSkeletons() {
   const grid = $("gallery-grid");
   if (!grid) return;
-  const jobs = panelLoadingJobs();
-  if (jobs.length) grid.querySelector(".gallery-empty")?.remove();
-  const ids = new Set(jobs.map((job) => job.id));
+  const entries = panelLoadingJobs().map((job) => ({
+    key: job.id,
+    label: Math.round(job.progress) + "%",
+  }));
+  for (const message of state.messages || []) {
+    for (const tool of message.tools || []) {
+      if (
+        tool.name === "generate_image" &&
+        (tool.status === "running" || tool.status === "pending") &&
+        !tool.images?.length
+      ) {
+        entries.push({ key: "tool:" + (tool.id || tool.label || "image"), label: "Генерация" });
+      }
+    }
+  }
+  if (entries.length) grid.querySelector(".gallery-empty")?.remove();
+  const ids = new Set(entries.map((entry) => entry.key));
   for (const node of grid.querySelectorAll(".gallery-skeleton")) {
     if (!ids.has(node.dataset.job)) node.remove();
   }
   const existing = new Map(
     [...grid.querySelectorAll(".gallery-skeleton")].map((node) => [node.dataset.job, node]),
   );
-  for (let index = jobs.length - 1; index >= 0; index -= 1) {
-    const job = jobs[index];
-    let card = existing.get(job.id);
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    let card = existing.get(entry.key);
     if (!card) {
       card = el("div", null, "gallery-skeleton");
-      card.dataset.job = job.id;
+      card.dataset.job = entry.key;
       card.append(el("span", null, "gallery-skeleton-spinner"), el("span", null, "gallery-skeleton-percent"));
       grid.prepend(card);
     }
     const percent = card.querySelector(".gallery-skeleton-percent");
-    if (percent) percent.textContent = Math.round(job.progress) + "%";
+    if (percent) percent.textContent = entry.label;
   }
 }
 
@@ -2578,12 +2655,7 @@ function showGalleryGrid() {
 function addPanelRef(source) {
   const ref = normalizeImageSource(source);
   if (!ref || !ref.path) return;
-  if (panelRefs.some((item) => item.path === ref.path)) return;
-  if (panelRefs.length >= 4) {
-    showHint("Можно добавить до четырёх референсов.", true);
-    return;
-  }
-  panelRefs.push(ref);
+  panelRefs = [ref];
   renderPanelRefs();
 }
 
@@ -3435,6 +3507,7 @@ function renderStatus() {
   $("notice").hidden = !state.notice;
   renderConnection();
   updateImageBadge();
+  if (imagePanelOpen) renderPanelSkeletons();
 }
 
 

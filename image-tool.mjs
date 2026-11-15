@@ -156,7 +156,7 @@ export async function runImageTool(
   const refs = (Array.isArray(sources) ? sources : source ? [source] : [])
     .map((value) => String(value || "").trim())
     .filter(Boolean)
-    .slice(0, 4);
+    .slice(0, 1);
   const sourcePaths = [];
   if (refs.length) {
     body = new FormData();
