@@ -42,6 +42,7 @@ const paths = {
   download: "M12 3v12m-5-5 5 5 5-5M4 21h16",
   send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
   archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
+  back: "M19 12H5m6-6-6 6 6 6",
   warning: "M12 3 2 21h20L12 3Zm0 6v5m0 4h.01",
 };
 
@@ -84,6 +85,7 @@ let operationLabel = "";
 let uploading = false;
 let editingIndex = null;
 let queueCollapsed = false;
+let recentExpanded = false;
 let editingQueueIndex = null;
 let queueEditDraft = "";
 let queueEditAttachments = [];
@@ -488,6 +490,7 @@ function wireChrome() {
   $("nav-projects").onclick = () => navigate("projects");
   $("return-chat").onclick = () => {
     if (!state.active) return;
+    recentExpanded = false;
     const project = projectOf(state.active.projectId);
     if (project) projectId = project.id;
     page = "chat";
@@ -562,6 +565,12 @@ function wireChrome() {
       }
       await api("voice", { chat: state.active?.id }, 20000);
     });
+  document.addEventListener("click", (event) => {
+    if (!recentExpanded) return;
+    if ($("recent-projects").contains(event.target)) return;
+    recentExpanded = false;
+    renderBranches();
+  });
   document.addEventListener("keydown", (event) => {
     if (
       event.key === "Escape" &&
@@ -655,6 +664,7 @@ function openProject(project) {
 
 function openBranch(chat) {
   if (!canSwitch()) return;
+  recentExpanded = false;
   const previous = { page, state };
   if (state.active) {
     page = "chat";
@@ -698,6 +708,7 @@ function newBranch() {
     return;
   }
   if (!canSwitch()) return;
+  recentExpanded = false;
   run("Создаю чат…", async () => {
     const next = await api("new-chat", { project: target, fast: true }, 45000);
     applyState(next);
@@ -738,8 +749,8 @@ function renderReturnChat() {
   }
   button.hidden = false;
   button.classList.toggle("busy", Boolean(state.busy));
-  const name = state.active.name || "Текущий чат";
-  $("return-chat-name").textContent = state.busy ? `${name} · идёт ответ` : name;
+  button.title = `Вернуться к чату: ${state.active.name || "текущий чат"}`;
+  button.setAttribute("aria-label", button.title);
 }
 
 function renderRecentProjects() {
@@ -747,20 +758,46 @@ function renderRecentProjects() {
   const list = $("recent-project-list");
   const currentId = activeProjectId();
   const current = projectOf(currentId);
-  const others = catalog.filter((project) => project.id !== currentId).slice(0, 3);
-  const projects = current ? [current, ...others] : catalog.slice(0, 4);
+  const others = catalog.filter((project) => project.id !== currentId).slice(0, current ? 2 : 3);
+  const projects = current ? [current, ...others] : catalog.slice(0, 3);
   panel.hidden = !projects.length;
   list.replaceChildren();
-  for (const project of projects) {
-    const row = el("button", null, "recent-project" + (project.id === currentId ? " active" : ""));
+  if (!projects.length) return;
+
+  const projectButton = (project, active = false) => {
+    const row = el("button", null, "recent-project" + (active ? " active" : ""));
     row.type = "button";
     row.title = project.name;
-    const iconNode = icon("folder");
-    row.append(iconNode, el("span", project.name, "recent-project-name"));
+    row.append(icon("folder"), el("span", project.name, "recent-project-name"));
+    if (active) row.append(el("span", `(${project.chats?.length || 0})`, "recent-count"));
     row.onclick = () => openProject(project);
-    list.append(row);
+    return row;
+  };
+
+  if (!current) {
+    for (const project of projects) list.append(projectButton(project));
+    return;
   }
+
+  const currentRow = el("div", null, "recent-current");
+  currentRow.append(projectButton(current, true));
+  if (others.length) {
+    const expand = el("button", null, "recent-expand" + (recentExpanded ? " expanded" : ""));
+    expand.type = "button";
+    expand.title = recentExpanded ? "Свернуть проекты" : "Показать последние проекты";
+    expand.setAttribute("aria-label", expand.title);
+    expand.append(icon("chevron-down"));
+    expand.onclick = (event) => {
+      event.stopPropagation();
+      recentExpanded = !recentExpanded;
+      renderRecentProjects();
+    };
+    currentRow.append(expand);
+  }
+  list.append(currentRow);
+  if (recentExpanded) for (const project of others) list.append(projectButton(project));
 }
+
 
 function renderBranches() {
   renderReturnChat();
