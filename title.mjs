@@ -142,6 +142,7 @@ export function createTitleGenerator({ complete, resolveModel }) {
         temperature: 0.2,
         cacheRetention: "none",
         signal,
+        ...(model.reasoning ? { reasoning: "minimal" } : {}),
       },
     );
     if (response?.stopReason === "error")
