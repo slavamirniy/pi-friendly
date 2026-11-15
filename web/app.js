@@ -86,6 +86,13 @@ let uploading = false;
 let editingIndex = null;
 let queueCollapsed = false;
 let recentExpanded = false;
+let projectPage = 1;
+let chatPage = 1;
+let sidebarChatPage = 1;
+let sidebarProjectId = null;
+const PROJECT_PAGE_SIZE = 10;
+const CHAT_PAGE_SIZE = 10;
+const SIDEBAR_CHAT_PAGE_SIZE = 8;
 let editingQueueIndex = null;
 let queueEditDraft = "";
 let queueEditAttachments = [];
@@ -643,6 +650,7 @@ function navigate(target) {
   searchOpen = false;
   if (target === "projects") {
     projectId = null;
+    projectPage = 1;
     page = "projects";
     renderRoute();
     loadCatalog().catch(() => {});
@@ -655,6 +663,7 @@ function navigate(target) {
 
 function openProject(project) {
   projectId = project.id;
+  chatPage = 1;
   page = "chats";
   searchValue = "";
   searchOpen = false;
@@ -769,7 +778,6 @@ function renderRecentProjects() {
     row.type = "button";
     row.title = project.name;
     row.append(icon("folder"), el("span", project.name, "recent-project-name"));
-    if (active) row.append(el("span", `(${project.chats?.length || 0})`, "recent-count"));
     row.onclick = () => openProject(project);
     return row;
   };
@@ -779,25 +787,22 @@ function renderRecentProjects() {
     return;
   }
 
-  const currentRow = el("div", null, "recent-current");
-  currentRow.append(projectButton(current, true));
+  list.append(projectButton(current, true));
   if (others.length) {
-    const expand = el("button", null, "recent-expand" + (recentExpanded ? " expanded" : ""));
-    expand.type = "button";
-    expand.title = recentExpanded ? "Свернуть проекты" : "Показать последние проекты";
-    expand.setAttribute("aria-label", expand.title);
-    expand.append(icon("chevron-down"));
-    expand.onclick = (event) => {
+    const toggle = el("button", null, "recent-toggle" + (recentExpanded ? " expanded" : ""));
+    toggle.type = "button";
+    toggle.title = recentExpanded ? "Свернуть проекты" : "Развернуть проекты";
+    toggle.setAttribute("aria-label", toggle.title);
+    toggle.append(icon("chevron-down"), el("span", recentExpanded ? "Свернуть" : "Развернуть"));
+    toggle.onclick = (event) => {
       event.stopPropagation();
       recentExpanded = !recentExpanded;
       renderRecentProjects();
     };
-    currentRow.append(expand);
+    list.append(toggle);
   }
-  list.append(currentRow);
   if (recentExpanded) for (const project of others) list.append(projectButton(project));
 }
-
 
 function renderBranches() {
   renderReturnChat();
@@ -809,6 +814,17 @@ function renderBranches() {
     return;
   }
   panel.hidden = false;
+  if (sidebarProjectId !== project.id) {
+    sidebarProjectId = project.id;
+    sidebarChatPage = 1;
+  }
+  const allChats = project.chats || [];
+  const sidebarPages = Math.max(1, Math.ceil(allChats.length / SIDEBAR_CHAT_PAGE_SIZE));
+  sidebarChatPage = Math.min(Math.max(1, sidebarChatPage), sidebarPages);
+  const visibleChats = allChats.slice(
+    (sidebarChatPage - 1) * SIDEBAR_CHAT_PAGE_SIZE,
+    sidebarChatPage * SIDEBAR_CHAT_PAGE_SIZE,
+  );
   const list = $("branch-list");
   list.replaceChildren();
   const create = el("button", null, "branch-row branch-create");
@@ -818,7 +834,7 @@ function renderBranches() {
   create.append(icon("plus"), el("span", "Создать чат", "branch-name"));
   create.onclick = () => newBranch();
   list.append(create);
-  for (const chat of project.chats || []) {
+  for (const chat of visibleChats) {
     const active = chat.id === state.active?.id;
     const row = el("div", null, "branch-row has-actions" + (active ? " active" : ""));
     row.setAttribute("role", "listitem");
@@ -852,6 +868,17 @@ function renderBranches() {
     row.append(open, actions);
     list.append(row);
   }
+  const nav = pager(
+    allChats.length,
+    sidebarChatPage,
+    SIDEBAR_CHAT_PAGE_SIZE,
+    (next) => {
+      sidebarChatPage = next;
+      renderBranches();
+    },
+    "pager compact",
+  );
+  if (nav) list.append(nav);
 }
 
 function archiveChat(chat) {
@@ -1059,6 +1086,29 @@ function searchField(placeholder, onInput) {
   return input;
 }
 
+function pager(total, page, limit, onPage, cls = "pager") {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  if (pages <= 1) return null;
+  const current = Math.min(Math.max(1, page), pages);
+  const bar = el("div", null, cls);
+  const prev = el("button", null, "pager-button");
+  prev.type = "button";
+  prev.title = "Предыдущая страница";
+  prev.setAttribute("aria-label", "Предыдущая страница");
+  prev.append(icon("prev"));
+  prev.disabled = current <= 1;
+  prev.onclick = () => onPage(current - 1);
+  const next = el("button", null, "pager-button");
+  next.type = "button";
+  next.title = "Следующая страница";
+  next.setAttribute("aria-label", "Следующая страница");
+  next.append(icon("next"));
+  next.disabled = current >= pages;
+  next.onclick = () => onPage(current + 1);
+  bar.append(prev, el("span", `${current} / ${pages}`, "pager-info"), next);
+  return bar;
+}
+
 function listToolbar(placeholder, renderList, { create = null, folder = null, branch = null } = {}) {
   const toolbar = el("div", null, "toolbar");
   const search = searchField(placeholder, renderList);
@@ -1148,6 +1198,9 @@ function renderProjectsPage() {
     const projects = catalog.filter((project) =>
       (project.name + " " + (project.folder || "")).toLocaleLowerCase().includes(term),
     );
+    const pages = Math.max(1, Math.ceil(projects.length / PROJECT_PAGE_SIZE));
+    projectPage = Math.min(Math.max(1, projectPage), pages);
+    const visible = projects.slice((projectPage - 1) * PROJECT_PAGE_SIZE, projectPage * PROJECT_PAGE_SIZE);
     if (!projects.length) {
       list.append(
         emptyState(
@@ -1157,7 +1210,7 @@ function renderProjectsPage() {
         ),
       );
     }
-    for (const project of projects) {
+    for (const project of visible) {
       const row = el("button", null, "row-item");
       row.type = "button";
       row.append(icon("folder"));
@@ -1169,9 +1222,25 @@ function renderProjectsPage() {
       list.append(row);
     }
     const container = $("project-list");
-    if (container) container.replaceChildren(catalogLoading ? skeletonList() : list);
+    if (container) {
+      if (catalogLoading) container.replaceChildren(skeletonList());
+      else {
+        const wrap = el("div");
+        wrap.append(list);
+        const nav = pager(projects.length, projectPage, PROJECT_PAGE_SIZE, (next) => {
+          projectPage = next;
+          renderList(searchValue);
+        });
+        if (nav) wrap.append(nav);
+        container.replaceChildren(wrap);
+      }
+    }
   };
-  const { toolbar } = listToolbar("Найти проект…", renderList, {
+  const searchRender = (query) => {
+    projectPage = 1;
+    renderList(query);
+  };
+  const { toolbar } = listToolbar("Найти проект…", searchRender, {
     folder: true,
     create: { run: openCreateProject },
   });
@@ -1204,7 +1273,10 @@ function renderChatsPage(project) {
     const chats = (project.chats || []).filter((chat) =>
       (chat.name || "").toLocaleLowerCase().includes(term),
     );
-    for (const chat of chats) {
+    const pages = Math.max(1, Math.ceil(chats.length / CHAT_PAGE_SIZE));
+    chatPage = Math.min(Math.max(1, chatPage), pages);
+    const visible = chats.slice((chatPage - 1) * CHAT_PAGE_SIZE, chatPage * CHAT_PAGE_SIZE);
+    for (const chat of visible) {
       const row = el("button", null, "row-item" + (chat.id === state.active?.id ? " selected" : ""));
       row.type = "button";
       row.append(icon("branch"));
@@ -1234,7 +1306,20 @@ function renderChatsPage(project) {
       );
     }
     const container = $("chat-list");
-    if (container) container.replaceChildren(list);
+    if (container) {
+      const wrap = el("div");
+      wrap.append(list);
+      const nav = pager(chats.length, chatPage, CHAT_PAGE_SIZE, (next) => {
+        chatPage = next;
+        renderList(searchValue);
+      });
+      if (nav) wrap.append(nav);
+      container.replaceChildren(wrap);
+    }
+  };
+  const searchRender = (query) => {
+    chatPage = 1;
+    renderList(query);
   };
   const toolbar = el("div", null, "toolbar");
   const back = el("button", null, "button ghost");
@@ -1242,10 +1327,9 @@ function renderChatsPage(project) {
   back.append(icon("prev"), el("span", "Все проекты"));
   back.onclick = () => navigate("projects");
   toolbar.append(back);
-  const { toolbar: searchBar, search } = listToolbar("Найти чат…", renderList, {
+  const { toolbar: searchBar } = listToolbar("Найти чат…", searchRender, {
     branch: true,
   });
-  searchBar.append(search);
   toolbar.append(...searchBar.childNodes);
   root.append(toolbar);
   const list = el("div");
@@ -1349,6 +1433,7 @@ function messageSignature() {
     editingIndex,
     state.active?.readOnly,
     state.active?.id,
+    state.ready,
   ]);
 }
 
@@ -1450,12 +1535,9 @@ function renderMessages() {
       }
       content.append(answer);
       if (message.status === "streaming" && !message.text && !message.thinking && !message.tools?.length) {
-        content.append(el("div", "Пишет ответ…", "generating-message"));
         const skeleton = el("div", null, "stream-skeleton");
         skeleton.append(el("span", null, "skeleton w-80"), el("span", null, "skeleton w-60"));
         content.append(skeleton);
-      } else if (message.status === "streaming" && !message.text) {
-        content.append(el("div", "Пишет ответ…", "generating-message"));
       }
       for (const tool of message.tools || []) {
         const status = tool.status || "pending";
@@ -1509,6 +1591,20 @@ function renderMessages() {
           ),
         );
       }
+      if (message.status === "streaming") {
+        const quota = Number.isFinite(state.routerProgress?.quota)
+          ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
+          : Number.isFinite(state.billing?.account?.available)
+            ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
+            : "";
+        const generation = el("div", null, "inline-generation");
+        const stateLabel = el("span", null, "inline-generation-state");
+        stateLabel.append(el("span", null, "inline-generation-dots"), document.createTextNode("Пишет ответ…"));
+        generation.append(stateLabel);
+        const meta = [progressTime(), quota].filter(Boolean).join(" · ");
+        if (meta) generation.append(el("span", meta, "inline-generation-meta"));
+        content.append(generation);
+      }
       const foot = el("div", null, "assistant-foot");
       if (message.status !== "streaming" && message.text) {
         const copy = el("button", null, "copy-btn");
@@ -1525,6 +1621,13 @@ function renderMessages() {
     frag.append(row);
   });
 
+  if (state.active && state.ready === false && !state.busy) {
+    const connecting = el("div", null, "inline-generation connecting");
+    const stateLabel = el("span", null, "inline-generation-state");
+    stateLabel.append(el("span", null, "inline-generation-spinner"), document.createTextNode("Подключаюсь к чату…"));
+    connecting.append(stateLabel);
+    frag.append(connecting);
+  }
   if (!frag.childNodes.length) {
     const welcome = el("div", null, "welcome");
     const mark = el("div", "π", "welcome-mark");
@@ -2165,7 +2268,6 @@ function renderStatus() {
   $("readonly").hidden = !readOnly;
 
   renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading || !ready));
-  renderActivity(busy);
   renderQuestions();
   renderVoice(voice, recording);
   renderQuota();
@@ -2175,51 +2277,6 @@ function renderStatus() {
   renderConnection();
 }
 
-function renderActivity(busy) {
-  const activity = $("activity");
-  const voice = state.voice;
-  const recording = ["starting", "recording", "transcribing"].includes(voice?.phase);
-  activity.classList.toggle("generating", busy);
-  activity.classList.toggle("waiting", false);
-  activity.replaceChildren();
-  if (busy) {
-    const current = state.messages?.findLast(
-      (message) => message.role === "assistant" && message.status === "streaming",
-    );
-    const preview = state.routerProgress?.preview || current?.text || current?.thinking || "";
-    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-360).join("");
-    const waiting = !tail;
-    const quota = Number.isFinite(state.routerProgress?.quota)
-      ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
-      : Number.isFinite(state.billing?.account?.available)
-        ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
-        : "";
-    activity.classList.toggle("waiting", waiting);
-    const head = el("div", null, "activity-head");
-    const stateLabel = el("span", null, "activity-state");
-    stateLabel.append(
-      el("span", null, "activity-spinner"),
-      document.createTextNode(waiting ? "Подготавливаю ответ…" : "Пишу ответ…"),
-    );
-    head.append(
-      stateLabel,
-      el("span", [progressTime(), quota].filter(Boolean).join(" · "), "activity-meta"),
-    );
-    activity.append(
-      head,
-      el(
-        "div",
-        waiting ? "Ожидаю первый фрагмент ответа…" : tail,
-        "activity-preview" + (waiting ? " waiting-label" : ""),
-      ),
-    );
-    return;
-  }
-  if (state.active && state.ready === false) activity.textContent = "Подключаюсь к чату…";
-  else if (uploading) activity.textContent = "Загружаю файлы в проект…";
-  else if (recording) activity.textContent = voice.phase === "transcribing" ? "Распознаю запись…" : "Идёт запись…";
-  else if (state.questions?.length) activity.textContent = "Нужен ваш ответ.";
-}
 
 function renderVoice(voice, recording) {
   $("voice-view").hidden = !recording;
@@ -2644,6 +2701,11 @@ function applyState(next) {
     renderRoute();
     return;
   }
+  if (previous !== state.active?.id && state.active) {
+    const project = projectOf(state.active.projectId);
+    const index = project?.chats.findIndex((chat) => chat.id === state.active.id) ?? -1;
+    if (index >= 0) sidebarChatPage = Math.floor(index / SIDEBAR_CHAT_PAGE_SIZE) + 1;
+  }
   if (!state.active && page === "chat") {
     page = "chats";
     renderRoute();
@@ -2672,11 +2734,5 @@ function autoGrow() {
     area.style.height = Math.min(area.scrollHeight, 250) + "px";
   });
 }
-
-setInterval(() => {
-  if (!state.busy) return;
-  const timer = document.querySelector(".activity-time");
-  if (timer) timer.textContent = progressTime();
-}, 300);
 
 boot();
