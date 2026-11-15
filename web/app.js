@@ -118,6 +118,7 @@ const GALLERY_BATCH = 12;
 let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
+let voiceTarget = "chat";
 let imageRefreshPending = false;
 let imageRefreshQueued = false;
 try {
@@ -837,8 +838,9 @@ function wireChrome() {
   $("attach").onclick = () => {
     if (!$("attach").disabled) pickAttachments();
   };
-  $("mic").onclick = () =>
-    run("Переключаю микрофон…", async () => {
+  const toggleVoice = (target) => {
+    voiceTarget = target;
+    return run("Переключаю микрофон…", async () => {
       if (["installing", "downloading", "loading"].includes(state.voice?.phase)) {
         $("voice-setup").classList.add("highlight");
         setTimeout(() => $("voice-setup").classList.remove("highlight"), 2500);
@@ -846,6 +848,9 @@ function wireChrome() {
       }
       await api("voice", { chat: state.active?.id }, 20000);
     });
+  };
+  $("mic").onclick = () => toggleVoice("chat");
+  $("panel-mic").onclick = () => toggleVoice("panel");
   const collapseRecent = (target) => {
     if (!recentProjectOpenId) return;
     if (target && $("recent-projects").contains(target)) return;
@@ -2432,6 +2437,7 @@ function openImagePanel() {
   renderGallery({ reset: true });
   renderPanelJobs();
   refreshImageLibrary();
+  renderStatus();
 }
 
 function openImagePanelAt(image) {
@@ -2457,7 +2463,9 @@ function closeImagePanel() {
   imageGallerySelected = null;
   panelRefs = [];
   renderPanelRefs();
+  if (voiceTarget === "panel") voiceTarget = "chat";
   renderImageWorkspace();
+  renderStatus();
   $("draft").focus({ preventScroll: true });
 }
 
@@ -2827,7 +2835,7 @@ function startImageTimer() {
     for (const job of imageJobs) {
       if (job.status !== "loading") continue;
       loading = true;
-      job.progress = Math.min(92, job.progress + Math.max(0.7, (92 - job.progress) * 0.06));
+      job.progress = Math.min(92, 4 + (Date.now() - job.startedAt) / 1000 * 1.3);
     }
     if (loading) {
       renderImageJobs();
@@ -3486,6 +3494,12 @@ function renderStatus() {
   $("mic").disabled = !connected || !state.active || readOnly || voice?.phase === "transcribing";
   $("mic").replaceChildren(icon(voice?.phase === "recording" ? "stop" : "mic"));
   $("mic").setAttribute("aria-label", voice?.phase === "recording" ? "Закончить запись" : "Начать диктовку");
+  const panelMic = $("panel-mic");
+  if (panelMic) {
+    panelMic.disabled = !connected || !state.active || readOnly || voice?.phase === "transcribing";
+    panelMic.replaceChildren(icon(voice?.phase === "recording" ? "stop" : "mic"));
+    panelMic.setAttribute("aria-label", voice?.phase === "recording" ? "Закончить запись" : "Начать диктовку");
+  }
 
   const draftText = $("draft").value.trim();
   const queueButton = $("queue-send");
@@ -3519,17 +3533,21 @@ function renderStatus() {
 
 
 function renderVoice(voice, recording) {
-  $("voice-view").hidden = !recording;
-  $("draft").style.visibility = recording ? "hidden" : "visible";
+  const panelRecording = Boolean(recording && voiceTarget === "panel" && imagePanelOpen);
+  $("voice-view").hidden = !recording || panelRecording;
+  $("panel-voice-view").hidden = !panelRecording;
+  $("draft").style.visibility = recording && !panelRecording ? "hidden" : "visible";
+  $("panel-prompt").style.visibility = panelRecording ? "hidden" : "visible";
   if (recording) {
     const seconds = voice.seconds || 0;
-    $("voice-label").textContent =
+    const label = panelRecording ? $("panel-voice-label") : $("voice-label");
+    label.textContent =
       voice.phase === "recording"
         ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · Enter — закончить`
         : voice.phase === "transcribing"
           ? `Распознаю · ${Math.round(voice.percent || 0)}%`
           : "Включаю микрофон…";
-    drawWave(voice.levels || []);
+    drawWave(voice.levels || [], panelRecording ? "panel-wave" : "wave");
   }
   const setup = $("voice-setup");
   setup.replaceChildren();
@@ -3604,8 +3622,8 @@ async function renderQuestions() {
   $("question").append(box);
 }
 
-function drawWave(levels) {
-  const canvas = $("wave");
+function drawWave(levels, canvasId = "wave") {
+  const canvas = $(canvasId);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (!width || !height) return;
@@ -3948,10 +3966,27 @@ function applyState(next) {
     dictationId = state.dictation.id;
     store("dictation-" + state.dictation.chat, dictationId);
     const dictation = state.dictation;
-    const old = dictation.chat === state.active?.id ? $("draft").value : saved(dictation.chat);
-    const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;
-    store(dictation.chat, text);
-    if (dictation.chat === state.active?.id) $("draft").value = text;
+    const toPanel =
+      typeof voiceTarget !== "undefined" &&
+      voiceTarget === "panel" &&
+      typeof imagePanelOpen !== "undefined" &&
+      imagePanelOpen &&
+      dictation.chat === state.active?.id;
+    if (toPanel) {
+      const area = $("panel-prompt");
+      const old = area.value;
+      const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;
+      area.value = text;
+      area.style.height = "auto";
+      area.style.height = `${Math.min(area.scrollHeight, 200)}px`;
+      updatePanelGenerateButton();
+      area.focus();
+    } else {
+      const old = dictation.chat === state.active?.id ? $("draft").value : saved(dictation.chat);
+      const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;
+      store(dictation.chat, text);
+      if (dictation.chat === state.active?.id) $("draft").value = text;
+    }
   }
   if (state.active?.projectId) projectId = state.active.projectId;
   if (state.active && !lastChat) {

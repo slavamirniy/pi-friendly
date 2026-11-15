@@ -4382,3 +4382,43 @@ button.image-job-visual { cursor: pointer; }
   justify-content: center;
   gap: 6px;
 }
+
+.panel-prompt-wrap { position: relative; }
+#panel-voice-view {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: 16px 24px;
+  gap: 5px;
+  align-content: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+#panel-voice-view[hidden] { display: none; }
+#panel-voice-label {
+  color: var(--text-2);
+  font-size: 11px;
+  text-align: center;
+}
+#panel-wave {
+  width: 100%;
+  height: 24px;
+  display: block;
+}
+.panel-mic {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+.panel-mic:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.panel-mic:disabled { color: var(--disabled); }
+.panel-mic svg { width: 15px; height: 15px; }
