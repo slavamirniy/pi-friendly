@@ -95,6 +95,10 @@ let clockRequest;
 let reconnectAttempts = 0;
 let reconnectTimer;
 let hintTimer;
+let progressValue = 0;
+let progressTimer;
+let progressHideTimer;
+let progressActive = false;
 const modelMenu = el("div", null, "model-menu");
 modelMenu.id = "model-menu";
 modelMenu.setAttribute("popover", "auto");
@@ -221,12 +225,53 @@ function canSwitch() {
   return true;
 }
 
+function paintProgress(value) {
+  const span = $("progress-bar").querySelector("span");
+  if (span) span.style.width = value + "%";
+}
+function startProgress() {
+  if (progressActive) return;
+  clearTimeout(progressHideTimer);
+  progressActive = true;
+  if (progressValue >= 100) progressValue = 6;
+  progressValue = Math.max(progressValue, 6);
+  $("progress-bar").hidden = false;
+  $("progress-bar").classList.remove("done");
+  paintProgress(progressValue);
+  clearInterval(progressTimer);
+  progressTimer = setInterval(() => {
+    if (!progressActive) return;
+    // Move quickly at first, then slow down near the end.
+    progressValue = Math.min(92, progressValue + Math.max(0.7, (92 - progressValue) * 0.07));
+    paintProgress(progressValue);
+  }, 180);
+}
+function stopProgress() {
+  if (!progressActive) {
+    $("progress-bar").hidden = true;
+    return;
+  }
+  progressActive = false;
+  clearInterval(progressTimer);
+  progressValue = 100;
+  $("progress-bar").classList.add("done");
+  paintProgress(100);
+  clearTimeout(progressHideTimer);
+  progressHideTimer = setTimeout(() => {
+    if (progressActive) return;
+    $("progress-bar").hidden = true;
+    $("progress-bar").classList.remove("done");
+    progressValue = 0;
+    paintProgress(0);
+  }, 220);
+}
 function renderProgress() {
   const voice = state.voice;
   const voiceBusy = voice && ["installing", "downloading", "loading", "transcribing"].includes(voice.phase);
   const reconnecting = !connected && !booting && reconnectAttempts > 0;
   const active = Boolean(pending || booting || state.loading || uploading || voiceBusy || catalogLoading || reconnecting);
-  $("progress-bar").hidden = !active;
+  if (active) startProgress();
+  else stopProgress();
   $("task-label").hidden = !active;
   if (!active) return;
   let label = operationLabel;
@@ -586,8 +631,13 @@ function openProject(project) {
 function openBranch(chat) {
   if (!canSwitch()) return;
   const previous = { page, state };
-  page = "chat";
-  state = { ...state, loading: true, messages: [] };
+  if (state.active) {
+    page = "chat";
+    state = { ...state, loading: true, messages: [] };
+  } else {
+    // No active chat yet: keep the chats list visible until pi returns the session.
+    page = "chats";
+  }
   renderRoute();
   beginTask("Открываю чат…");
   api("open", { id: chat.id }, 45000)

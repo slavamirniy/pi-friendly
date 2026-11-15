@@ -567,23 +567,17 @@ main {
   inset: 0 0 auto 0;
   height: 2px;
   overflow: hidden;
-  background: var(--accent-tint);
+  background: var(--surface);
 }
 .progress-track span {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 34%;
+  display: block;
+  height: 100%;
+  width: 0;
   background: var(--accent);
-  animation: progress-slide 1.05s ease-in-out infinite;
+  transition: width 180ms linear, opacity 160ms linear;
 }
-@keyframes progress-slide {
-  0% {
-    left: -34%;
-  }
-  100% {
-    left: 100%;
-  }
+.progress-track.done span {
+  opacity: 1;
 }
 .task-label {
   position: absolute;
