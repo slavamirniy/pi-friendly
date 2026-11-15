@@ -1102,9 +1102,9 @@ function renderRecentProjects() {
   let projects = current
     ? catalog.filter((project) => project.id !== currentId).slice(0, 3)
     : catalog.slice(0, 3);
-  const openProject = catalog.find((project) => project.id === recentProjectOpenId) || null;
-  if (openProject && openProject.id !== currentId && !projects.some((project) => project.id === openProject.id)) {
-    projects = [...projects, openProject];
+  const openProjectEntry = catalog.find((project) => project.id === recentProjectOpenId) || null;
+  if (openProjectEntry && openProjectEntry.id !== currentId && !projects.some((project) => project.id === openProjectEntry.id)) {
+    projects = [...projects, openProjectEntry];
   }
   panel.hidden = false;
   list.replaceChildren();
@@ -2570,7 +2570,6 @@ function galleryCard(image) {
   img.src = imageUrl(image);
   img.loading = "lazy";
   img.alt = image.prompt || "Изображение";
-  if (image.width && image.height) img.style.aspectRatio = `${image.width} / ${image.height}`;
   button.append(img);
   button.onclick = () => openGalleryImage(image);
   button.ondragstart = (event) => {
