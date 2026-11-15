@@ -89,6 +89,7 @@ let queueEditDraft = "";
 let queueEditAttachments = [];
 let attachments = [];
 let pendingChatDelete = null;
+let pendingArchivedDelete = null;
 try {
   queueCollapsed = localStorage.getItem("pf-queue-collapsed") === "1";
 } catch {}
@@ -145,6 +146,13 @@ function plural(n, one, few, many) {
     (mod >= 11 && mod <= 14 ? many : n % 10 === 1 ? one : n % 10 >= 2 && n % 10 <= 4 ? few : many)
   );
 }
+function dateLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
 function projectOf(id) {
   return catalog.find((project) => project.id === id);
 }
@@ -574,13 +582,18 @@ function wireChrome() {
     event.preventDefault();
     browseFolders($("folder-path").value);
   };
+  $("open-archive").onclick = () => openArchive();
+  $("archive-close").onclick = () => $("archive-dialog").close();
+  $("archive-cancel").onclick = () => $("archive-dialog").close();
   $("chat-confirm-cancel").onclick = () => {
     $("chat-confirm").close();
     pendingChatDelete = null;
+    pendingArchivedDelete = null;
   };
   $("chat-confirm-ok").onclick = () => confirmDeleteChat();
   $("chat-confirm").addEventListener("close", () => {
     pendingChatDelete = null;
+    pendingArchivedDelete = null;
   });
   $("folder-close").onclick = () => $("folder-dialog").close();
   $("folder-cancel").onclick = () => $("folder-dialog").close();
@@ -596,6 +609,7 @@ function wireChrome() {
     setTheme("light", false);
   }
   renderAttachments();
+  wireDropZone();
 }
 
 function setTheme(value, persist = true) {
@@ -829,12 +843,24 @@ function deleteChat(chat) {
     return;
   }
   pendingChatDelete = chat;
+  pendingArchivedDelete = null;
   $("chat-confirm-title").textContent = "Удалить чат?";
   $("chat-confirm-text").textContent = `«${chat.name || "Чат"}» будет удалён вместе с файлом переписки. Это действие нельзя отменить.`;
   $("chat-confirm").showModal();
 }
 
 function confirmDeleteChat() {
+  if (pendingArchivedDelete) {
+    const archived = pendingArchivedDelete;
+    pendingArchivedDelete = null;
+    $("chat-confirm").close();
+    run("Удаляю из архива…", async () => {
+      await api("delete-archived", { project: archived.project, id: archived.id }, 30000);
+      await loadArchived(archived.project);
+      showHint("Чат удалён из архива.");
+    });
+    return;
+  }
   const chat = pendingChatDelete;
   if (!chat) return;
   $("chat-confirm").close();
@@ -851,6 +877,75 @@ function confirmDeleteChat() {
     }
     renderRoute();
     showHint("Чат удалён.");
+  });
+}
+
+function openArchive() {
+  const project = activeProjectId();
+  if (!project) {
+    showHint("Сначала выберите проект.", true);
+    return;
+  }
+  $("archive-dialog").showModal();
+  loadArchived(project);
+}
+
+async function loadArchived(project) {
+  const status = $("archive-status");
+  const list = $("archive-list");
+  status.textContent = "Загружаю архив…";
+  list.replaceChildren();
+  try {
+    const result = await api("archived", { project }, 30000);
+    renderArchived(result.chats || [], project);
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+function renderArchived(chats, project) {
+  const status = $("archive-status");
+  const list = $("archive-list");
+  status.textContent = chats.length
+    ? "Восстановите чат или удалите его из архива."
+    : "Архив пуст.";
+  list.replaceChildren();
+  for (const chat of chats) {
+    const row = el("div", null, "archive-row");
+    const iconBox = el("span", null, "archive-icon");
+    iconBox.append(icon("archive"));
+    const copy = el("span", null, "archive-copy");
+    copy.append(el("strong", chat.name || "Чат", "archive-name"));
+    copy.append(
+      el(
+        "span",
+        `${plural(chat.count || 0, "сообщение", "сообщения", "сообщений")} · ${dateLabel(chat.modified)}`,
+        "archive-meta",
+      ),
+    );
+    const actions = el("div", null, "archive-actions");
+    actions.append(
+      iconAction("refresh", "Восстановить чат", () => restoreArchived(project, chat.id), "archive-action"),
+      iconAction("trash", "Удалить из архива", () => {
+        pendingArchivedDelete = { id: chat.id, name: chat.name, project };
+        pendingChatDelete = null;
+        $("chat-confirm-title").textContent = "Удалить из архива?";
+        $("chat-confirm-text").textContent = `«${chat.name || "Чат"}» будет удалён из архива навсегда.`;
+        $("chat-confirm").showModal();
+      }, "archive-action danger"),
+    );
+    row.append(iconBox, copy, actions);
+    list.append(row);
+  }
+}
+
+function restoreArchived(project, id) {
+  run("Восстанавливаю чат…", async () => {
+    await api("restore-archived", { project, id }, 30000);
+    await loadCatalog();
+    await loadArchived(project);
+    renderRoute();
+    showHint("Чат восстановлен.");
   });
 }
 
@@ -1509,6 +1604,88 @@ function renderAttachments() {
   renderStatus();
 }
 
+function hasDraggedFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function base64File(buffer) {
+  let binary = "";
+  for (let index = 0; index < buffer.length; index += 0x8000)
+    binary += String.fromCharCode(...buffer.subarray(index, index + 0x8000));
+  return btoa(binary);
+}
+
+function dropFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  if (!state.active) {
+    showHint("Сначала откройте чат, чтобы прикрепить файлы.", true);
+    return;
+  }
+  if (state.active.readOnly) {
+    showHint("Этот чат открыт в консоли.", true);
+    return;
+  }
+  run("Прикрепляю файлы…", async () => {
+    const payload = [];
+    let total = 0;
+    for (const file of list) {
+      if (file.size > 50 * 1024 * 1024) {
+        showHint(`«${file.name}» больше 50 МБ и был пропущен.`, true);
+        continue;
+      }
+      total += file.size;
+      if (total > 100 * 1024 * 1024) {
+        showHint("Слишком много файлов за один раз (до 100 МБ).", true);
+        break;
+      }
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      payload.push({ name: file.name, content: base64File(buffer) });
+    }
+    if (!payload.length) return;
+    const result = await api("drop-attach", { files: payload }, 180000);
+    const seen = new Set(attachments.map((item) => item.path.toLowerCase()));
+    for (const file of result.files || []) {
+      if (!file?.path || seen.has(file.path.toLowerCase())) continue;
+      seen.add(file.path.toLowerCase());
+      attachments.push({ name: file.name || "Файл", path: file.path, ...(Number.isFinite(file.size) ? { size: file.size } : {}) });
+    }
+    renderAttachments();
+    showHint(
+      payload.length === 1 ? `Прикреплён файл: ${payload[0].name}` : `Прикреплено файлов: ${payload.length}`,
+    );
+  });
+}
+
+function wireDropZone() {
+  const overlay = $("drop-overlay");
+  let depth = 0;
+  window.addEventListener("dragenter", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    depth += 1;
+    overlay.hidden = false;
+  });
+  window.addEventListener("dragover", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    overlay.hidden = false;
+  });
+  window.addEventListener("dragleave", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) overlay.hidden = true;
+  });
+  window.addEventListener("drop", (event) => {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    depth = 0;
+    overlay.hidden = true;
+    dropFiles(event.dataTransfer.files);
+  });
+}
+
 function pickAttachments() {
   if (!connected) {
     showHint("Нет соединения с pi.", true);
@@ -1973,12 +2150,31 @@ function renderActivity(busy) {
       (message) => message.role === "assistant" && message.status === "streaming",
     );
     const preview = state.routerProgress?.preview || current?.text || current?.thinking || "";
-    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-120).join("");
+    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-360).join("");
     const waiting = !tail;
+    const quota = Number.isFinite(state.routerProgress?.quota)
+      ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
+      : Number.isFinite(state.billing?.account?.available)
+        ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
+        : "";
     activity.classList.toggle("waiting", waiting);
+    const head = el("div", null, "activity-head");
+    const stateLabel = el("span", null, "activity-state");
+    stateLabel.append(
+      el("span", null, "activity-spinner"),
+      document.createTextNode(waiting ? "Подготавливаю ответ…" : "Пишу ответ…"),
+    );
+    head.append(
+      stateLabel,
+      el("span", [progressTime(), quota].filter(Boolean).join(" · "), "activity-meta"),
+    );
     activity.append(
-      el("span", progressTime(), "activity-time"),
-      el("span", tail || "Подготавливаю ответ…", "activity-preview" + (waiting ? " waiting-label" : "")),
+      head,
+      el(
+        "div",
+        waiting ? "Ожидаю первый фрагмент ответа…" : tail,
+        "activity-preview" + (waiting ? " waiting-label" : ""),
+      ),
     );
     return;
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,stat,readdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,stat,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -360,6 +360,7 @@ test('deleting and archiving chats removes or moves their session files',async t
   readSession:()=>[{role:'user',content:'Привет'}],
   models:()=>[{id:'test',name:'Test',provider:'local'}],
   hostSession:()=>undefined,
+  sessionDirFor:()=>dir,
   makeRpc:()=>({request:async(type)=>{if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};return{};},respond(){},dispose:async()=>{}}),
  });
  t.after(()=>web.close());
@@ -378,11 +379,16 @@ test('deleting and archiving chats removes or moves their session files',async t
  assert.equal(await exists(files[2]),false);
  const archived=await readdir(join(dir,'archived'));
  assert.ok(archived.some(name=>name.includes('three')));
- assert.equal((await request('catalog')).data.projects[0].chats.length,1);
+ const archivedList=await request('archived',{project:catalog.data.projects[0].id});
+ assert.equal(archivedList.status,200);assert.equal(archivedList.data.chats.length,1);
+ const restored=await request('restore-archived',{project:catalog.data.projects[0].id,id:archivedList.data.chats[0].id});
+ assert.equal(restored.status,200);assert.equal(await exists(join(dir,'three.jsonl')),true);
+ assert.equal((await request('archived',{project:catalog.data.projects[0].id})).data.chats.length,0);
+ assert.equal((await request('catalog')).data.projects[0].chats.length,2);
  const activeId=(await request('catalog')).data.projects[0].chats[0].id;
  const opened=await request('open',{id:activeId});assert.equal(opened.status,200);
  const removed=await request('delete-chat',{chat:activeId});assert.equal(removed.status,200);
- assert.equal(removed.data.projects[0].chats.length,0);
+ assert.equal(removed.data.projects[0].chats.length,1);
  const state=await (async()=>{const res=await fetch(web.origin+'/api/events',{headers:{cookie}});const reader=res.body.getReader();const {value}=await reader.read();await reader.cancel();return JSON.parse(new TextDecoder().decode(value).split('data: ')[1].split('\n')[0]);})();
  assert.equal(state.active,null);
 });
@@ -394,4 +400,17 @@ test('pick-attach returns native file paths without uploading them',async t=>{
  assert.equal(result.status,200);
  assert.deepEqual(result.data.files,files);
  assert.equal(h.calls.length,0);
+});
+
+test('drop-attach stores dropped files outside the project and returns paths',async t=>{
+ const dropDir=await mkdtemp(join(tmpdir(),'pf-drop-'));
+ t.after(()=>rm(dropDir,{recursive:true,force:true}));
+ const h=await fixture(t,{options:{dropDir}});const p=(await h.request('catalog')).data.projects[0];const opened=await h.request('open',{id:p.chats[0].id});
+ const content=Buffer.from('hello drop').toString('base64');
+ const result=await h.request('drop-attach',{files:[{name:'test.txt',content}]});
+ assert.equal(result.status,200);assert.equal(result.data.files.length,1);
+ const file=result.data.files[0];
+ assert.equal(file.name,'test.txt');assert.equal(file.size,10);
+ assert.equal(await readFile(file.path,'utf8'),'hello drop');
+ assert.equal(file.path.startsWith(dropDir),true);
 });

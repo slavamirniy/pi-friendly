@@ -516,7 +516,7 @@ svg {
   display: flex;
   gap: 0;
   flex: none;
-  opacity: 0.35;
+  opacity: 0;
   transition: opacity 80ms linear;
 }
 .branch-row:hover .branch-actions,
@@ -2069,21 +2069,32 @@ h1 {
   font-size: 11px;
 }
 #activity.generating {
+  display: grid;
+  gap: 3px;
+  min-height: 46px;
+  padding: 7px 10px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--ring);
+  color: var(--text-2);
+}
+.activity-head {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 7px;
-  min-height: 16px;
-  padding: 0 2px;
-  background: transparent;
-  box-shadow: none;
-  color: var(--muted);
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
-#activity.generating.waiting {
-  justify-content: center;
+.activity-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
-#activity.generating::before {
-  content: "";
+.activity-spinner {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -2092,24 +2103,25 @@ h1 {
   animation: spin 0.7s linear infinite;
   flex: none;
 }
-.activity-time {
+.activity-meta {
   color: var(--muted);
   font: 10.5px/1.4 var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .activity-preview {
-  min-width: 0;
-  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 11px;
+  max-height: 2.9em;
+  color: var(--text-2);
+  font-size: 11.5px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .activity-preview.waiting-label {
-  color: var(--text-2);
+  color: var(--muted);
 }
 #error {
   margin: 0 0 8px;
@@ -2275,6 +2287,46 @@ h1 {
 
 /* ============================== toasts + dialogs ============================== */
 
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.drop-overlay[hidden] {
+  display: none;
+}
+:root[data-theme="dark"] .drop-overlay {
+  background: rgba(10, 10, 10, 0.66);
+}
+.drop-card {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 28px 38px;
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--accent-ink);
+  text-align: center;
+}
+.drop-card svg {
+  width: 30px;
+  height: 30px;
+}
+.drop-card strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.drop-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
 #ui-hint {
   position: fixed;
   right: 16px;
@@ -2536,12 +2588,103 @@ dialog p {
   box-shadow: 0 -1px 0 0 var(--divider);
 }
 
-/* billing dialog (shared with billing-ui.js) */
+.archive-dialog {
+  width: min(560px, 94vw);
+  max-width: 560px;
+  max-height: 80dvh;
+}
+.archive-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.archive-status {
+  margin: 0;
+  padding: 0 22px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.archive-list {
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
+  padding: 4px 8px;
+  box-shadow: inset 0 1px 0 0 var(--divider), inset 0 -1px 0 0 var(--divider);
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+.archive-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+.archive-row:hover {
+  background: var(--surface);
+}
+.archive-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.archive-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.archive-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.archive-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.archive-meta {
+  color: var(--muted);
+  font: 10.5px/1.3 var(--mono);
+}
+.archive-actions {
+  display: flex;
+  gap: 1px;
+}
+.archive-action {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+}
+.archive-action:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.archive-action.danger:hover {
+  background: var(--red-tint);
+  color: var(--red-ink);
+}
+.archive-action svg {
+  width: 13px;
+  height: 13px;
+}
 
 .billing-dialog {
-  width: min(500px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
   max-height: calc(100dvh - 40px);
-  padding: 20px;
+  padding: 22px;
   overflow: auto;
 }
 .billing-dialog p {
@@ -2549,24 +2692,27 @@ dialog p {
 }
 .billing-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 .billing-head h2 {
   padding: 0;
+  font-size: 20px;
+  letter-spacing: -0.5px;
 }
 .billing-close {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 18px;
+  flex: none;
 }
 .billing-close:hover {
   background: var(--surface);
@@ -2575,20 +2721,26 @@ dialog p {
 .billing-summary {
   display: grid;
   gap: 2px;
-  margin: 14px 0;
-  padding: 10px 12px;
+  margin: 16px 0;
+  padding: 14px 16px;
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: var(--accent-tint);
   box-shadow: var(--ring);
 }
 .billing-summary span {
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.8;
 }
 .billing-summary strong {
-  font-size: 18px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.2;
   font-weight: 600;
-  letter-spacing: -0.4px;
+  letter-spacing: -0.6px;
   font-variant-numeric: tabular-nums;
 }
 .billing-status,
@@ -2596,26 +2748,30 @@ dialog p {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
-  margin: 10px 0 14px;
+  margin: 10px 0 16px;
 }
 .billing-plans {
   min-width: 0;
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   padding: 0;
   border: 0;
 }
 .billing-plans legend {
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 11px;
+  margin-bottom: 8px;
+  color: var(--gray);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .billing-plan {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
-  padding: 9px 10px;
-  border-radius: var(--radius);
+  gap: 12px;
+  min-height: 56px;
+  margin-bottom: 6px;
+  padding: 11px 14px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--ring);
   cursor: pointer;
 }
@@ -2634,32 +2790,68 @@ dialog p {
 .billing-plan small {
   display: block;
 }
+.billing-plan strong {
+  font-size: 13px;
+  font-weight: 500;
+}
 .billing-plan small {
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .billing-plan b {
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.billing-dialog input {
-  width: 15px;
-  height: 15px;
+.billing-dialog input[type="checkbox"],
+.billing-dialog input[type="radio"] {
+  width: 16px;
+  height: 16px;
   flex: none;
   accent-color: var(--accent);
 }
+.billing-email {
+  display: block;
+  margin: 16px 0;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.billing-email input {
+  display: block;
+  width: 100%;
+  height: 38px;
+  margin-top: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--ring);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+}
+.billing-email input:focus {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.billing-email input::placeholder {
+  color: var(--muted);
+}
 .billing-consents {
   display: grid;
-  gap: 8px;
-  margin: 14px 0;
+  gap: 10px;
+  margin: 16px 0;
 }
 .billing-consents label {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
   color: var(--text-2);
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
   cursor: pointer;
 }
 .billing-consents input {
@@ -2674,15 +2866,18 @@ dialog p {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 34px;
-  padding: 7px 12px;
+  min-height: 40px;
+  padding: 8px 14px;
   border: 0;
   border-radius: var(--radius);
   background: var(--text) !important;
   color: var(--bg) !important;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   text-decoration: none;
+}
+.billing-primary:hover {
+  filter: brightness(0.96);
 }
 .billing-primary:disabled {
   background: var(--surface) !important;
@@ -2753,7 +2948,11 @@ dialog p {
     padding-left: 30px;
   }
   #activity.generating {
+    min-height: 52px;
+  }
+  .activity-head {
     flex-wrap: wrap;
+    row-gap: 2px;
   }
   .queue-panel {
     margin-bottom: 6px;

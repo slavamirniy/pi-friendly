@@ -1,5 +1,5 @@
 import {createServer} from 'node:http';
-import {readFile,readdir,mkdir,stat,unlink,rename} from 'node:fs/promises';
+import {readFile,readdir,mkdir,stat,unlink,rename,writeFile} from 'node:fs/promises';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {homedir} from 'node:os';
@@ -16,9 +16,9 @@ import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,upd
 import {finalChatTitle,fallbackChatTitle,isValidChatTitle} from './title.mjs';
 import {stripAttachments} from './web/attachments.js';
 export {publicMessage,publicMessages} from './web-messages.mjs';
-export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle,pickChatFiles}){
+export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle,pickChatFiles,sessionDirFor,dropDir}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
- let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
+ let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false,dropRoot;
  let state={active:null,messages:[],busy:false,loading:false,ready:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
@@ -47,6 +47,33 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    }
    return {id:projectKey,name:p.name,folder:p.cwd,chats};
   });
+ }
+ function projectSessionDir(project){
+  if(!project)return null;
+  if(sessionDirFor)return sessionDirFor(project.cwd);
+  const known=allSessions.find(session=>folderKey(session.cwd)===folderKey(project.cwd));
+  return known?dirname(known.path):null;
+ }
+ async function archivedEntries(project){
+  const dir=projectSessionDir(project);
+  if(!dir)return [];
+  const archived=join(dir,'archived');
+  let names=[];
+  try{names=await readdir(archived);}catch{return [];}
+  const result=[];
+  for(const name of names){
+   if(!name.endsWith('.jsonl'))continue;
+   const path=join(archived,name);
+   let info;
+   try{info=await stat(path);}catch{continue;}
+   let messages=[];
+   try{messages=readSession(path)||[];}catch{}
+   const publicOnes=publicMessages(messages);
+   const first=publicOnes.find(message=>message.role==='user'&&String(message.text||'').trim());
+   const title=first?stripAttachments(String(first.text)).replace(/\s+/g,' ').slice(0,80):basename(name,'.jsonl');
+   result.push({id:key(path),name:title||basename(name,'.jsonl'),count:publicOnes.filter(message=>['user','assistant'].includes(message.role)).length,modified:info.mtime.toISOString()});
+  }
+  return result.sort((a,b)=>+new Date(b.modified)-+new Date(a.modified));
  }
  function uniqueTitle(title,chatId){
   const project=allProjects.find(p=>key(folderKey(p.cwd))===active?.projectId);
@@ -296,6 +323,23 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     }
     reply(200,{saved});return;
    }
+    if(req.method==='POST'&&url.pathname==='/api/drop-attach'){
+     if(!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+     const payload=await body(req,140*1024*1024);
+     if(!dropRoot){dropRoot=dropDir||join(homedir(),'.pi','agent','friendly-drop');await mkdir(dropRoot,{recursive:true});}
+     const saved=[];let total=0;
+     for(const f of Array.isArray(payload.files)?payload.files.slice(0,50):[]){
+      const buf=Buffer.from(String(f.content||''),'base64');
+      if(!buf.length)continue;
+      if(buf.length>50*1024*1024)throw new Error('Файл больше 50 МБ.');
+      total+=buf.length;if(total>100*1024*1024)throw new Error('Слишком много файлов за один раз (до 100 МБ).');
+      const name=sanitizeUploadName(f.name)||'file';
+      const target=join(dropRoot,`${Date.now()}-${randomBytes(5).toString('hex')}-${name}`);
+      await writeFile(target,buf);
+      saved.push({name,path:target,size:buf.length});
+     }
+     reply(200,{files:saved});return;
+    }
     if(req.method!=='POST'){reply(404,{error:'Неизвестное действие.'});return;}
     const data=await body(req),action=url.pathname.slice(5);
     if(action==='buy'){if(!billing)throw Error('Пополнение не подключено.');reply(200,await billing.buy(data));return;}
@@ -322,6 +366,29 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      if(!pickChatFiles)throw new Error('Выбор файлов доступен только в локальном интерфейсе.');
      const files=await pickChatFiles();
      reply(200,{files:Array.isArray(files)?files:[]});return;
+    }
+    if(action==='archived'||action==='restore-archived'||action==='delete-archived'){
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===data.project);
+     if(!project)throw new Error('Проект не найден.');
+     const dir=projectSessionDir(project);
+     if(!dir)throw new Error('Папка сессий проекта не найдена.');
+     const archived=join(dir,'archived');
+     if(action==='archived'){reply(200,{chats:await archivedEntries(project)});return;}
+     let names=[];
+     try{names=await readdir(archived);}catch{throw new Error('Архив пуст.');}
+     const targetName=names.find(name=>name.endsWith('.jsonl')&&key(join(archived,name))===data.id);
+     if(!targetName)throw new Error('Архивный чат не найден. Обновите список.');
+     const source=join(archived,targetName);
+     if(action==='delete-archived'){await unlink(source);}
+     else{
+      const ext='.jsonl',stem=basename(targetName,ext);
+      let target=join(dir,targetName);
+      for(let n=1;await exists(target);n++)target=join(dir,`${stem}-restored-${n}${ext}`);
+      await rename(source,target);
+     }
+     const projects=await catalog();changed();
+     reply(200,{ok:true,projects});return;
     }
     if(action==='delete-chat'||action==='archive-chat'){
      const session=allSessions.find(s=>key(s.path)===data.chat);
