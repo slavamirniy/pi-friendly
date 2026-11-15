@@ -1,322 +1,1969 @@
-import {createBillingUI} from './billing-ui.js';
-import {createVersionManager} from './message-versions.js';
-const billingUI=createBillingUI();
-const versionManager=createVersionManager();
-const $=id=>document.getElementById(id);
-const paths={send:'M12 19V5m-6 6 6-6 6 6',back:'M19 12H5m6-6-6 6 6 6',search:'M21 21l-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0',new:'M12 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7m5-1 5 5-11 11-6 1 1-6Z',projects:'M3 7V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm0 0h9',models:'m12 3 9 5-9 5-9-5Zm-9 9 9 5 9-5m-18 5 9 5 9-5',wallet:'M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v12H5a3 3 0 0 1-3-3V6m18 7h-5v4h5',theme:'M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z',sun:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8m0-6v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5',mic:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0Zm-3 6v1a6 6 0 0 0 12 0v-1m-6 7v4m-3 0h6',exit:'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9',chat:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9 9 0 0 1-4-.9L3 21l1.9-5.5a9 9 0 0 1-.9-4A8.5 8.5 0 0 1 12.5 3 8.5 8.5 0 0 1 21 11.5Z',arrow:'m9 6 6 6-6 6',chevron:'m7 10 5 5 5-5',check:'m5 12 4 4L19 6',close:'m6 6 12 12M6 18 18 6',stop:'M7 7h10v10H7z',folder:'M3 7V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm0 0h9',folderUp:'m8 10 4-4 4 4m-4-4v12',copy:'M9 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Zm6-4H5a2 2 0 0 0-2 2v10',attach:'m20 11-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8',edit:'m11 4 10 10-10 1-1-10 1-1Zm0 0L7 8m8 8-4 4',prev:'m15 18-6-6 6-6',next:'m9 18 6-6-6-6',undo:'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11'};
-function icon(name){const e=document.createElementNS('http://www.w3.org/2000/svg','svg');e.setAttribute('viewBox','0 0 24 24');e.setAttribute('aria-hidden','true');const p=document.createElementNS(e.namespaceURI,'path');p.setAttribute('d',paths[name]||paths.chat);e.append(p);return e;}
-function el(tag,text,cls){const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;}
-function button(text,run,cls){const e=el('button',text,cls);e.type='button';e.onclick=()=>task(run);return e;}
-for(const b of document.querySelectorAll('[data-nav]')){const t=b.textContent;b.setAttribute('aria-label',t);b.title=t;b.replaceChildren(icon(b.dataset.nav),el('span',t,'nav-text'));b.onclick=()=>task(()=>navigate(b.dataset.nav));}
-$('billing-open').replaceChildren(icon('wallet'),el('span','Пополнить','nav-text'));$('billing-open').setAttribute('aria-label','Баланс и пополнение');$('billing-open').title='Баланс и пополнение';
-$('theme').replaceChildren(icon('theme'),el('span','Тёмная тема','nav-text'));
-$('exit').setAttribute('aria-label','Выйти');$('exit').replaceChildren(icon('exit'),el('span','Выйти'));
-const brand=document.querySelector('.brand');brand.childNodes.forEach(n=>{if(n.nodeType===3&&n.textContent.trim()){const span=el('span',n.textContent,'brand-name');n.replaceWith(span);}});brand.onclick=e=>{e.preventDefault();task(()=>navigate('projects'));};
-let renderedMessages;
-let editingMessageIndex=null;
-let page='projects',projectId=null,catalog=[],modelList=[],state={},source,connected=false,working=false,lastChat,questionId,dictationId,searchValue='',searchOpen=false,operationLabel='',uploading=false;
-const draftKey=id=>'pf-draft-'+(id||'new');
-function saved(id){try{return localStorage.getItem(draftKey(id))||'';}catch{return '';}}
-function store(id,text){try{localStorage.setItem(draftKey(id),text);}catch{}}
-function showError(text){if($('error-text').textContent!==(text||''))$('error').open=false;$('error-text').textContent=text||'';$('error').hidden=!text;}
-async function api(path,data){const res=await fetch('/api/'+path,{signal:AbortSignal.timeout(path==='prompt'?310000:30000),method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const value=await res.json();if(!res.ok)throw new Error(value.error||'Не удалось выполнить действие.');return value;}
-let hintTimer;function showHint(text){clearTimeout(hintTimer);$('ui-hint').textContent=text;$('ui-hint').hidden=!text;hintTimer=setTimeout(()=>$('ui-hint').hidden=true,6000);}
-async function task(fn){try{await fn();}catch(error){showHint(error.message);} }
-function canSwitch(){if(working||uploading||state.busy||state.loading||['starting','recording','transcribing'].includes(state.voice?.phase))throw new Error('Дождитесь завершения действия или остановите ответ.');}
-async function loadCatalog(){catalog=(await api('catalog')).projects;}
-function navigate(next){return task(async()=>{if(working||state.loading)return;store(state.active?.id,$('draft').value);searchValue='';searchOpen=false;
- if(next==='new'){canSwitch();if(state.active?.projectId){await openAction('new-chat',{project:state.active.projectId});return;}next='projects';}
- if(next==='projects'){working=true;operationLabel='Загружаю проекты…';renderStatus();try{await loadCatalog();projectId=null;}finally{working=false;renderStatus();}}
- if(next==='models'){if(!state.active||state.active.readOnly)throw new Error('Сначала откройте или создайте чат в проекте.');modelList=(await api('models')).models;}
- page=next;renderRoute();
-});}
-async function openAction(action,data){canSwitch();working=true;operationLabel=action==='create-project'?'Создаю проект…':action==='new-chat'?'Создаю разговор…':'Открываю разговор…';renderStatus();try{const next=await api(action,data);applyState(next);page='chat';renderRoute();await loadCatalog();}finally{working=false;renderStatus();}}
-function plural(n,one,few,many){const mod=n%100;return n+' '+(mod>=11&&mod<=14?many:n%10===1?one:n%10>=2&&n%10<=4?few:many);}
-function titleForPage(){return page==='projects'?'Ваши проекты':page==='create'?'Новый проект':page==='models'?'Выбор модели':page==='chats'?catalog.find(p=>p.id===projectId)?.name||'Разговоры':state.active?.projectName||'Разговор';}
-function renderRoute(){
- $('page').hidden=page==='chat';$('chat').hidden=page!=='chat';$('breadcrumb').textContent=titleForPage();
- for(const b of document.querySelectorAll('[data-nav]'))b.classList.toggle('active',b.dataset.nav==='projects'&&['projects','chats','create'].includes(page)||b.dataset.nav===page);
- const returning=page!=='chat'&&Boolean(state.active);
- $('new-chat').classList.toggle('returning',returning);
- $('new-chat').replaceChildren(icon(returning?'back':'new'),el('span',returning?'Вернуться к чату':'Новый разговор','nav-text'));
- $('new-chat').title=returning?'Вернуться к чату':'Новый разговор';
- $('new-chat').setAttribute('aria-label',$('new-chat').querySelector('.nav-text').textContent);
- $('new-chat').onclick=()=>task(()=>page!=='chat'&&state.active?(page='chat',renderRoute()):navigate('new'));
- if(page==='chat'){renderedMessages=undefined;renderMessages();renderStatus();autoGrow();return;}
- const root=el('div',null,'page-inner');$('page').replaceChildren(root);
- if(page==='create'){
-  root.classList.add('new-project');root.append(button('← Все проекты',()=>navigate('projects'),'back'),el('h1','Новый проект'),el('p','Дайте задаче понятное название. Для её файлов будет создана отдельная папка.','intro'));
-  const form=el('form'),label=el('label','Название проекта'),input=el('input');input.id='project-name';label.htmlFor=input.id;input.placeholder='Например, сайт пекарни';input.maxLength=60;input.required=true;input.autocomplete='off';const error=el('div','','form-error');error.setAttribute('role','alert');
-  const submit=el('button','Создать проект','primary');submit.type='submit';const actions=el('div',null,'form-actions');actions.append(submit,button('Отмена',()=>navigate('projects')));
-  form.append(label,input,error,actions);form.onsubmit=async e=>{e.preventDefault();submit.disabled=true;try{await openAction('create-project',{name:input.value});}catch(err){error.textContent=err.message;}finally{submit.disabled=false;}};root.append(form);input.focus();return;
- }
- if(page==='chats')root.append(button('← Все проекты',()=>navigate('projects'),'back'));
- root.append(el('h1',titleForPage()),el('p',page==='projects'?'Выберите проект, чтобы продолжить работу.':page==='models'?'Модель можно сменить для текущего разговора.':'Общие файлы проекта, отдельная переписка в каждом чате.','intro'));
- const toolbar=el('div',null,'toolbar'),search=el('input',null,'search');search.type='search';search.placeholder=page==='projects'?'Найти проект…':page==='models'?'Найти модель…':'Найти разговор…';search.setAttribute('aria-label',search.placeholder);search.value=searchValue;search.id='list-search';search.hidden=!searchOpen&&page!=='models';
- const controls=el('div',null,'list-actions');const toggle=button('',()=>{searchOpen=!searchOpen;search.hidden=!searchOpen;toggle.setAttribute('aria-expanded',String(searchOpen));if(searchOpen)search.focus();else{search.value='';renderList();toggle.focus();}},'search-toggle');toggle.setAttribute('aria-controls',search.id);toggle.setAttribute('aria-expanded',String(searchOpen));toggle.replaceChildren(icon('search'));toggle.setAttribute('aria-label','Поиск');toggle.title='Поиск';if(page!=='models')controls.append(toggle);else toolbar.append(search);
- search.onkeydown=e=>{if(e.key==='Escape'&&page!=='models'){e.stopPropagation();if(searchOpen)toggle.click();}};
- if(page==='projects')toolbar.append(button('Выбрать папку',openFolderDialog,'attach-folder'));
- if(page==='projects')controls.append(button('Создать проект',()=>{canSwitch();page='create';renderRoute();},'primary'));
- if(page==='chats')controls.append(button('Новый чат',()=>openAction('new-chat',{project:projectId}),'primary'));
- if(page!=='models'){toolbar.append(controls);root.append(toolbar,search);}else root.append(toolbar);const list=el('div',null,'list');root.append(list);
- const renderList=()=>{list.replaceChildren();const q=search.value.toLocaleLowerCase();searchValue=search.value;
-  const entries=page==='projects'?catalog:page==='models'?modelList:catalog.find(p=>p.id===projectId)?.chats||[];
-  const filtered=entries.filter(e=>(e.name+' '+(e.provider||'')).toLocaleLowerCase().includes(q));
-  if(!filtered.length){const empty=el('div',null,'empty');empty.append(el('h2',q?'Ничего не найдено':page==='projects'?'Начните с первого проекта':'Пока нет разговоров'),el('p',q?'Попробуйте другое название.':page==='projects'?'Проект объединяет файлы и разговоры об одной задаче.':'Нажмите «Новый чат», чтобы начать.'));list.append(empty);return;}
-  for(const item of filtered){const b=button('',async()=>{
-   if(page==='projects'){if(working)return;working=true;operationLabel='Открываю проект…';renderStatus();try{await api('open-project',{project:item.id});projectId=item.id;page='chats';searchValue='';searchOpen=false;renderRoute();}finally{working=false;renderStatus();}}
-   else if(page==='models'){canSwitch();await api('model',{chat:state.active.id,id:item.id,provider:item.provider});page='chat';renderRoute();}
-   else await openAction('open',{id:item.id});
-  },'item');const copy=el('span',null,'copy');copy.append(el('strong',item.name));copy.append(el('small',page==='projects'?plural(item.chats.length,'разговор','разговора','разговоров'):page==='models'?item.provider+(state.active?.model?.id===item.id&&state.active?.model?.provider===item.provider?' · выбрана':''):`${new Date(item.modified).toLocaleDateString('ru-RU')} · ${plural(item.count,'сообщение','сообщения','сообщений')}${item.terminal?' · открыт в консоли':''}`));b.append(icon(page==='projects'?'projects':page==='models'?'models':'chat'),copy,icon('arrow'));list.append(b);}
- };search.oninput=renderList;renderList();
-}
-/* ---------- Веб-обозреватель папок ---------- */
-const folderDialog=$('folder-dialog');
-let browserPath='',browserChosen=null,browserRequest=0;
-async function browseFolders(path){
- const request=++browserRequest;$('folder-choose').disabled=true;$('browser-status').textContent='Загружаю папки…';
- try{const data=await api('browse-folders'+(path?'?path='+encodeURIComponent(path):''));
- if(request!==browserRequest||!folderDialog.open)return;
- browserPath=data.path;browserChosen=data.path;renderBrowser(data);return data;
- }catch(error){if(request===browserRequest&&folderDialog.open)$('browser-status').textContent=error.message;}
-}
-function renderBrowser({path,parent,entries}){
- $('folder-path').value=path;$('browser-status').textContent='Откройте нужную папку и нажмите «Выбрать эту папку».';
- const list=$('browser-list');list.replaceChildren();
- const up=button('',()=>task(()=>browseFolders(parent)),'browser-row parent');up.disabled=!parent;up.setAttribute('aria-label','На уровень выше');
- up.append(icon('folderUp'),el('span','На уровень выше','browser-name'));list.append(up);
- for(const entry of entries.filter(entry=>!entry.name.startsWith('.'))){
-  const row=button('',()=>task(async()=>{try{await browseFolders(entry.path);}catch(error){showHint(error.message);}}),'browser-row');
-  row.append(icon('folder'),el('span',entry.name,'browser-name'));list.append(row);
- }
- if(!entries.length)list.append(el('p','В этой папке нет вложенных папок.','browser-empty'));
- $('folder-choose').disabled=false;
-}
-function openFolderDialog(){
- return task(async()=>{
-  canSwitch();
-  browserChosen=null;
-  $('folder-choose').disabled=true;
-  folderDialog.showModal();
-  await browseFolders(browserPath);
- });
-}
-folderDialog.addEventListener('close',()=>{browserRequest++;browserChosen=null;});
-$('folder-path-form').onsubmit=e=>{e.preventDefault();task(()=>browseFolders($('folder-path').value));};
-$('folder-home').onclick=()=>task(()=>browseFolders(''));
-$('folder-close').onclick=()=>folderDialog.close();
-$('folder-cancel').onclick=()=>folderDialog.close();
-$('folder-choose').onclick=()=>task(async()=>{
- if(!browserChosen||$('folder-choose').disabled)return;const chosen=browserChosen;folderDialog.close();
- working=true;operationLabel='Подключаю папку…';renderStatus();
- try{const result=await api('attach-project',{path:chosen});if(!result.cancelled){catalog=result.projects;projectId=result.project;page='chats';searchOpen=false;searchValue='';renderRoute();showHint('Папка подключена как проект.');}}finally{working=false;renderStatus();}
-});
-/* ---------- Загрузка файлов в проект ---------- */
-$('attach').replaceChildren(icon('attach'));
-$('attach').onclick=()=>{if(!$('attach').disabled)$('file-input').click();};
-$('file-input').onchange=()=>task(async()=>{
- const files=[...($('file-input').files||[])];$('file-input').value='';
- if(!files.length)return;
- const project=state.active?.projectId;if(!project)throw new Error('Сначала откройте чат в проекте.');
- const payload=[];for(const f of files){
-  if(f.size>50*1024*1024){showHint(`«${f.name}» больше 50 МБ и был пропущен.`);continue;}
-  const buf=new Uint8Array(await f.arrayBuffer());let binary='';for(let i=0;i<buf.length;i+=0x8000)binary+=String.fromCharCode(...buf.subarray(i,i+0x8000));
-  payload.push({name:f.name,content:btoa(binary),truncated:false});
- }
- if(!payload.length)return;
- uploading=true;renderStatus();
- try{const result=await api('upload',{project,files:payload});
-  if(result.saved?.length)showHint(result.saved.length===1?`Файл «${result.saved[0]}» сохранён в проекте.`:`Сохранено файлов: ${result.saved.length}.`);
- }finally{uploading=false;renderStatus();}
-});
-/* ---------- Сообщения ---------- */
-function inline(parent,text){const re=/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;let last=0;for(const match of text.matchAll(re)){parent.append(document.createTextNode(text.slice(last,match.index)));const t=match[0];if(t.startsWith('`'))parent.append(el('code',t.slice(1,-1)));else if(t.startsWith('**'))parent.append(el('strong',t.slice(2,-2)));else{const [,name,url]=/^\[([^\]]+)\]\(([^)]+)\)$/.exec(t);const a=el('a',name);a.href=url;a.target='_blank';a.rel='noopener noreferrer';parent.append(a);}last=match.index+t.length;}parent.append(document.createTextNode(text.slice(last)));}
-function markdown(parent,text){
- let code=null,paragraph=[],list=null;
- const flush=()=>{if(paragraph.length){const p=el('p');inline(p,paragraph.join('\n'));parent.append(p);paragraph=[];}};
- for(const line of text.split('\n')){
-  if(line.startsWith('```')){flush();list=null;if(code){parent.append(code);code=null;}else code=el('pre');continue;}
-  if(code){code.textContent+=line+'\n';continue;}
-  if(!line.trim()){flush();list=null;continue;}
-  const heading=/^(#{1,3})\s+(.*)/.exec(line),item=/^\s*(?:([-*+])|\d+[.)])\s+(.*)/.exec(line);
-  if(heading){flush();list=null;const h=el('h'+Math.min(4,Number(heading[1].length)+1));inline(h,heading[2]);parent.append(h);continue;}
-  if(item){flush();const tag=item[1]?'ul':'ol';if(!list||list.tagName.toLowerCase()!==tag){list=el(tag);if(tag==='ol')list.start=parseInt(line,10)||1;parent.append(list);}const li=el('li');inline(li,item[2]);list.append(li);continue;}
-  list=null;paragraph.push(line);
- }
- flush();if(code)parent.append(code);
+import { createBillingUI } from "./billing-ui.js";
+import { createVersionManager } from "./message-versions.js";
+
+const billingUI = createBillingUI();
+const versionManager = createVersionManager();
+const $ = (id) => document.getElementById(id);
+
+/* ============================== icons ============================== */
+
+const paths = {
+  plus: "M12 5v14M5 12h14",
+  folder:
+    "M3 7V5a2 2 0 0 1 2-2h4l3 4h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm0 0h9",
+  wallet:
+    "M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v12H5a3 3 0 0 1-3-3V6m18 7h-5v4h5",
+  moon: "M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z",
+  sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8m0-6v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4M17.6 17.6 19 19M5 19l1.4-1.4M17.6 6.4 19 5",
+  exit: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9",
+  search: "M21 21l-4.4-4.4M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0",
+  close: "m6 6 12 12M6 18 18 6",
+  arrow: "M5 12h14M14 7l5 5-5 5",
+  "arrow-up": "M12 19V5m-6 6 6-6 6 6",
+  "chevron-down": "m7 10 5 5 5-5",
+  "chevron-right": "m9 6 6 6-6 6",
+  check: "m5 12 4 4L19 6",
+  copy: "M9 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Zm6-4H5a2 2 0 0 0-2 2v10",
+  edit: "m11 4 10 10-10 1-1-10 1-1Zm0 0L7 8m8 8-4 4",
+  branch:
+    "M6 3v12m0 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm12-15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 6a9 9 0 0 1-9 9",
+  prev: "m15 18-6-6 6-6",
+  next: "m9 18 6-6-6-6",
+  attach:
+    "m20 11-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8",
+  mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0Zm-3 6v1a6 6 0 0 0 12 0v-1m-6 7v4m-3 0h6",
+  stop: "M7 7h10v10H7z",
+  refresh: "M20 7v-4l-4 1 M20 7a8 8 0 1 0 1 9",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
+  file: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6",
+  warning: "M12 3 2 21h20L12 3Zm0 6v5m0 4h.01",
+};
+
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", paths[name] || paths.file);
+  svg.append(path);
+  return svg;
 }
 
-let modelsLoading=false,modelsLoaded=false,modelsRetryAfter=0;
-const modelKey=m=>JSON.stringify([m.provider,m.id]);
-const modelMenu=el('div',null,'model-menu');modelMenu.id='model-menu';modelMenu.setAttribute('popover','auto');modelMenu.setAttribute('role','dialog');modelMenu.setAttribute('aria-label','Выбор модели');document.body.append(modelMenu);
-function positionModels(){const r=$('model-select').getBoundingClientRect();modelMenu.style.width=Math.min(300,innerWidth-24)+'px';modelMenu.style.left=Math.max(12,Math.min(r.left,innerWidth-312))+'px';modelMenu.style.top='auto';modelMenu.style.bottom=Math.max(12,innerHeight-r.top+8)+'px';modelMenu.style.maxHeight=Math.max(120,r.top-24)+'px';}
-$('model-select').onclick=()=>{positionModels();modelMenu.togglePopover();};
-modelMenu.addEventListener('toggle',()=>{$('model-select').setAttribute('aria-expanded',String(modelMenu.matches(':popover-open')));if(modelMenu.matches(':popover-open'))modelMenu.querySelector('[aria-pressed=true],button')?.focus();});
-modelMenu.onkeydown=e=>{const buttons=[...modelMenu.querySelectorAll('button')],i=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();buttons[e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}};
-window.addEventListener('resize',()=>{if(modelMenu.matches(':popover-open'))positionModels();});
-function renderModelSelect(blocked){
- const select=$('model-select'),current=state.active?.model;
- select.disabled=Boolean(blocked||!connected||!state.active||state.active.readOnly);
- if(select.disabled&&modelMenu.matches(':popover-open'))modelMenu.hidePopover();
- const name=current?.name||current?.id||'Модель';if(select.dataset.name!==name){select.replaceChildren(el('span',name),icon('chevron'));select.dataset.name=name;select.title='Выбрать модель · '+name;select.setAttribute('aria-label',select.title);}
- const models=[...modelList];if(current&&!models.some(m=>modelKey(m)===modelKey(current)))models.unshift(current);
- const signature=JSON.stringify([models,current]);
- if(select.dataset.models!==signature){modelMenu.replaceChildren(el('div','Модель','model-menu-title'));for(const m of models){const chosen=current&&modelKey(m)===modelKey(current),b=button('',async()=>{modelMenu.hidePopover();canSwitch();working=true;operationLabel='Меняю модель…';renderStatus();try{await api('model',{chat:state.active.id,id:m.id,provider:m.provider});state.active.model=m;}finally{working=false;renderStatus();select.focus();}},'model-option');b.setAttribute('aria-pressed',String(Boolean(chosen)));const copy=el('span',m.name||m.id);copy.append(el('small',m.provider));b.append(copy,icon('check'));modelMenu.append(b);}select.dataset.models=signature;}
- if(state.active&&!modelsLoaded&&!modelsLoading&&Date.now()>modelsRetryAfter){modelsLoading=true;api('models').then(r=>{modelList=r.models||[];modelsLoaded=true;}).catch(()=>{modelsRetryAfter=Date.now()+30000;}).finally(()=>{modelsLoading=false;renderStatus();});}
-}
-const expandedDetails=new Map();
-function disclosure(key,label,body,cls){const box=el('details',null,cls);box.open=expandedDetails.get(key)||false;const summary=el('summary',label);summary.onclick=()=>expandedDetails.set(key,!box.open);box.append(summary,body);return box;}
-function copyButton(text,label='Копировать'){const b=el('button',null,'copy-btn');b.type='button';b.title=label;b.setAttribute('aria-label',label);b.replaceChildren(icon('copy'));b.onclick=async()=>{try{await navigator.clipboard.writeText(text);b.classList.add('copied');b.title='Скопировано';setTimeout(()=>{b.classList.remove('copied');b.title=label;},1500);}catch{showHint('Не удалось скопировать.');}};return b;}
-function renderMessages(){if(page!=='chat')return;const signature=JSON.stringify([state.messages||[],Boolean(state.busy),editingMessageIndex]);if(signature===renderedMessages)return;renderedMessages=signature;const area=$('messages'),nearBottom=area.scrollHeight-area.scrollTop-area.clientHeight<120,oldTop=area.scrollTop;const frag=document.createDocumentFragment();
- (state.messages||[]).forEach((m,i)=>{
-  if(!m.text&&!m.thinking&&!m.tools?.length&&!m.error&&m.status!=='streaming')return;
-  const key=(state.active?.id||'')+':'+i,user=m.role==='user';const nextUser=state.messages.findIndex((n,j)=>j>i&&n.role==='user'),historical=nextUser>=0,recovered=state.messages.slice(i+1,historical?nextUser:undefined).some(n=>n.role==='assistant'&&!n.error&&(n.text||n.tools?.length)),showFailure=m.error&&!recovered&&(historical||!state.busy);if(m.error&&!showFailure&&!m.text&&!m.thinking&&!m.tools?.length)return;
-  const row=el('article',null,'message '+(user?'user':'assistant'));if(!user&&!m.text&&!m.error)row.classList.add('activity-only');
-  row.dataset.index=i;
-  
-  if(user){
-   // User message with version controls
-   const wrapper=el('div',null,'user-message-wrapper');
-   
-   // Check if editing this message
-   if(editingMessageIndex===i){
-    const editBox=el('div',null,'message-edit-box');
-    const textarea=el('textarea',m.text,'message-edit-textarea');
-    textarea.rows=3;
-    const actions=el('div',null,'message-edit-actions');
-    const saveBtn=button('Сохранить',async()=>{
-     const newText=textarea.value.trim();
-     if(!newText)return;
-     editingMessageIndex=null;
-     await api('edit-message',{chat:state.active.id,index:i,text:newText});
-    },'primary');
-    const cancelBtn=button('Отмена',()=>{editingMessageIndex=null;renderMessages();});
-    actions.append(saveBtn,cancelBtn);
-    editBox.append(textarea,actions);
-    wrapper.append(editBox);
-    setTimeout(()=>textarea.focus(),0);
-   }else{
-    const body=el('div',null,'user-bubble');
-    markdown(body,m.text||'');
-    
-    // Version navigation if there are multiple versions
-    if(versionManager.hasMultipleVersions(i)){
-     const currentIdx=versionManager.getCurrentVersionIndex(i);
-     const totalVersions=versionManager.getVersionCount(i);
-     const versionNav=el('div',null,'version-nav');
-     const prevBtn=button('',async()=>{
-      await api('switch-version',{chat:state.active.id,index:i,versionIndex:currentIdx-1});
-     },'version-btn');
-     prevBtn.append(icon('prev'));
-     prevBtn.disabled=currentIdx===0;
-     prevBtn.title='Предыдущая версия';
-     
-     const counter=el('span',`${currentIdx+1}/${totalVersions}`,'version-counter');
-     
-     const nextBtn=button('',async()=>{
-      await api('switch-version',{chat:state.active.id,index:i,versionIndex:currentIdx+1});
-     },'version-btn');
-     nextBtn.append(icon('next'));
-     nextBtn.disabled=currentIdx>=totalVersions-1;
-     nextBtn.title='Следующая версия';
-     
-     versionNav.append(prevBtn,counter,nextBtn);
-     body.append(versionNav);
-    }
-    
-    wrapper.append(body);
-    
-    // Edit and branch controls (only when not busy)
-    if(!state.busy){
-     const controls=el('div',null,'user-message-controls');
-     const editBtn=button('',()=>{editingMessageIndex=i;renderMessages();},'user-control-btn');
-     editBtn.append(icon('edit'));
-     editBtn.title='Редактировать';
-     
-     const branchBtn=button('',async()=>{
-      await api('branch-from',{chat:state.active.id,index:i});
-     },'user-control-btn');
-     branchBtn.append(icon('undo'));
-     branchBtn.title='Вернуться к этому сообщению';
-     
-     controls.append(editBtn,branchBtn);
-     wrapper.append(controls);
-    }
-   }
-   
-   row.append(wrapper);
-  }else{
-   row.append(el('div','π','assistant-mark'));
-   const content=el('div',null,'assistant-body');
-   if(m.thinking){const body=el('div',null,'reasoning-text');markdown(body,m.thinking);content.append(disclosure(key+':thinking',m.status==='streaming'&&!m.text?'Размышляет…':'Размышления',body,'reasoning'));}
-   const text=el('div',null,'answer');markdown(text,m.text||'');content.append(text);
-   if(m.status==='streaming'&&!m.text&&!m.thinking&&!m.tools?.length)content.append(el('p','Готовлю ответ…','stream-label generating-message'));
-   const statusLabels={pending:'Подготовка',running:'Выполняется',done:'Готово',error:'Ошибка',stopped:'Остановлено'};
-   for(const t of m.tools||[]){const status=t.status||'pending',body=el('div',null,'tool-detail');if(t.path)body.append(el('p',t.path,'file-path'));if(t.command)body.append(el('pre',t.command));if(t.output)body.append(el('pre',t.output));if(!body.childNodes.length)body.append(el('p',status==='running'?'Ожидаю результат…':status==='error'?'Действие завершилось с ошибкой.':'Дополнительных сведений нет.'));const label=status==='done'?t.label.replace('Создаю файл','Файл записан').replace('Обновляю файл','Файл изменён').replace('Читаю файл','Файл прочитан'):t.label;content.append(disclosure(key+':'+t.id,`${label} · ${statusLabels[status]}`,body,'tool-card '+status));}
-   if(showFailure){content.append(disclosure(key+':error','Не удалось получить ответ · Подробнее',el('pre',m.error),'message-error'));}
-   if(m.status==='stopped')content.append(el('p','Ответ прерван. Полученная часть сохранена.','stream-label'));
-   if(m.retained)content.append(el('p','Сохранённый фрагмент: сервис не вернул его в итоговой истории.','stream-label'));
-   if(m.versions?.length){const body=el('div');for(const v of m.versions)body.append(el('pre',v.text||v.thinking));content.append(disclosure(key+':versions','Предыдущий фрагмент ответа · сервис заменил текст',body,'reasoning'));}
-   const foot=el('div',null,'assistant-foot');
-   if(m.text&&m.usage?.output>0)foot.append(el('span',`${m.usage.output.toLocaleString('ru-RU')} токенов`,'token-count'));
-   if(m.status!=='streaming'&&m.text)foot.append(copyButton(m.text,'Копировать ответ'));
-   if(foot.childNodes.length)content.append(foot);
-   row.append(content);
+function hydrateIcons(root = document) {
+  for (const node of root.querySelectorAll("[data-icon]")) {
+    node.replaceChildren(icon(node.dataset.icon));
   }
-  const prior=frag.lastElementChild;if(row.classList.contains('activity-only')&&prior?.classList.contains('activity-only'))prior.querySelector('.assistant-body').append(...row.querySelector('.assistant-body').childNodes);else frag.append(row);
- });
- if(!frag.childNodes.length){const welcome=el('div',null,'empty chat-empty');welcome.append(el('div','π','welcome-mark'),el('h2','Чем могу помочь?'),el('p','Опишите задачу своими словами — файлы появятся в папке проекта.'));frag.append(welcome);}area.replaceChildren(frag);area.scrollTop=nearBottom&&!area.querySelector("details[open]")?area.scrollHeight:oldTop;
 }
-function renderQuestion(){const q=(state.questions||[]).find(q=>!q.expires||q.expires>Date.now());if(q?.id===questionId)return;questionId=q?.id;$('question').replaceChildren();if(!q)return;
- const box=el('div',null,'question');box.append(el('h2',q.title||'Нужен ваш ответ'));if(q.message)box.append(el('p',q.message));const actions=el('div',null,'question-actions');const answer=data=>api('answer',{chat:state.active?.id,id:q.id,...data});
- if(q.method==='select')for(const option of q.options||[])actions.append(button(option,()=>answer({value:option})));
- else if(q.method==='confirm')actions.append(button('Да',()=>answer({confirmed:true}),'primary'),button('Нет',()=>answer({confirmed:false})));
- else{const input=el(q.method==='editor'?'textarea':'input');input.value=q.prefill||'';input.placeholder=q.placeholder||'';input.setAttribute('aria-label',q.title||'Ответ');box.append(input);actions.append(button('Продолжить',()=>answer({value:input.value}),'primary'));}
- actions.append(button('Отмена',()=>answer({cancelled:true})));box.append(actions);$('question').append(box);
+
+function el(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = text;
+  if (cls) node.className = cls;
+  return node;
 }
-function renderStatus(){
- const navigating=working||state.loading;$('navigation-loading').hidden=!navigating;$('navigation-loading').textContent=navigating?(operationLabel||'Открываю разговор…'):'';$('page').inert=Boolean(navigating);$('page').setAttribute('aria-busy',String(Boolean(navigating)));
- $('activity').classList.toggle('generating',Boolean(state.busy));const busy=working||state.loading||state.busy,v=state.voice,record=['starting','recording','transcribing'].includes(v?.phase);$('exit').disabled=Boolean(busy||record);
- $('send').disabled=!connected||working||state.loading||record||uploading||state.active?.readOnly||(!state.busy&&!$('draft').value.trim());
- $('send').replaceChildren(icon(state.busy?'stop':'send'));$('send').setAttribute('aria-label',state.busy?'Остановить ответ':'Отправить');renderModelSelect(busy||record);$('send').title=state.busy?'Остановить ответ (Esc)':'Отправить (Enter)';$('send').classList.toggle('stop',Boolean(state.busy));
- $('draft').disabled=Boolean(state.active?.readOnly||!connected);$('readonly').hidden=!state.active?.readOnly;
- $('attach').hidden=!(page==='chat'&&state.active&&!state.active.readOnly);$('attach').disabled=!connected||busy||record;
- $('mic').disabled=!connected||!state.active||state.active.readOnly||working||state.loading||state.busy||uploading||v?.phase==='transcribing';$('mic').replaceChildren(icon(v?.phase==='recording'?'stop':'mic'));$('mic').setAttribute('aria-label',v?.phase==='recording'?'Закончить запись':'Начать диктовку');
- $('activity').textContent=uploading?'Загружаю файлы в проект…':working||state.loading?(operationLabel||'Открываю разговор…'):state.busy?(state.messages?.flatMap(m=>m.tools||[]).findLast(t=>t.status==='running')?.label||((state.messages?.at(-1)?.thinking&&!state.messages?.at(-1)?.text)?'Размышляет…':'Пишет ответ…')):state.questions?.length?'Нужен ваш ответ':'';
- $('activity').hidden=!state.busy&&!$('activity').textContent;
- $('voice-view').hidden=!record;$('draft').style.visibility=record?'hidden':'visible';
- if(record){$('voice-label').textContent=v.phase==='recording'?`${Math.floor((v.seconds||0)/60)}:${String((v.seconds||0)%60).padStart(2,'0')} · Enter — закончить`:v.phase==='transcribing'?`Распознаю · ${Math.round(v.percent||0)}%`:'Включаю микрофон…';drawWave(v.levels||[]);}
- const setup=$('voice-setup');setup.replaceChildren();if(v&&['installing','downloading','loading','error'].includes(v.phase)){setup.append(el('span',v.phase==='error'?'Голос не загрузился':v.label||'Подготовка голоса'));if(Number.isFinite(v.percent)){setup.append(el('span',` · ${Math.round(v.percent)}%`));const p=el('progress');p.max=100;p.value=v.percent;setup.append(p);}}
- const widgetLines=Object.values(state.widgets||{}).flat();$('widgets').hidden=true;
- const available=state.routerProgress?.available??state.billing?.account?.available,quota=Number.isFinite(available)?'Осталось '+Math.max(0,available).toLocaleString('ru-RU')+' токенов':Object.values(state.statuses||{}).filter(s=>/осталось|quota|remaining/i.test(s)).join(' ');
- $('quota').textContent=quota;
- if(state.busy){const preview=state.routerProgress?.preview||widgetLines.filter(line=>!/^\s*(работаю|генерация|подготавливаю|предварительный|осталось)/i.test(line)).join('\n').trim()||state.messages?.findLast(m=>m.role==='assistant')?.text||state.messages?.findLast(m=>m.role==='assistant')?.thinking||'';const tail=Array.from(preview.replace(/\s+/g,' ').trim()).slice(-100).join(''),timer=el('span',progressTime(),'activity-time'),text=el('span',tail||'Подготовка ответа…','activity-preview'),cost=el('span',Number.isFinite(state.routerProgress?.quota)?(state.routerProgress.estimated?'≈':'')+state.routerProgress.quota.toLocaleString('ru-RU')+' квоты':'Квота —','activity-quota');$('activity').replaceChildren(timer,text,cost);$('activity').classList.toggle('has-preview',Boolean(preview));}else $('activity').classList.remove('has-preview');
- $('notice').textContent=state.notice||'';$('notice').hidden=!state.notice;renderQuestion();
+
+/* ============================== state ============================== */
+
+let page = "projects";
+let projectId = null;
+let catalog = [];
+let catalogLoading = true;
+let catalogError = "";
+let state = {};
+let source;
+let connected = false;
+let booting = true;
+let pending = 0;
+let operationLabel = "";
+let uploading = false;
+let editingIndex = null;
+let searchValue = "";
+let searchOpen = false;
+let renderedSignature = "";
+let queueSignature = "";
+let lastChat;
+let questionId;
+let dictationId;
+let modelList = [];
+let modelsLoaded = false;
+let modelsLoading = false;
+let modelsError = "";
+let modelRetryAfter = 0;
+let clockBase = 0;
+let clockAt = 0;
+let clockRequest;
+let reconnectAttempts = 0;
+let reconnectTimer;
+let hintTimer;
+const modelMenu = el("div", null, "model-menu");
+modelMenu.id = "model-menu";
+modelMenu.setAttribute("popover", "auto");
+modelMenu.setAttribute("role", "dialog");
+modelMenu.setAttribute("aria-label", "Выбор модели");
+document.body.append(modelMenu);
+
+const draftKey = (id) => "pf-draft-" + (id || "new");
+function saved(id) {
+  try {
+    return localStorage.getItem(draftKey(id)) || "";
+  } catch {
+    return "";
+  }
 }
-function drawWave(levels){const canvas=$('wave'),width=canvas.clientWidth,height=canvas.clientHeight;if(!width||!height)return;canvas.width=width*devicePixelRatio;canvas.height=height*devicePixelRatio;const ctx=canvas.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent');const count=Math.floor(width/5),samples=levels.slice(-count);for(let i=0;i<count;i++){const value=samples[i-(count-samples.length)]||0,h=Math.max(2,Math.pow(value,.7)*(height-4));ctx.fillRect(i*5,(height-h)/2,2,h);}}
-let clockBase=0,clockAt=0,clockRequest;
-function elapsedSeconds(){return Math.floor((clockBase+(state.busy?Math.max(0,performance.now()-clockAt):0))/1000);}
-function progressTime(){const s=elapsedSeconds();return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
-setInterval(()=>{if(state.busy){const timer=document.querySelector('.activity-time');if(timer)timer.textContent=progressTime();}},250);
-function applyState(next){
- const now=performance.now(),request=next.routerProgress?.requestId;
- if(next.busy&&(!state.busy||next.active?.id!==state.active?.id||(request&&clockRequest&&request!==clockRequest))){clockBase=0;clockAt=now;}
- if(next.busy&&Number.isFinite(next.routerProgress?.elapsedMs)){clockBase=Math.max(next.routerProgress.elapsedMs,clockBase+Math.max(0,now-clockAt));clockAt=now;}
- if(request)clockRequest=request;if(!next.busy)clockRequest=undefined;
- billingUI.update(next.billing,next.busy);const previous=state.active?.id;state=next;
- if(state.active?.id && state.messageVersions) versionManager.syncFromServer(state.messageVersions, state.active.id);
- if(previous!==state.active?.id){store(previous,$('draft').value);$('draft').value=saved(state.active?.id);questionId=undefined;versionManager.reset();}
- if(state.dictation&&state.dictation.id!==dictationId&&saved('dictation-'+state.dictation.chat)!==state.dictation.id){dictationId=state.dictation.id;store('dictation-'+state.dictation.chat,dictationId);const d=state.dictation,old=d.chat===state.active?.id?$('draft').value:saved(d.chat),text=d.replace?d.text:old+(old?' ':'')+d.text;store(d.chat,text);if(d.chat===state.active?.id)$('draft').value=text;}
- if(state.error&&!state.messages?.some(m=>m.error===state.error))showError(state.error);else if(!state.error||state.messages?.some(m=>m.error===state.error))showError('');if(state.active&&!lastChat){lastChat=state.active.id;page='chat';renderRoute();}renderMessages();renderStatus();
+function store(id, text) {
+  try {
+    localStorage.setItem(draftKey(id), text);
+  } catch {}
 }
-function autoGrow(){const area=$('draft');area.style.height='auto';area.style.height=Math.min(area.scrollHeight,230)+'px';}
-$('draft').oninput=()=>{store(state.active?.id,$('draft').value);renderStatus();autoGrow();};
-$('draft').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(state.voice?.phase==='recording'){e.stopPropagation();task(()=>api('voice',{chat:state.active?.id}));}else if(!state.busy)$('composer').requestSubmit();}};
-$('composer').onsubmit=e=>{e.preventDefault();task(async()=>{if(state.busy){await api('abort',{chat:state.active.id});return;}if(!state.active){await navigate('projects');return;}const text=$('draft').value,chat=state.active.id;if(!text.trim())return;$('draft').value='';store(chat,'');autoGrow();renderStatus();try{await api('prompt',{chat,text});showError('');}catch(error){if(!saved(chat)){store(chat,text);if(state.active?.id===chat&&!$('draft').value)$('draft').value=text;}throw error;}finally{autoGrow();renderStatus();}});};
-$('mic').onclick=()=>task(async()=>{if(['installing','downloading','loading'].includes(state.voice?.phase)){$('voice-setup').classList.add('highlight');setTimeout(()=>$('voice-setup').classList.remove('highlight'),2500);throw new Error('← Для голосового ввода дождитесь загрузки голосовой модели.');}await api('voice',{chat:state.active?.id});});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.busy&&!$('draft').value&&!state.questions?.length){task(()=>api('abort',{chat:state.active.id}));return;}if(e.key==='Enter'&&!e.isComposing&&state.voice?.phase==='recording'){e.preventDefault();task(()=>api('voice',{chat:state.active?.id}));}});
-function theme(value){$('theme').querySelector('svg').replaceWith(icon(value==='dark'?'sun':'theme'));document.documentElement.dataset.theme=value;try{localStorage.setItem('pf-theme',value);}catch{}$('theme').querySelector('.nav-text').textContent=value==='dark'?'Светлая тема':'Тёмная тема';$('theme').setAttribute('aria-label',$('theme').querySelector('.nav-text').textContent);}
-try{theme(localStorage.getItem('pf-theme')||'light');}catch{theme('light');}$('theme').onclick=()=>theme(document.documentElement.dataset.theme==='dark'?'light':'dark');
-$('exit').onclick=()=>{if(!$('exit').disabled)$('exit-dialog').showModal();};$('cancel-exit').onclick=()=>$('exit-dialog').close();$('confirm-exit').onclick=()=>task(async()=>{await api('close',{});source?.close();connected=false;$('exit-dialog').close();$('connection').textContent='Веб-интерфейс закрыт';renderStatus();showHint('Работа завершена. pi закрыт. Если вкладка осталась открытой, закройте её вручную.');window.close();});
-window.addEventListener('beforeunload',()=>store(state.active?.id,$('draft').value));
-await task(async()=>{const token=location.hash.slice(1);if(token){await api('auth',{token});history.replaceState(null,'',location.pathname);}await loadCatalog();renderRoute();source=new EventSource('/api/events');source.onopen=()=>{connected=true;$('connection').textContent='На этом компьютере';renderStatus();};source.onmessage=e=>applyState(JSON.parse(e.data));source.onerror=()=>{connected=false;$('connection').textContent='Соединение прервано';renderStatus();};});
+
+/* ============================== utilities ============================== */
+
+function plural(n, one, few, many) {
+  const mod = n % 100;
+  return (
+    n +
+    " " +
+    (mod >= 11 && mod <= 14 ? many : n % 10 === 1 ? one : n % 10 >= 2 && n % 10 <= 4 ? few : many)
+  );
+}
+function projectOf(id) {
+  return catalog.find((project) => project.id === id);
+}
+function activeProjectId() {
+  return projectId || state.active?.projectId || null;
+}
+function branchList() {
+  return projectOf(activeProjectId())?.chats || [];
+}
+function queueOf() {
+  return state.queue || { steering: [], followUp: [] };
+}
+
+function showHint(text, error = false) {
+  clearTimeout(hintTimer);
+  $("ui-hint").textContent = text || "";
+  $("ui-hint").hidden = !text;
+  $("ui-hint").classList.toggle("error", Boolean(error));
+  hintTimer = setTimeout(() => {
+    $("ui-hint").hidden = true;
+  }, error ? 8000 : 5000);
+}
+function showError(text) {
+  if ($("error-text").textContent !== (text || "")) $("error").open = false;
+  $("error-text").textContent = text || "";
+  $("error").hidden = !text;
+}
+
+function beginTask(label) {
+  pending += 1;
+  if (label) operationLabel = label;
+  renderProgress();
+}
+function endTask() {
+  pending = Math.max(0, pending - 1);
+  if (!pending) operationLabel = "";
+  renderProgress();
+}
+function run(label, fn) {
+  return (async () => {
+    beginTask(label);
+    try {
+      return await fn();
+    } catch (error) {
+      showHint(error.message || "Не удалось выполнить действие.", true);
+      return undefined;
+    } finally {
+      endTask();
+    }
+  })();
+}
+
+async function api(path, data, timeout = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch("/api/" + path, {
+      method: data === undefined ? "GET" : "POST",
+      headers: data === undefined ? {} : { "Content-Type": "application/json" },
+      body: data === undefined ? undefined : JSON.stringify(data),
+      signal: controller.signal,
+    });
+    let value;
+    try {
+      value = await response.json();
+    } catch {
+      throw new Error("Сервер вернул некорректный ответ.");
+    }
+    if (!response.ok) throw new Error(value.error || "Не удалось выполнить действие.");
+    return value;
+  } catch (error) {
+    if (error.name === "AbortError")
+      throw new Error(`pi не ответил за ${Math.round(timeout / 1000)} с. Попробуйте ещё раз.`);
+    if (!navigator.onLine) throw new Error("Нет сети. Проверьте подключение.");
+    if (/Failed to fetch|NetworkError|load failed/i.test(error.message))
+      throw new Error("Нет соединения с pi. Убедитесь, что программа запущена.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function canSwitch() {
+  if (
+    state.busy ||
+    state.loading ||
+    uploading ||
+    ["starting", "recording", "transcribing"].includes(state.voice?.phase)
+  ) {
+    showHint("Дождитесь завершения действия или остановите ответ.", true);
+    return false;
+  }
+  return true;
+}
+
+function renderProgress() {
+  const voice = state.voice;
+  const voiceBusy = voice && ["installing", "downloading", "loading", "transcribing"].includes(voice.phase);
+  const reconnecting = !connected && !booting && reconnectAttempts > 0;
+  const active = Boolean(pending || booting || state.loading || uploading || voiceBusy || catalogLoading || reconnecting);
+  $("progress-bar").hidden = !active;
+  $("task-label").hidden = !active;
+  if (!active) return;
+  let label = operationLabel;
+  if (!label && booting) label = "Подключаюсь к pi…";
+  if (!label && state.loading) label = "Открываю чат…";
+  if (!label && uploading) label = "Загружаю файлы…";
+  if (!label && catalogLoading) label = "Загружаю проекты…";
+  if (!label && voiceBusy) {
+    label = voice.phase === "transcribing" ? "Распознаю запись…" : voice.label || "Готовлю голосовой ввод…";
+  }
+  if (!label && reconnecting) label = "Переподключение к pi…";
+  $("task-label").textContent = label || "Загрузка…";
+}
+
+/* ============================== markdown ============================== */
+
+function inlineMarkdown(parent, text) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    parent.append(document.createTextNode(text.slice(last, match.index)));
+    const token = match[0];
+    if (token.startsWith("`")) parent.append(el("code", token.slice(1, -1)));
+    else if (token.startsWith("**")) parent.append(el("strong", token.slice(2, -2)));
+    else {
+      const parsed = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+      const link = el("a", parsed[1]);
+      link.href = parsed[2];
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      parent.append(link);
+    }
+    last = match.index + token.length;
+  }
+  parent.append(document.createTextNode(text.slice(last)));
+}
+
+function markdown(parent, text) {
+  let code = null;
+  let paragraph = [];
+  let list = null;
+  const flush = () => {
+    if (!paragraph.length) return;
+    const p = el("p");
+    inlineMarkdown(p, paragraph.join("\n"));
+    parent.append(p);
+    paragraph = [];
+  };
+  for (const line of String(text || "").split("\n")) {
+    if (line.startsWith("```")) {
+      flush();
+      list = null;
+      if (code) {
+        parent.append(code);
+        code = null;
+      } else {
+        code = el("pre");
+        code.textContent = "";
+      }
+      continue;
+    }
+    if (code) {
+      code.textContent += line + "\n";
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      list = null;
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.*)/.exec(line);
+    const item = /^\s*(?:([-*+])|\d+[.)])\s+(.*)/.exec(line);
+    if (heading) {
+      flush();
+      list = null;
+      const node = el("h" + Math.min(4, heading[1].length + 1));
+      inlineMarkdown(node, heading[2]);
+      parent.append(node);
+      continue;
+    }
+    if (item) {
+      flush();
+      const tag = item[1] ? "ul" : "ol";
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        list = el(tag);
+        if (tag === "ol") list.start = parseInt(line, 10) || 1;
+        parent.append(list);
+      }
+      const li = el("li");
+      inlineMarkdown(li, item[2]);
+      list.append(li);
+      continue;
+    }
+    list = null;
+    paragraph.push(line);
+  }
+  flush();
+  if (code) parent.append(code);
+}
+
+/* ============================== boot / events ============================== */
+
+async function loadCatalog() {
+  catalogLoading = true;
+  renderProgress();
+  let failure;
+  try {
+    const data = await api("catalog", undefined, 30000);
+    catalog = data.projects || [];
+    catalogError = "";
+  } catch (error) {
+    catalogError = error.message;
+    failure = error;
+  } finally {
+    catalogLoading = false;
+    renderProgress();
+  }
+  if (page === "projects" || page === "chats") {
+    const search = $("list-search");
+    if (!search || document.activeElement !== search) renderRoute();
+  } else {
+    renderBranches();
+  }
+  if (failure) throw failure;
+}
+
+function connectEvents() {
+  clearTimeout(reconnectTimer);
+  if (source) source.close();
+  source = new EventSource("/api/events");
+  source.onopen = () => {
+    connected = true;
+    reconnectAttempts = 0;
+    booting = false;
+    renderConnection();
+    renderProgress();
+    renderStatus();
+  };
+  source.onmessage = (event) => {
+    let next;
+    try {
+      next = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    applyState(next);
+  };
+  source.onerror = () => {
+    connected = false;
+    reconnectAttempts += 1;
+    renderConnection();
+    renderStatus();
+    if (reconnectAttempts >= 2) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectEvents, 2500);
+    }
+  };
+}
+
+function renderConnection() {
+  const node = $("connection");
+  node.hidden = connected;
+  node.classList.toggle("offline", !connected);
+  node.classList.toggle("error", !connected && reconnectAttempts > 4);
+  if (connected) return;
+  node.replaceChildren(
+    el("span", null, "dot"),
+    document.createTextNode(
+      reconnectAttempts
+        ? reconnectAttempts > 4
+          ? "Нет связи с pi"
+          : "Переподключение…"
+        : "Подключение…",
+    ),
+  );
+}
+
+async function boot() {
+  hydrateIcons();
+  wireChrome();
+  renderRoute();
+  renderProgress();
+  beginTask("Подключаюсь к pi…");
+  try {
+    const token = location.hash.slice(1);
+    if (token) {
+      await api("auth", { token }, 15000);
+      history.replaceState(null, "", location.pathname);
+    }
+    await loadCatalog();
+  } catch (error) {
+    catalogError = error.message;
+    showHint(error.message, true);
+    renderRoute();
+  } finally {
+    booting = false;
+    endTask();
+  }
+  connectEvents();
+}
+
+/* ============================== chrome ============================== */
+
+function wireChrome() {
+  $("nav-projects").onclick = () => navigate("projects");
+  $("project-open").onclick = () => {
+    const project = projectOf(activeProjectId());
+    if (project) openProject(project);
+  };
+  $("theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  $("exit").onclick = () => {
+    if (!$("exit").disabled) $("exit-dialog").showModal();
+  };
+  $("cancel-exit").onclick = () => $("exit-dialog").close();
+  $("confirm-exit").onclick = () =>
+    run("Завершаю работу…", async () => {
+      await api("close", {}, 15000);
+      source?.close();
+      connected = false;
+      $("exit-dialog").close();
+      $("connection").textContent = "Работа завершена";
+      $("connection").hidden = false;
+      renderStatus();
+      showHint("pi завершён. Вкладку можно закрыть.");
+      setTimeout(() => window.close(), 250);
+    });
+  $("billing-open").setAttribute("aria-label", "Баланс и пополнение");
+  const brand = document.querySelector(".brand");
+  brand.onclick = (event) => {
+    event.preventDefault();
+    navigate("projects");
+  };
+  $("composer").onsubmit = (event) => {
+    event.preventDefault();
+    const text = $("draft").value;
+    if (!text.trim()) return;
+    if (state.busy) queueMessage(text);
+    else sendMessage(text);
+  };
+  $("draft").oninput = () => {
+    store(state.active?.id, $("draft").value);
+    autoGrow();
+    renderStatus();
+  };
+  $("draft").onkeydown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      if (state.voice?.phase === "recording")
+        run("Завершаю запись…", () => api("voice", { chat: state.active?.id }, 20000));
+      else if (state.busy) queueMessage($("draft").value);
+      else $("composer").requestSubmit();
+    }
+  };
+  $("send").onclick = (event) => {
+    event.preventDefault();
+    if (state.busy) abortGeneration();
+    else $("composer").requestSubmit();
+  };
+  $("model-select").onclick = () => {
+    positionModels();
+    modelMenu.togglePopover();
+  };
+  modelMenu.addEventListener("toggle", () => {
+    $("model-select").setAttribute("aria-expanded", String(modelMenu.matches(":popover-open")));
+    if (modelMenu.matches(":popover-open")) loadModels();
+  });
+  $("attach").onclick = () => {
+    if (!$("attach").disabled) $("file-input").click();
+  };
+  $("file-input").onchange = () => uploadFiles();
+  $("mic").onclick = () =>
+    run("Переключаю микрофон…", async () => {
+      if (["installing", "downloading", "loading"].includes(state.voice?.phase)) {
+        $("voice-setup").classList.add("highlight");
+        setTimeout(() => $("voice-setup").classList.remove("highlight"), 2500);
+        throw new Error("Дождитесь загрузки голосовой модели.");
+      }
+      await api("voice", { chat: state.active?.id }, 20000);
+    });
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      state.busy &&
+      !$("draft").value &&
+      !state.questions?.length &&
+      !$("ui-hint").hidden
+    ) {
+      abortGeneration();
+    }
+  });
+  window.addEventListener("resize", () => {
+    if (modelMenu.matches(":popover-open")) positionModels();
+  });
+  window.addEventListener("beforeunload", () => store(state.active?.id, $("draft").value));
+
+  $("folder-path-form").onsubmit = (event) => {
+    event.preventDefault();
+    browseFolders($("folder-path").value);
+  };
+  $("folder-home").onclick = () => browseFolders("");
+  $("folder-close").onclick = () => $("folder-dialog").close();
+  $("folder-cancel").onclick = () => $("folder-dialog").close();
+  $("folder-choose").onclick = () => chooseFolder();
+  $("folder-dialog").addEventListener("close", () => {
+    browserRequest += 1;
+    browserChosen = null;
+  });
+
+  try {
+    setTheme(localStorage.getItem("pf-theme") || "light", false);
+  } catch {
+    setTheme("light", false);
+  }
+}
+
+function setTheme(value, persist = true) {
+  document.documentElement.dataset.theme = value;
+  const dark = value === "dark";
+  $("theme").replaceChildren(icon(dark ? "sun" : "moon"));
+  $("theme").title = dark ? "Светлая тема" : "Тёмная тема";
+  $("theme").setAttribute("aria-label", $("theme").title);
+  if (persist) {
+    try {
+      localStorage.setItem("pf-theme", value);
+    } catch {}
+  }
+}
+
+/* ============================== navigation ============================== */
+
+function navigate(target) {
+  if (pending && target === "projects" && state.loading) return;
+  store(state.active?.id, $("draft").value);
+  searchValue = "";
+  searchOpen = false;
+  if (target === "projects") {
+    projectId = null;
+    page = "projects";
+    renderRoute();
+    run("Обновляю проекты…", () => loadCatalog());
+    return;
+  }
+  if (target === "new") return newBranch();
+  page = target;
+  renderRoute();
+}
+
+function openProject(project) {
+  projectId = project.id;
+  page = "chats";
+  searchValue = "";
+  searchOpen = false;
+  renderRoute();
+  run("Открываю проект…", () => api("open-project", { project: project.id }, 30000));
+}
+
+function openBranch(chat) {
+  if (!canSwitch()) return;
+  const previous = { page, state };
+  page = "chat";
+  state = { ...state, loading: true, messages: [] };
+  renderRoute();
+  beginTask("Открываю чат…");
+  api("open", { id: chat.id }, 45000)
+    .then(async (next) => {
+      applyState(next);
+      page = "chat";
+      editingIndex = null;
+      await loadCatalog();
+      renderRoute();
+      $("draft").focus();
+    })
+    .catch((error) => {
+      state = previous.state;
+      page = previous.page;
+      renderRoute();
+      showHint(error.message, true);
+    })
+    .finally(() => endTask());
+}
+
+function newBranch() {
+  const target = activeProjectId();
+  if (!target) {
+    showHint("Сначала выберите проект.");
+    return;
+  }
+  if (!canSwitch()) return;
+  run("Создаю чат…", async () => {
+    const next = await api("new-chat", { project: target }, 45000);
+    applyState(next);
+    page = "chat";
+    projectId = next.active?.projectId || target;
+    editingIndex = null;
+    $("draft").value = "";
+    store(next.active?.id, "");
+    await loadCatalog();
+    renderRoute();
+    autoGrow();
+    $("draft").focus();
+    showHint("Новый чат создан.");
+  });
+}
+
+function openCreateProject() {
+  if (!canSwitch()) return;
+  page = "create";
+  renderRoute();
+}
+
+async function openFolderDialog() {
+  if (!canSwitch()) return;
+  browserChosen = null;
+  $("folder-choose").disabled = true;
+  $("folder-dialog").showModal();
+  await browseFolders(browserPath);
+}
+
+/* ============================== branches ============================== */
+
+function renderBranches() {
+  const project = projectOf(activeProjectId());
+  const panel = $("branches-panel");
+  if (!project) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  $("project-name").textContent = project.name;
+  const list = $("branch-list");
+  list.replaceChildren();
+  if (!project.chats?.length) {
+    list.append(el("p", "Нет чатов. Создайте первый.", "branches-empty"));
+    return;
+  }
+  for (const chat of project.chats) {
+    const active = chat.id === state.active?.id;
+    const row = el("button", null, "branch-row" + (active ? " active" : ""));
+    row.type = "button";
+    row.setAttribute("role", "listitem");
+    row.disabled = Boolean(state.busy) && !active;
+    row.title = row.disabled
+      ? "Остановите ответ, чтобы переключить чат"
+      : chat.name || "Чат";
+    const branchIcon = icon("branch");
+    branchIcon.classList.add("branch-icon");
+    const copy = el("span", null, "branch-copy");
+    copy.append(el("span", chat.name || "Новый чат", "branch-name"));
+    row.append(branchIcon, copy);
+    row.onclick = () => {
+      if (active) {
+        if (page !== "chat") {
+          page = "chat";
+          renderRoute();
+        }
+        return;
+      }
+      openBranch(chat);
+    };
+    list.append(row);
+  }
+}
+
+/* ============================== page rendering ============================== */
+
+function setBreadcrumb(title) {
+  $("breadcrumb").textContent = title;
+}
+
+function renderRoute() {
+  const chatPage = page === "chat" && state.active;
+  $("page").hidden = chatPage;
+  $("chat").hidden = !chatPage;
+  document.querySelectorAll("[data-nav]").forEach((button) => {
+    button.classList.toggle(
+      "active",
+      button.dataset.nav === "projects" && ["projects", "chats", "create"].includes(page),
+    );
+  });
+  renderBranches();
+  if (chatPage) {
+    const project = projectOf(state.active.projectId || projectId);
+    setBreadcrumb(state.active.name || "Чат");
+    renderChat();
+    return;
+  }
+  if (page === "create") {
+    setBreadcrumb("Новый проект");
+    renderCreatePage();
+    return;
+  }
+  if (page === "chats") {
+    const project = projectOf(projectId);
+    setBreadcrumb(project?.name || "Проект");
+    renderChatsPage(project);
+    return;
+  }
+  setBreadcrumb("Проекты");
+  renderProjectsPage();
+}
+
+function pageShell(title, subtitle, toolbar) {
+  const root = el("div", null, "page-inner");
+  const head = el("div", null, "page-head");
+  const copy = el("div");
+  copy.append(el("h1", title));
+  if (subtitle) copy.append(el("p", subtitle, "page-sub"));
+  head.append(copy);
+  root.append(head);
+  if (toolbar) root.append(toolbar);
+  $("page").replaceChildren(root);
+  return root;
+}
+
+function searchField(placeholder, onInput) {
+  const input = el("input", null, "search");
+  input.type = "search";
+  input.id = "list-search";
+  input.placeholder = placeholder;
+  input.setAttribute("aria-label", placeholder);
+  input.value = searchValue;
+  input.oninput = () => {
+    searchValue = input.value;
+    onInput(input.value);
+  };
+  input.onkeydown = (event) => {
+    if (event.key === "Escape") {
+      searchOpen = false;
+      input.hidden = true;
+      renderRoute();
+    }
+  };
+  return input;
+}
+
+function listToolbar(placeholder, renderList, { create = null, folder = null, branch = null } = {}) {
+  const toolbar = el("div", null, "toolbar");
+  const search = searchField(placeholder, renderList);
+  search.hidden = !searchOpen;
+  const toggle = el("button", null, "button search-toggle");
+  toggle.type = "button";
+  toggle.append(icon("search"));
+  toggle.title = "Поиск";
+  toggle.setAttribute("aria-label", "Поиск");
+  toggle.setAttribute("aria-expanded", String(searchOpen));
+  toggle.onclick = () => {
+    searchOpen = !searchOpen;
+    search.hidden = !searchOpen;
+    toggle.setAttribute("aria-expanded", String(searchOpen));
+    if (searchOpen) search.focus();
+    else {
+      searchValue = "";
+      search.value = "";
+      renderList("");
+      toggle.focus();
+    }
+  };
+  toolbar.append(search);
+    if (folder) {
+      const button = el("button", null, "button ghost");
+      button.type = "button";
+      button.append(icon("folder"), el("span", "Выбрать папку"));
+      button.onclick = () => openFolderDialog();
+      toolbar.append(button);
+    }
+    const actions = el("div", null, "list-actions");
+  actions.style.display = "flex";
+  actions.style.gap = "6px";
+  actions.append(toggle);
+  if (branch) {
+    const button = el("button", null, "button primary");
+    button.type = "button";
+    button.append(icon("plus"), el("span", "Новый чат"));
+    button.disabled = Boolean(state.busy);
+    button.onclick = () => newBranch();
+    actions.append(button);
+  }
+  if (create) {
+    const button = el("button", null, "button primary");
+    button.type = "button";
+    button.append(icon("plus"), el("span", "Новый проект"));
+    button.onclick = create.run;
+    actions.append(button);
+  }
+  toolbar.append(actions);
+  return { toolbar, search };
+}
+
+function skeletonList(rows = 4) {
+  const list = el("div", null, "skeleton-list");
+  for (let index = 0; index < rows; index += 1) {
+    const row = el("div", null, "skeleton-row");
+    const block = el("span", null, `skeleton w-${index % 2 ? 60 : 40}`);
+    const meta = el("span", null, "skeleton w-40");
+    meta.style.marginLeft = "auto";
+    row.append(block, meta);
+    list.append(row);
+  }
+  return list;
+}
+
+function emptyState(title, text, action) {
+  const empty = el("div", null, "empty");
+  empty.append(el("h2", title), el("p", text));
+  if (action) {
+    const button = el("button", action.label, "button" + (action.primary ? " primary" : ""));
+    button.type = "button";
+    button.onclick = action.run;
+    empty.append(button);
+  }
+  return empty;
+}
+
+function renderProjectsPage() {
+  const root = pageShell(
+    "Проекты",
+    "Проект — папка с файлами. Внутри проекта можно вести несколько независимых чатов.",
+  );
+  const renderList = (query = searchValue) => {
+    const list = el("div", null, "list");
+    const term = query.trim().toLocaleLowerCase();
+    const projects = catalog.filter((project) =>
+      (project.name + " " + (project.folder || "")).toLocaleLowerCase().includes(term),
+    );
+    if (!projects.length) {
+      list.append(
+        emptyState(
+          term ? "Ничего не найдено" : "Начните с первого проекта",
+          term ? "Попробуйте другое название или путь." : "Проект объединяет файлы и чаты одной задачи.",
+          term ? null : { label: "Новый проект", primary: true, run: openCreateProject },
+        ),
+      );
+    }
+    for (const project of projects) {
+      const row = el("button", null, "row-item");
+      row.type = "button";
+      row.append(icon("folder"));
+      const copy = el("span", null, "row-copy");
+      copy.append(el("strong", project.name));
+      copy.append(el("small", plural(project.chats?.length || 0, "чат", "чата", "чатов")));
+      row.append(copy, icon("arrow"));
+      row.onclick = () => openProject(project);
+      list.append(row);
+    }
+    const container = $("project-list");
+    if (container) container.replaceChildren(catalogLoading ? skeletonList() : list);
+  };
+  const { toolbar } = listToolbar("Найти проект…", renderList, {
+    folder: true,
+    create: { run: openCreateProject },
+  });
+  root.append(toolbar);
+  const list = el("div");
+  list.id = "project-list";
+  list.append(catalogLoading ? skeletonList() : el("div"));
+  root.append(list);
+  if (catalogError) {
+    root.append(
+      emptyState("Не удалось загрузить проекты", catalogError, {
+        label: "Повторить",
+        run: () => run("Загружаю проекты…", () => loadCatalog()),
+      }),
+    );
+  }
+  renderList();
+}
+
+function renderChatsPage(project) {
+  if (!project) {
+    page = "projects";
+    renderProjectsPage();
+    return;
+  }
+  const root = pageShell(project.name, "Файлы и чаты проекта.");
+  const renderList = (query = searchValue) => {
+    const list = el("div", null, "list");
+    const term = query.trim().toLocaleLowerCase();
+    const chats = (project.chats || []).filter((chat) =>
+      (chat.name || "").toLocaleLowerCase().includes(term),
+    );
+    for (const chat of chats) {
+      const row = el("button", null, "row-item" + (chat.id === state.active?.id ? " selected" : ""));
+      row.type = "button";
+      row.append(icon("branch"));
+      const copy = el("span", null, "row-copy");
+      copy.append(el("strong", chat.name || "Новый чат"));
+      copy.append(
+        el("small", plural(chat.count || 0, "сообщение", "сообщения", "сообщений")),
+      );
+      row.append(copy, icon("arrow"));
+      row.onclick = () => openBranch(chat);
+      list.append(row);
+    }
+    if (!chats.length) {
+      list.append(
+        emptyState(
+          term ? "Ничего не найдено" : "Пока нет чатов",
+          term ? "Попробуйте другое название." : "Создайте чат — он будет хранить свою переписку.",
+          term ? null : { label: "Новый чат", primary: true, run: newBranch },
+        ),
+      );
+    }
+    const container = $("chat-list");
+    if (container) container.replaceChildren(list);
+  };
+  const toolbar = el("div", null, "toolbar");
+  const back = el("button", null, "button ghost");
+  back.type = "button";
+  back.append(icon("prev"), el("span", "Все проекты"));
+  back.onclick = () => navigate("projects");
+  toolbar.append(back);
+  const { toolbar: searchBar, search } = listToolbar("Найти чат…", renderList, {
+    branch: true,
+  });
+  searchBar.append(search);
+  toolbar.append(...searchBar.childNodes);
+  root.append(toolbar);
+  const list = el("div");
+  list.id = "chat-list";
+  list.append(el("div"));
+  root.append(list);
+  renderList();
+}
+
+function renderCreatePage() {
+  const back = el("button", null, "back");
+  back.type = "button";
+  back.append(icon("prev"), el("span", "Все проекты"));
+  back.onclick = () => navigate("projects");
+  const root = pageShell("Новый проект", "Для файлов задачи будет создана отдельная папка.");
+  root.prepend(back);
+  const form = el("form", null, "form");
+  const label = el("label", "Название проекта");
+  label.htmlFor = "project-name";
+  const input = el("input");
+  input.id = "project-name";
+  input.placeholder = "Например, сайт пекарни";
+  input.maxLength = 60;
+  input.required = true;
+  input.autocomplete = "off";
+  const error = el("div", null, "form-error");
+  error.setAttribute("role", "alert");
+  const actions = el("div", null, "form-actions");
+  const submit = el("button", "Создать проект", "button primary");
+  submit.type = "submit";
+  const cancel = el("button", "Отмена", "button");
+  cancel.type = "button";
+  cancel.onclick = () => navigate("projects");
+  actions.append(submit, cancel);
+  form.append(label, input, error, actions);
+  form.onsubmit = (event) => {
+    event.preventDefault();
+    if (!input.value.trim()) {
+      error.textContent = "Введите название проекта.";
+      input.focus();
+      return;
+    }
+    submit.disabled = true;
+    run("Создаю проект…", async () => {
+      const next = await api("create-project", { name: input.value }, 45000);
+      applyState(next);
+      page = "chat";
+      projectId = next.active?.projectId || null;
+      await loadCatalog();
+      renderRoute();
+    }).finally(() => {
+      submit.disabled = false;
+    });
+  };
+  root.append(form);
+  input.focus();
+}
+
+/* ============================== chat rendering ============================== */
+
+function renderChat() {
+  if (state.loading) {
+    renderChatSkeleton();
+  } else {
+    renderMessages();
+  }
+  renderQueue();
+  renderStatus();
+  autoGrow();
+}
+
+function renderChatSkeleton() {
+  const area = $("messages");
+  const wrap = el("div", null, "chat-loading");
+  const user = el("div", null, "user-line");
+  const bubble = el("div");
+  bubble.style.width = "42%";
+  bubble.append(el("span", null, "skeleton w-80"));
+  user.append(bubble);
+  wrap.append(user);
+  for (let index = 0; index < 2; index += 1) {
+    const row = el("div", null, "message");
+    const mark = el("div", null, "assistant-mark");
+    mark.textContent = "π";
+    const body = el("div");
+    body.style.flex = "1";
+    body.append(el("span", null, "skeleton w-60"), el("span", null, "skeleton w-80"), el("span", null, "skeleton w-40"));
+    body.style.display = "grid";
+    body.style.gap = "7px";
+    row.append(mark, body);
+    wrap.append(row);
+  }
+  wrap.append(el("div", "Открываю чат…", "stream-label"));
+  area.replaceChildren(wrap);
+}
+
+function messageSignature() {
+  return JSON.stringify([
+    state.messages || [],
+    Boolean(state.busy),
+    editingIndex,
+    state.active?.readOnly,
+    state.active?.id,
+  ]);
+}
+
+function renderMessages() {
+  if (page !== "chat") return;
+  const signature = messageSignature();
+  if (signature === renderedSignature) return;
+  renderedSignature = signature;
+  const area = $("messages");
+  const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120;
+  const oldTop = area.scrollTop;
+  const frag = document.createDocumentFragment();
+  const messages = state.messages || [];
+
+  messages.forEach((message, index) => {
+    if (
+      !message.text &&
+      !message.thinking &&
+      !message.tools?.length &&
+      !message.error &&
+      message.status !== "streaming"
+    )
+      return;
+    const user = message.role === "user";
+    const nextUser = messages.findIndex((item, position) => position > index && item.role === "user");
+    const historical = nextUser >= 0;
+    const recovered = messages
+      .slice(index + 1, historical ? nextUser : undefined)
+      .some((item) => item.role === "assistant" && !item.error && (item.text || item.tools?.length));
+    const showFailure = message.error && !recovered && (historical || !state.busy);
+    if (message.error && !showFailure && !message.text && !message.thinking && !message.tools?.length)
+      return;
+
+    const row = el("article", null, "message " + (user ? "user" : "assistant"));
+    row.dataset.index = String(index);
+
+    if (user) {
+      const wrapper = el("div", null, "user-message-wrapper");
+      if (editingIndex === index) {
+        wrapper.append(editBox(message, index));
+      } else {
+        const bubble = el("div", null, "user-bubble");
+        markdown(bubble, message.text || "");
+        wrapper.append(bubble);
+        if (!state.busy && !state.active?.readOnly && !state.active?.host) {
+          const controls = el("div", null, "message-controls");
+          const edit = el("button", null, "message-control");
+          edit.type = "button";
+          edit.title = "Редактировать в новой ветке (новый чат)";
+          edit.append(icon("edit"), el("span", "Изменить"));
+          edit.onclick = () => {
+            editingIndex = index;
+            renderMessages();
+          };
+          const branch = el("button", null, "message-control");
+          branch.type = "button";
+          branch.title = "Создать ветку от этого сообщения (новый чат)";
+          branch.append(icon("branch"), el("span", "Ветка отсюда"));
+          branch.onclick = () => forkMessage(index, "");
+          const copy = el("button", null, "message-control");
+          copy.type = "button";
+          copy.title = "Скопировать";
+          copy.append(icon("copy"), el("span", "Копировать"));
+          copy.onclick = () => copyText(message.text || "");
+          controls.append(edit, branch, copy);
+          wrapper.append(controls);
+        }
+      }
+      row.append(wrapper);
+    } else {
+      const mark = el("div", null, "assistant-mark");
+      mark.textContent = "π";
+      const content = el("div", null, "assistant-body");
+      if (message.thinking) {
+        const body = el("div", null, "reasoning-text");
+        markdown(body, message.thinking);
+        content.append(
+          disclosure(
+            message.status === "streaming" && !message.text ? "Размышляет…" : "Размышления",
+            body,
+            "reasoning",
+            message.status === "streaming" ? { label: "идёт", cls: "warn" } : null,
+          ),
+        );
+      }
+      const answer = el("div", null, "answer");
+      markdown(answer, message.text || "");
+      content.append(answer);
+      if (message.status === "streaming" && !message.text && !message.thinking && !message.tools?.length) {
+        content.append(el("div", "Пишет ответ…", "generating-message"));
+        const skeleton = el("div", null, "stream-skeleton");
+        skeleton.append(el("span", null, "skeleton w-80"), el("span", null, "skeleton w-60"));
+        content.append(skeleton);
+      } else if (message.status === "streaming" && !message.text) {
+        content.append(el("div", "Пишет ответ…", "generating-message"));
+      }
+      for (const tool of message.tools || []) {
+        const status = tool.status || "pending";
+        const labels = { pending: "ожидает", running: "выполняется", done: "готово", error: "ошибка", stopped: "остановлено" };
+        const body = el("div", null, "tool-detail");
+        if (tool.path) body.append(el("p", tool.path, "file-path"));
+        if (tool.command) body.append(el("pre", tool.command));
+        if (tool.output) body.append(el("pre", tool.output));
+        if (!body.childNodes.length)
+          body.append(el("p", status === "running" ? "Ожидаю результат…" : "Дополнительных сведений нет."));
+        const label = status === "done"
+          ? String(tool.label || "Действие").replace("Создаю файл", "Файл записан").replace("Обновляю файл", "Файл изменён").replace("Читаю файл", "Файл прочитан")
+          : tool.label || "Действие";
+        content.append(
+          disclosure(label, body, "tool-card " + status, {
+            label: labels[status] || status,
+            cls: status === "error" ? "err" : status === "done" ? "ok" : status === "running" ? "warn" : "",
+            dot: true,
+          }),
+        );
+      }
+      if (showFailure) {
+        content.append(
+          disclosure("Не удалось получить ответ · Подробнее", el("pre", message.error), "message-error"),
+        );
+      }
+      if (message.status === "stopped") content.append(el("p", "Ответ прерван. Полученная часть сохранена.", "stream-label"));
+      if (message.retained) content.append(el("p", "Сохранённый фрагмент: сервис не вернул его в итоговой истории.", "stream-label"));
+      if (message.versions?.length) {
+        const body = el("div");
+        for (const version of message.versions) body.append(el("pre", version.text || version.thinking || ""));
+        content.append(disclosure("Предыдущий фрагмент ответа · сервис заменил текст", body, "reasoning"));
+      }
+      const foot = el("div", null, "assistant-foot");
+      if (message.status !== "streaming" && message.text) {
+        const copy = el("button", null, "copy-btn");
+        copy.type = "button";
+        copy.append(icon("copy"), el("span", "Копировать"));
+        copy.onclick = () => copyText(message.text);
+        foot.append(copy);
+      }
+      if (foot.childNodes.length) content.append(foot);
+      row.append(mark, content);
+    }
+    frag.append(row);
+  });
+
+  if (!frag.childNodes.length) {
+    const welcome = el("div", null, "welcome");
+    const mark = el("div", "π", "welcome-mark");
+    welcome.append(mark, el("h2", "Чем помочь?"), el("p", "Опишите задачу — файлы появятся в папке проекта."));
+    area.replaceChildren(welcome);
+  } else {
+    area.replaceChildren(frag);
+  }
+  if (nearBottom && !area.querySelector("details[open]")) area.scrollTop = area.scrollHeight;
+  else area.scrollTop = oldTop;
+  if (editingIndex != null) {
+    const textarea = area.querySelector(".edit-box textarea");
+    if (textarea) {
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }
+}
+
+function disclosure(label, body, cls = "", badge = null) {
+  const details = el("details", null, cls);
+  const key = cls + ":" + label;
+  details.open = expandedDetails.get(key) || false;
+  const summary = el("summary");
+  if (badge?.dot) summary.append(el("span", null, "tool-dot"));
+  summary.append(el("span", label));
+  if (badge && !badge.dot) summary.append(el("span", badge.label, "pill-badge " + (badge.cls || "")));
+  summary.onclick = () => expandedDetails.set(key, !details.open);
+  details.append(summary, body);
+  return details;
+}
+
+function editBox(message, index) {
+  const box = el("div", null, "edit-box");
+  const textarea = el("textarea");
+  textarea.value = message.text || "";
+  textarea.rows = 3;
+  textarea.setAttribute("aria-label", "Текст сообщения");
+  const note = el("div", "Сохранение создаст новую ветку. Она появится отдельным чатом слева.", "edit-note");
+  const actions = el("div", null, "edit-actions");
+  const cancel = el("button", "Отмена", "button");
+  cancel.type = "button";
+  cancel.onclick = () => {
+    editingIndex = null;
+    renderedSignature = "";
+    renderMessages();
+  };
+  const save = el("button", "Создать ветку", "button primary");
+  save.type = "button";
+  save.onclick = () => {
+    const text = textarea.value.trim();
+    if (!text) {
+      showHint("Введите текст сообщения.", true);
+      return;
+    }
+    editingIndex = null;
+    renderedSignature = "";
+    forkMessage(index, text);
+  };
+  actions.append(cancel, save);
+  box.append(textarea, note, actions);
+  return box;
+}
+
+const expandedDetails = new Map();
+
+function copyText(text) {
+  return (async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showHint("Скопировано.");
+    } catch {
+      showHint("Не удалось скопировать.", true);
+    }
+  })();
+}
+
+/* ============================== queue ============================== */
+
+function renderQueue() {
+  const panel = $("queue-panel");
+  const queue = queueOf();
+  const messages = [...(queue.steering || []), ...(queue.followUp || [])];
+  const signature = JSON.stringify(messages);
+  if (signature === queueSignature) {
+    panel.hidden = !messages.length;
+    return;
+  }
+  queueSignature = signature;
+  panel.replaceChildren();
+  panel.hidden = !messages.length;
+  if (!messages.length) return;
+  const head = el("div", null, "queue-head");
+  const title = el("div", null, "queue-title");
+  title.append(
+    icon("chevron-right"),
+    el("span", "В очереди"),
+    el("span", String(messages.length), "pill-badge info"),
+  );
+  const clear = el("button", "Очистить", "queue-clear");
+  clear.type = "button";
+  clear.onclick = () => clearQueue();
+  head.append(title, clear);
+  const list = el("div", null, "queue-list");
+  messages.forEach((text, index) => {
+    const row = el("div", null, "queue-item");
+    row.append(el("span", String(index + 1), "queue-index"));
+    const copy = el("span", text, "queue-text");
+    copy.title = text;
+    row.append(copy);
+    const remove = el("button", null, "queue-remove");
+    remove.type = "button";
+    remove.title = "Убрать из очереди";
+    remove.setAttribute("aria-label", "Убрать из очереди");
+    remove.append(icon("close"));
+    remove.disabled = index >= (queue.steering || []).length + (queue.followUp || []).length;
+    remove.onclick = () => unqueue(index);
+    row.append(remove);
+    list.append(row);
+  });
+  panel.append(head, list);
+}
+
+function queueMessage(text) {
+  const value = String(text || "").trim();
+  if (!value || !state.active) return;
+  if (!canQueue()) return;
+  const chat = state.active.id;
+  const before = queueOf().followUp?.length || 0;
+  state.queue = { ...queueOf(), followUp: [...(queueOf().followUp || []), value] };
+  renderQueue();
+  $("draft").value = "";
+  store(chat, "");
+  autoGrow();
+  renderStatus();
+  beginTask("Ставлю в очередь…");
+  api("prompt", { chat, text: value }, 60000)
+    .then(() => {
+      queueSignature = "";
+      renderQueue();
+      showHint("Сообщение добавлено в очередь.");
+    })
+    .catch((error) => {
+      const followUp = [...(queueOf().followUp || [])];
+      if (followUp.length > before) followUp.splice(before, 1);
+      state.queue = { ...queueOf(), followUp };
+      queueSignature = "";
+      renderQueue();
+      if (!$("draft").value) {
+        $("draft").value = value;
+        store(chat, value);
+        autoGrow();
+      }
+      showHint(error.message, true);
+    })
+    .finally(() => {
+      endTask();
+      renderStatus();
+    });
+}
+
+function canQueue() {
+  if (!connected) {
+    showHint("Нет соединения с pi.", true);
+    return false;
+  }
+  if (state.active?.readOnly) {
+    showHint("Этот чат открыт в консоли. Создайте новый чат.", true);
+    return false;
+  }
+  if (state.active?.host && state.busy) {
+    showHint("В консоли уже идёт ответ. Дождитесь его завершения.", true);
+    return false;
+  }
+  return true;
+}
+
+function unqueue(index) {
+  run("Убираю из очереди…", async () => {
+    const result = await api("unqueue", { chat: state.active.id, index }, 30000);
+    state.queue = result.queue || { steering: [], followUp: [] };
+    queueSignature = "";
+    renderQueue();
+    if (result.removed && !$("draft").value) {
+      $("draft").value = result.removed;
+      store(state.active.id, result.removed);
+      autoGrow();
+    }
+  });
+}
+
+function clearQueue() {
+  run("Очищаю очередь…", async () => {
+    const result = await api("clear-queue", { chat: state.active.id }, 30000);
+    const returned = [...(result.steering || []), ...(result.followUp || [])];
+    state.queue = { steering: [], followUp: [] };
+    queueSignature = "";
+    renderQueue();
+    if (returned.length && !$("draft").value) {
+      $("draft").value = returned.join("\n");
+      store(state.active.id, $("draft").value);
+      autoGrow();
+      showHint("Очередь очищена, текст возвращён в поле ввода.");
+    } else if (returned.length) {
+      showHint("Очередь очищена. Текст не помещён в поле, потому что там уже есть черновик.");
+    } else {
+      showHint("Очередь пуста.");
+    }
+  });
+}
+
+/* ============================== send / edit / fork ============================== */
+
+function sendMessage(text) {
+  const value = String(text || "").trim();
+  if (!value || !state.active || !canQueue()) return;
+  const chat = state.active.id;
+  $("draft").value = "";
+  store(chat, "");
+  autoGrow();
+  renderStatus();
+  beginTask("Отправляю сообщение…");
+  api("prompt", { chat, text: value }, 60000)
+    .then(() => {
+      showError("");
+      showHint("Отправлено.");
+    })
+    .catch((error) => {
+      if (!$("draft").value) {
+        $("draft").value = value;
+        store(chat, value);
+        autoGrow();
+      }
+      showHint(error.message, true);
+    })
+    .finally(() => {
+      endTask();
+      renderStatus();
+    });
+}
+
+function abortGeneration() {
+  if (!state.active) return;
+  run("Останавливаю ответ…", async () => {
+    const result = await api("abort", { chat: state.active.id }, 30000);
+    const returned = [...(result.cleared?.steering || []), ...(result.cleared?.followUp || [])];
+    state.queue = { steering: [], followUp: [] };
+    queueSignature = "";
+    renderQueue();
+    if (returned.length && !$("draft").value) {
+      $("draft").value = returned.join("\n");
+      store(state.active.id, $("draft").value);
+      autoGrow();
+      showHint("Ответ остановлен. Очередь возвращена в поле ввода.");
+    }
+  });
+}
+
+function forkMessage(index, text) {
+  if (!state.active) return;
+  if (!canSwitch()) return;
+  const chat = state.active.id;
+  const label = text ? "Создаю чат и отправляю…" : "Создаю чат…";
+  run(label, async () => {
+    const next = await api("fork", { chat, index, text: text || "" }, 90000);
+    applyState(next);
+    page = "chat";
+    editingIndex = null;
+    renderedSignature = "";
+    await loadCatalog();
+    renderRoute();
+    $("draft").focus();
+    showHint(text ? "Новый чат создан, сообщение отправлено." : "Новый чат создан.");
+  });
+}
+
+/* ============================== status ============================== */
+
+function elapsedSeconds() {
+  return Math.floor((clockBase + (state.busy ? Math.max(0, performance.now() - clockAt) : 0)) / 1000);
+}
+function progressTime() {
+  const seconds = elapsedSeconds();
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function renderStatus() {
+  const busy = Boolean(state.busy);
+  const voice = state.voice;
+  const recording = ["starting", "recording", "transcribing"].includes(voice?.phase);
+  const navigating = Boolean(state.loading || pending || uploading);
+  const readOnly = Boolean(state.active?.readOnly);
+  $("exit").disabled = Boolean(busy || navigating || recording);
+  $("draft").disabled = Boolean(readOnly || !connected);
+  $("attach").hidden = !(page === "chat" && state.active && !readOnly);
+  $("attach").disabled = !connected || busy || recording || navigating;
+  $("mic").disabled = !connected || !state.active || readOnly || navigating || busy || voice?.phase === "transcribing";
+  $("mic").replaceChildren(icon(voice?.phase === "recording" ? "stop" : "mic"));
+  $("mic").setAttribute("aria-label", voice?.phase === "recording" ? "Закончить запись" : "Начать диктовку");
+
+  const draftText = $("draft").value.trim();
+  const queueButton = $("queue-send");
+  if (queueButton) {
+    queueButton.hidden = !(busy && draftText && !readOnly && connected && !state.active?.host);
+    queueButton.disabled = !connected || !draftText;
+    queueButton.onclick = (event) => {
+      event.preventDefault();
+      queueMessage($("draft").value);
+    };
+  }
+  const send = $("send");
+  send.classList.toggle("stop", busy);
+  send.replaceChildren(icon(busy ? "stop" : "arrow-up"));
+  send.title = busy ? "Остановить ответ (Esc)" : "Отправить (Enter)";
+  send.setAttribute("aria-label", busy ? "Остановить ответ" : "Отправить");
+  send.disabled = !connected || navigating || recording || readOnly || (!busy && !draftText);
+  $("readonly").hidden = !readOnly;
+
+  renderModelSelect(Boolean(busy || navigating || recording || state.loading || uploading));
+  renderActivity(busy);
+  renderQuestions();
+  renderVoice(voice, recording);
+  renderQuota();
+  showError(state.error && !state.messages?.some((message) => message.error === state.error) ? state.error : "");
+  $("notice").textContent = state.notice || "";
+  $("notice").hidden = !state.notice;
+  renderConnection();
+}
+
+function renderActivity(busy) {
+  const activity = $("activity");
+  const voice = state.voice;
+  const recording = ["starting", "recording", "transcribing"].includes(voice?.phase);
+  activity.classList.toggle("generating", busy);
+  activity.classList.toggle("has-preview", false);
+  activity.replaceChildren();
+  if (busy) {
+    const preview =
+      state.routerProgress?.preview ||
+      state.messages?.findLast((message) => message.role === "assistant")?.text ||
+      state.messages?.findLast((message) => message.role === "assistant")?.thinking ||
+      "";
+    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-100).join("");
+    activity.classList.toggle("has-preview", Boolean(tail));
+    activity.append(
+      el("span", progressTime(), "activity-time"),
+      el("span", tail || "Подготавливаю ответ…", "activity-preview"),
+      el(
+        "span",
+        Number.isFinite(state.routerProgress?.quota)
+          ? (state.routerProgress.estimated ? "≈" : "") +
+              state.routerProgress.quota.toLocaleString("ru-RU") +
+              " квоты"
+          : "",
+        "activity-quota",
+      ),
+    );
+    return;
+  }
+  if (uploading) activity.textContent = "Загружаю файлы в проект…";
+  else if (recording) activity.textContent = voice.phase === "transcribing" ? "Распознаю запись…" : "Идёт запись…";
+  else if (state.questions?.length) activity.textContent = "Нужен ваш ответ.";
+}
+
+function renderVoice(voice, recording) {
+  $("voice-view").hidden = !recording;
+  $("draft").style.visibility = recording ? "hidden" : "visible";
+  if (recording) {
+    const seconds = voice.seconds || 0;
+    $("voice-label").textContent =
+      voice.phase === "recording"
+        ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · Enter — закончить`
+        : voice.phase === "transcribing"
+          ? `Распознаю · ${Math.round(voice.percent || 0)}%`
+          : "Включаю микрофон…";
+    drawWave(voice.levels || []);
+  }
+  const setup = $("voice-setup");
+  setup.replaceChildren();
+  if (voice && ["installing", "downloading", "loading", "error"].includes(voice.phase)) {
+    setup.append(el("span", voice.phase === "error" ? "Голос не загрузился" : voice.label || "Подготовка голоса"));
+    if (Number.isFinite(voice.percent)) {
+      setup.append(el("span", ` · ${Math.round(voice.percent)}%`));
+      const progress = el("progress");
+      progress.max = 100;
+      progress.value = voice.percent;
+      setup.append(progress);
+    }
+  }
+}
+
+function renderQuota() {
+  const available = state.routerProgress?.available ?? state.billing?.account?.available;
+  $("quota").textContent = Number.isFinite(available)
+    ? "Осталось " + Math.max(0, available).toLocaleString("ru-RU") + " токенов"
+    : Object.values(state.statuses || {})
+        .filter((value) => /осталось|quota|remaining/i.test(value))
+        .join(" ");
+}
+
+async function renderQuestions() {
+  const question = (state.questions || []).find((item) => !item.expires || item.expires > Date.now());
+  if (question?.id === questionId) return;
+  questionId = question?.id;
+  $("question").replaceChildren();
+  if (!question) return;
+  const box = el("div", null, "question");
+  box.append(el("h2", question.title || "Нужен ваш ответ"));
+  if (question.message) box.append(el("p", question.message));
+  const actions = el("div", null, "question-actions");
+  const answer = (data) =>
+    run("Отправляю ответ…", async () => {
+      await api("answer", { chat: state.active?.id, id: question.id, ...data }, 30000);
+      state.questions = (state.questions || []).filter((item) => item.id !== question.id);
+      questionId = undefined;
+      renderQuestions();
+    });
+  if (question.method === "select") {
+    for (const option of question.options || []) {
+      const button = el("button", option, "button");
+      button.type = "button";
+      button.onclick = () => answer({ value: option });
+      actions.append(button);
+    }
+  } else if (question.method === "confirm") {
+    const yes = el("button", "Да", "button primary");
+    yes.type = "button";
+    yes.onclick = () => answer({ confirmed: true });
+    const no = el("button", "Нет", "button");
+    no.type = "button";
+    no.onclick = () => answer({ confirmed: false });
+    actions.append(yes, no);
+  } else {
+    const input = el(question.method === "editor" ? "textarea" : "input");
+    input.value = question.prefill || "";
+    input.placeholder = question.placeholder || "";
+    box.append(input);
+    const submit = el("button", "Продолжить", "button primary");
+    submit.type = "button";
+    submit.onclick = () => answer({ value: input.value });
+    actions.append(submit);
+  }
+  const cancel = el("button", "Отмена", "button ghost");
+  cancel.type = "button";
+  cancel.onclick = () => answer({ cancelled: true });
+  actions.append(cancel);
+  box.append(actions);
+  $("question").append(box);
+}
+
+function drawWave(levels) {
+  const canvas = $("wave");
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height) return;
+  canvas.width = width * devicePixelRatio;
+  canvas.height = height * devicePixelRatio;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent-ink") || "#1e40af";
+  const count = Math.floor(width / 4);
+  const samples = levels.slice(-count);
+  for (let index = 0; index < count; index += 1) {
+    const value = samples[index - (count - samples.length)] || 0;
+    const bar = Math.max(2, Math.pow(value, 0.7) * (height - 2));
+    ctx.fillRect(index * 4, (height - bar) / 2, 1.5, bar);
+  }
+}
+
+/* ============================== model menu ============================== */
+
+function renderModelSelect(blocked = false) {
+  const select = $("model-select");
+  const current = state.active?.model;
+  select.disabled = Boolean(blocked || !connected || !state.active || state.active.readOnly);
+  if (select.disabled && modelMenu.matches(":popover-open")) modelMenu.hidePopover();
+  const name = current?.name || current?.id || "Модель";
+  if (select.dataset.name !== name) {
+    select.replaceChildren(el("span", name), icon("chevron-down"));
+    select.dataset.name = name;
+    select.title = "Выбрать модель · " + name;
+    select.setAttribute("aria-label", select.title);
+  }
+  if (state.active && !modelsLoaded && !modelsLoading && Date.now() > modelRetryAfter) {
+    loadModels();
+  }
+  renderModelMenu();
+}
+
+function loadModels() {
+  if (modelsLoading || modelsLoaded) return;
+  modelsLoading = true;
+  modelsError = "";
+  renderModelMenu();
+  api("models", undefined, 20000)
+    .then((result) => {
+      modelList = result.models || [];
+      modelsLoaded = true;
+    })
+    .catch((error) => {
+      modelsError = error.message;
+      modelRetryAfter = Date.now() + 15000;
+    })
+    .finally(() => {
+      modelsLoading = false;
+      renderModelMenu();
+    });
+}
+
+function renderModelMenu() {
+  const current = state.active?.model;
+  const models = [...modelList];
+  if (current && !models.some((model) => modelKey(model) === modelKey(current))) models.unshift(current);
+  const signature = JSON.stringify([models, current, modelsLoading, modelsError]);
+  if (modelMenu.dataset.signature === signature) return;
+  modelMenu.dataset.signature = signature;
+  modelMenu.replaceChildren();
+  modelMenu.append(el("div", "Модель", "model-menu-title"));
+  if (modelsLoading && !models.length) {
+    const loading = el("div", null, "model-loading");
+    for (let index = 0; index < 4; index += 1) {
+      const line = el("span", null, "skeleton w-80");
+      loading.append(line);
+    }
+    loading.append(el("div", "Загружаю модели…", "model-error"));
+    modelMenu.append(loading);
+    return;
+  }
+  if (modelsError && !models.length) {
+    const error = el("div", null, "model-error");
+    error.append(document.createTextNode(modelsError));
+    const retry = el("button", "Повторить", "button");
+    retry.type = "button";
+    retry.onclick = () => {
+      modelsLoaded = false;
+      loadModels();
+    };
+    error.append(retry);
+    modelMenu.append(error);
+    return;
+  }
+  if (!models.length) {
+    modelMenu.append(el("div", "Модели ещё не загружены.", "model-error"));
+    return;
+  }
+  for (const model of models) {
+    const chosen = current && modelKey(model) === modelKey(current);
+    const option = el("button", null, "model-option");
+    option.type = "button";
+    option.setAttribute("aria-pressed", String(Boolean(chosen)));
+    const copy = el("span");
+    copy.append(el("span", model.name || model.id), el("small", model.provider || ""));
+    option.append(copy, icon("check"));
+    option.onclick = () => {
+      modelMenu.hidePopover();
+      if (chosen) return;
+      run("Меняю модель…", async () => {
+        await api("model", { chat: state.active.id, id: model.id, provider: model.provider }, 30000);
+        state.active = { ...state.active, model };
+        renderModelSelect();
+      });
+    };
+    modelMenu.append(option);
+  }
+  if (modelsError) modelMenu.append(el("div", modelsError, "model-error"));
+}
+
+function modelKey(model) {
+  return JSON.stringify([model?.provider, model?.id]);
+}
+
+function positionModels() {
+  const rect = $("model-select").getBoundingClientRect();
+  modelMenu.style.width = Math.min(320, innerWidth - 24) + "px";
+  modelMenu.style.left = Math.max(12, Math.min(rect.left, innerWidth - 332)) + "px";
+  modelMenu.style.top = "auto";
+  modelMenu.style.bottom = Math.max(12, innerHeight - rect.top + 8) + "px";
+  modelMenu.style.maxHeight = Math.max(120, rect.top - 24) + "px";
+}
+
+/* ============================== folder browser ============================== */
+
+let browserPath = "";
+let browserChosen = null;
+let browserRequest = 0;
+
+async function browseFolders(path) {
+  const request = ++browserRequest;
+  $("folder-choose").disabled = true;
+  const status = $("browser-status");
+  status.textContent = "Загружаю папки…";
+  const list = $("browser-list");
+  list.replaceChildren();
+  const loading = el("div", null, "skeleton-list");
+  for (let index = 0; index < 5; index += 1) {
+    const row = el("div", null, "skeleton-row");
+    row.append(el("span", null, "skeleton w-60"));
+    loading.append(row);
+  }
+  list.append(loading);
+  beginTask("Загружаю папки…");
+  try {
+    const data = await api("browse-folders" + (path ? "?path=" + encodeURIComponent(path) : ""), undefined, 30000);
+    if (request !== browserRequest || !$("folder-dialog").open) return;
+    browserPath = data.path;
+    browserChosen = data.path;
+    renderBrowser(data);
+  } catch (error) {
+    if (request === browserRequest && $("folder-dialog").open) status.textContent = error.message;
+  } finally {
+    endTask();
+  }
+}
+
+function renderBrowser({ path, parent, entries }) {
+  $("folder-path").value = path;
+  $("browser-status").textContent = entries.length
+    ? "Откройте нужную папку и нажмите «Выбрать эту папку»."
+    : "Вложенных папок нет. Можно выбрать эту папку.";
+  const list = $("browser-list");
+  list.replaceChildren();
+  const up = el("button", null, "browser-row parent");
+  up.type = "button";
+  up.disabled = !parent;
+  up.append(icon("chevron-right"), el("span", "На уровень выше", "browser-name"));
+  up.onclick = () => browseFolders(parent);
+  list.append(up);
+  for (const entry of entries.filter((item) => !item.name.startsWith("."))) {
+    const row = el("button", null, "browser-row");
+    row.type = "button";
+    row.append(icon("folder"), el("span", entry.name, "browser-name"));
+    row.onclick = () => browseFolders(entry.path);
+    list.append(row);
+  }
+  if (!entries.length) list.append(el("p", "В этой папке нет вложенных папок.", "browser-empty"));
+  $("folder-choose").disabled = false;
+}
+
+function chooseFolder() {
+  if (!browserChosen || $("folder-choose").disabled) return;
+  const chosen = browserChosen;
+  $("folder-dialog").close();
+  run("Подключаю папку…", async () => {
+    const result = await api("attach-project", { path: chosen }, 45000);
+    if (result.cancelled) return;
+    catalog = result.projects || [];
+    projectId = result.project || null;
+    page = "chats";
+    searchOpen = false;
+    searchValue = "";
+    renderRoute();
+    showHint("Папка подключена как проект.");
+  });
+}
+
+/* ============================== uploads ============================== */
+
+function uploadFiles() {
+  return (async () => {
+    const files = [...($("file-input").files || [])];
+    $("file-input").value = "";
+    if (!files.length) return;
+    const project = state.active?.projectId;
+    if (!project) {
+      showHint("Сначала откройте чат в проекте.", true);
+      return;
+    }
+    const payload = [];
+    for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) {
+        showHint(`«${file.name}» больше 50 МБ и был пропущен.`, true);
+        continue;
+      }
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let index = 0; index < buffer.length; index += 0x8000)
+        binary += String.fromCharCode(...buffer.subarray(index, index + 0x8000));
+      payload.push({ name: file.name, content: btoa(binary), truncated: false });
+    }
+    if (!payload.length) return;
+    uploading = true;
+    renderProgress();
+    renderStatus();
+    try {
+      const result = await api("upload", { project, files: payload }, 120000);
+      if (result.saved?.length)
+        showHint(
+          result.saved.length === 1
+            ? `Файл «${result.saved[0]}» сохранён в проекте.`
+            : `Сохранено файлов: ${result.saved.length}.`,
+        );
+    } catch (error) {
+      showHint(error.message, true);
+    } finally {
+      uploading = false;
+      renderProgress();
+      renderStatus();
+    }
+  })();
+}
+
+/* ============================== apply server state ============================== */
+
+function applyState(next) {
+  const now = performance.now();
+  const request = next.routerProgress?.requestId;
+  if (
+    next.busy &&
+    (!state.busy || next.active?.id !== state.active?.id || (request && clockRequest && request !== clockRequest))
+  ) {
+    clockBase = 0;
+    clockAt = now;
+  }
+  if (next.busy && Number.isFinite(next.routerProgress?.elapsedMs)) {
+    clockBase = Math.max(next.routerProgress.elapsedMs, clockBase + Math.max(0, now - clockAt));
+    clockAt = now;
+  }
+  if (request) clockRequest = request;
+  if (!next.busy) clockRequest = undefined;
+  billingUI.update(next.billing, next.busy);
+  const previous = state.active?.id;
+  state = next;
+  if (state.active?.id && state.messageVersions)
+    versionManager.syncFromServer(state.messageVersions, state.active.id);
+  if (previous !== state.active?.id) {
+    store(previous, $("draft").value);
+    $("draft").value = saved(state.active?.id);
+    questionId = undefined;
+    versionManager.reset();
+    renderedSignature = "";
+    queueSignature = "";
+    autoGrow();
+  }
+  if (state.dictation && state.dictation.id !== dictationId && saved("dictation-" + state.dictation.chat) !== state.dictation.id) {
+    dictationId = state.dictation.id;
+    store("dictation-" + state.dictation.chat, dictationId);
+    const dictation = state.dictation;
+    const old = dictation.chat === state.active?.id ? $("draft").value : saved(dictation.chat);
+    const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;
+    store(dictation.chat, text);
+    if (dictation.chat === state.active?.id) $("draft").value = text;
+  }
+  if (state.active?.projectId) projectId = state.active.projectId;
+  if (state.active && !lastChat) {
+    lastChat = state.active.id;
+    page = "chat";
+    renderRoute();
+    return;
+  }
+  if (page === "chat") {
+    renderBranches();
+    renderChat();
+    const project = projectOf(state.active?.projectId || projectId);
+    setBreadcrumb(
+      state.active?.name || "Чат",
+      `${project?.name || state.active?.projectName || ""}${project?.folder ? " · " + project.folder : ""}`,
+    );
+  } else if (page === "projects" || page === "chats") {
+    renderBranches();
+  }
+}
+
+/* ============================== misc UI ============================== */
+
+function autoGrow() {
+  requestAnimationFrame(() => {
+    const area = $("draft");
+    if (!area) return;
+    area.style.height = "auto";
+    area.style.height = Math.min(area.scrollHeight, 250) + "px";
+  });
+}
+
+setInterval(() => {
+  if (!state.busy) return;
+  const timer = document.querySelector(".activity-time");
+  if (timer) timer.textContent = progressTime();
+}, 300);
+
+boot();

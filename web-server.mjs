@@ -17,7 +17,7 @@ export {publicMessage,publicMessages} from './web-messages.mjs';
 export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false;
- let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],voice:voice?.state||null,dictation:null};
+ let state={active:null,messages:[],busy:false,loading:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
  const snapshot=()=>({...state,billing:billing?.snapshot(),statuses:{...state.statuses,...(active?.host?Object.fromEntries(getHostStatuses().map((s,i)=>['host-'+i,clean(s)])):{})},loading,active,messageVersions:active?Object.fromEntries([...messageVersions.entries()].filter(([key])=>key.startsWith(active.id+'-')).map(([key,versions])=>{const idx=currentVersionIndex.get(key)??versions.length-1;return[key,{versions,currentIndex:idx}];})):{}});
@@ -25,13 +25,14 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  const changed=()=>{if(!publishTimer)publishTimer=setTimeout(broadcast,35);};
  const unsubBilling=billing?.subscribe(()=>changed());
  const unsub=voice?.subscribe?.(event=>{if(event.type==='state'){state.voice=event.state;if(['ready','error'].includes(event.state.phase))voiceOwned=false;changed();}if(event.type==='text'&&event.context?.web){state.dictation={id:randomBytes(8).toString('hex'),text:event.text,chat:event.context.chat};voiceOwned=false;changed();}if(event.type==='error'&&voiceOwned){state.error=event.message;voiceOwned=false;changed();}});
- async function catalog(){allProjects=projects.list();const registered=new Set(allProjects.map(p=>folderKey(p.cwd)));allSessions=(await listSessions()).filter(s=>s.cwd&&registered.has(folderKey(s.cwd)));return allProjects.map(p=>({id:key(folderKey(p.cwd)),name:p.name,folder:p.cwd,chats:allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||s.firstMessage?.slice(0,80)||'Новый разговор',modified:s.modified,count:s.messageCount||0,terminal:s.path===hostSession()}))}));}
+ async function catalog(){allProjects=projects.list();const registered=new Set(allProjects.map(p=>folderKey(p.cwd)));const known=new Set();allSessions=(await listSessions()).filter(s=>s.cwd&&registered.has(folderKey(s.cwd)));for(const s of allSessions)known.add(key(s.path));return allProjects.map(p=>({id:key(folderKey(p.cwd)),name:p.name,folder:p.cwd,chats:allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||s.firstMessage?.slice(0,80)||'Новый чат',modified:s.modified,count:s.messageCount||0,parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}))}));}
  const ensureIdle=()=>{if(loading||navigating||state.busy||voiceOwned||!canExit())throw new Error('Сначала завершите запись или остановите ответ.');};
  function eventHandler(event,epoch){
   if(epoch!==generation||disposed)return;
   if(event.type==='agent_start'){state.busy=true;state.error=null;state.routerProgress=null;}
   if(event.type==='friendly_router_progress'){state.routerProgress=event.progress||null;}
   if(event.type==='agent_end'){rpc?.request('get_messages').then(data=>{if(epoch===generation){state.messages=reconcileMessages(state.messages,publicMessages(data?.messages||[]));changed();}}).catch(()=>{});}
+  if(event.type==='queue_update')state.queue={steering:Array.isArray(event.steering)?event.steering:[],followUp:Array.isArray(event.followUp)?event.followUp:[]};
   if(event.type==='message_start'&&['user','assistant'].includes(event.message?.role))state.messages.push({...publicMessage(event.message),status:event.message.role==='assistant'?'streaming':'done'});
   if(event.type==='message_update'){
    const delta=event.assistantMessageEvent,index=state.messages.findLastIndex(m=>m.role==='assistant');
@@ -68,11 +69,38 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    if(rpc)await rpc.dispose();rpc=undefined;
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||session.firstMessage?.slice(0,80)||'Новый разговор',host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
-   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],statuses:{},widgets:{}};
-   if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state',{},20000),rpc.request('get_messages',{},20000)]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;state.busy=Boolean(current?.isStreaming);const preferred=getPreferredModel();if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
+   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||session.firstMessage?.slice(0,80)||'Новый чат',host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
+   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
+   if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state',{},20000),rpc.request('get_messages',{},20000)]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;active.file=current?.sessionFile||session.path;state.busy=Boolean(current?.isStreaming);state.queue={steering:[],followUp:[]};const preferred=getPreferredModel();if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
   }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
   finally{loading=false;broadcast();}
+ }
+ async function branchAt(index,{text='',name=''}={}){
+  if(!rpc||!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+  if(active.host)throw new Error('Ответвление недоступно для чата, открытого в консоли. Создайте новый чат.');
+  if(state.busy||loading||navigating||voiceOwned)throw new Error('Сначала остановите ответ и дождитесь завершения действия.');
+  const forkMessages=(await rpc.request('get_fork_messages',{},20000))?.messages||[];
+  const userIndexes=state.messages.map((m,i)=>m.role==='user'?i:-1).filter(i=>i>=0);
+  const ordinal=userIndexes.indexOf(index);
+  const target=ordinal>=0?forkMessages[ordinal]:undefined;
+  if(!target)throw new Error('Не удалось найти это сообщение в текущем чате.');
+  const forked=await rpc.request('fork',{entryId:target.entryId},30000);
+  if(forked?.cancelled)throw new Error('Создание ответвления отменено расширением.');
+  const current=await rpc.request('get_state',{},20000);
+  if(!current?.sessionFile)throw new Error('pi не сообщил файл нового чата.');
+  const label=(name||`Чат от «${String(target.text||'').replace(/\s+/g,' ').slice(0,42)}»`).slice(0,80);
+  try{await rpc.request('set_session_name',{name:label},10000);}catch{}
+  active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,host:false,readOnly:false};
+  const messages=await rpc.request('get_messages',{},20000);
+  state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
+  await catalog();
+  if(text){
+   state.busy=true;changed();
+   try{await rpc.request('prompt',{message:text},300000);}
+   catch(error){state.busy=false;state.error=error.message;changed();throw error;}
+  }
+  broadcast();
+  return snapshot();
  }
  async function body(req,limit=1024*1024){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>limit)throw new Error('Слишком большое сообщение.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString()||'{}');}
  let origin;
@@ -81,7 +109,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   try{
    if(req.headers.host!==new URL(origin).host||req.headers.origin&&req.headers.origin!==origin){reply(403,{error:'Запрос с другого адреса запрещён.'});return;}
    const url=new URL(req.url,origin);
-   const safeHeaders={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"};
+   const safeHeaders={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"};
    for(const [k,v]of Object.entries(safeHeaders))res.setHeader(k,v);
    if(req.method==='POST'&&url.pathname==='/api/auth'){
     const data=await body(req),supplied=Buffer.from(String(data.token||'')),expected=Buffer.from(token);
@@ -153,27 +181,67 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     if(!rpc||!active||active.readOnly)throw new Error(active?.readOnly?'Этот чат открыт в консоли. Создайте новый чат в этом проекте.':'Сначала откройте чат в проекте.');
     if(data.chat!==active.id)throw new Error('Чат был переключён в другом окне. Проверьте текущий разговор.');
     if(action==='prompt'){
-     if(state.busy||loading||navigating||voiceOwned)throw new Error('Сначала дождитесь завершения текущего действия.');
+     if(voiceOwned||loading||navigating)throw new Error('Дождитесь завершения текущего действия.');
      const message=String(data.text||'').trim();if(!message)throw new Error('Введите сообщение.');
-     state.busy=true;state.error=null;state.notice='';state.dictation=null;changed();const epoch=generation;
+     if(state.messages.some(m=>m.status==='streaming'&&m.role==='user'))throw new Error('Дождитесь отправки предыдущего сообщения.');
+     if(active.host&&state.busy)throw new Error('В консоли уже идёт ответ. Дождитесь его завершения.');
+     const queued=Boolean(state.busy);
+     state.busy=true;state.error=null;state.notice='';state.dictation=null;
+     if(queued){state.queue={...state.queue,followUp:[...state.queue.followUp,message]};}
+     changed();const epoch=generation;
      try{
-      await rpc.request('prompt',{message},300000);
+      const payload={message};
+      if(queued)payload.streamingBehavior=data.steer?'steer':'followUp';
+      try{await rpc.request('prompt',payload,300000);}
+      catch(error){
+       if(!queued&&/already processing|streamingBehavior/i.test(error.message))await rpc.request('prompt',{message,streamingBehavior:'followUp'},300000);
+       else throw error;
+      }
       void rpc.request('get_state').then(current=>{if(epoch===generation&&typeof current?.isStreaming==='boolean'){state.busy=current.isStreaming;changed();}}).catch(()=>{});
-      reply(200,{ok:true});
-     }catch(error){if(epoch===generation){state.busy=false;state.error=error.message;changed();}throw error;}
+      reply(200,{ok:true,queued,queue:state.queue});
+     }catch(error){if(epoch===generation){if(!queued)state.busy=false;state.error=error.message;changed();}throw error;}
      return;
     }
-    if(action==='abort'){await rpc.request('abort');state.busy=false;for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}changed();reply(200,{ok:true});return;}
+    if(action==='clear-queue'){
+     const removed=await rpc.request('clear_queue',{},15000);
+     state.queue={steering:[],followUp:[]};changed();
+     reply(200,{ok:true,steering:removed?.steering||[],followUp:removed?.followUp||[]});return;
+    }
+    if(action==='unqueue'){
+     const target=Number(data.index),removed=await rpc.request('clear_queue',{},15000);
+     const follow=Array.isArray(removed?.followUp)?removed.followUp:[],steering=Array.isArray(removed?.steering)?removed.steering:[];
+     if(!Number.isInteger(target)||target<0||target>=follow.length)throw new Error('Сообщение уже отправлено или очередь изменилась.');
+     const text=follow[target],rest=follow.filter((_,i)=>i!==target);
+     for(const message of rest)await rpc.request('prompt',{message,streamingBehavior:'followUp'},60000);
+     state.queue={steering,followUp:rest};changed();
+     reply(200,{ok:true,removed:text,queue:state.queue});return;
+    }
+    if(action==='abort'){
+     let cleared={steering:[],followUp:[]};
+     try{cleared=await rpc.request('clear_queue',{},15000)||cleared;}catch{}
+     await rpc.request('abort');state.busy=false;state.queue={steering:[],followUp:[]};for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}changed();reply(200,{ok:true,cleared});return;
+    }
     if(action==='model'){ensureIdle();const model=models().find(m=>m.id===data.id&&m.provider===data.provider);if(!model)throw new Error('Модель недоступна.');await rpc.request('set_model',{provider:model.provider,modelId:model.id});onModelSelected(model);active.model={id:model.id,name:model.name,provider:model.provider};changed();reply(200,{ok:true});return;}
     if(action==='answer'){const q=state.questions.find(q=>q.id===data.id);if(!q)throw new Error('Запрос уже закрыт.');rpc.respond({id:q.id,...(data.cancelled?{cancelled:true}:q.method==='confirm'?{confirmed:data.confirmed===true}:{value:String(data.value||'')})});state.questions=state.questions.filter(q=>q!==q);changed();reply(200,{ok:true});return;}
-    if(action==='edit-message'){ensureIdle();const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');if(state.messages[index].role!=='user')throw new Error('Можно редактировать только сообщения пользователя.');const text=String(data.text||'').trim();if(!text)throw new Error('Введите текст сообщения.');const versionKey=`${active.id}-${index}`;if(!messageVersions.has(versionKey))messageVersions.set(versionKey,[{text:state.messages[index].text,timestamp:state.messages[index].timestamp}]);messageVersions.get(versionKey).push({text,timestamp:Date.now()});const newVersionIndex=messageVersions.get(versionKey).length-1;currentVersionIndex.set(versionKey,newVersionIndex);state.messages[index].text=text;state.messages[index].timestamp=Date.now();state.messages=state.messages.slice(0,index+1);changed();reply(200,{ok:true,versions:messageVersions.get(versionKey).length,currentIndex:newVersionIndex});return;}
+    if(action==='edit-message'){
+     ensureIdle();const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');if(state.messages[index].role!=='user')throw new Error('Можно редактировать только сообщения пользователя.');const text=String(data.text||'').trim();if(!text)throw new Error('Введите текст сообщения.');
+     const result=await branchAt(index,{text,name:data.name});reply(200,result);return;
+    }
     if(action==='switch-version'){const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');const versionKey=`${active.id}-${index}`;const versions=messageVersions.get(versionKey);if(!versions||versions.length<2)throw new Error('Нет других версий.');const versionIndex=Number(data.versionIndex);if(!Number.isInteger(versionIndex)||versionIndex<0||versionIndex>=versions.length)throw new Error('Неверный индекс версии.');currentVersionIndex.set(versionKey,versionIndex);state.messages[index].text=versions[versionIndex].text;state.messages[index].timestamp=versions[versionIndex].timestamp;changed();reply(200,{ok:true,currentVersion:versionIndex,totalVersions:versions.length});return;}
-    if(action==='branch-from'){ensureIdle();const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');state.messages=state.messages.slice(0,index+1);changed();reply(200,{ok:true});return;}
+    if(action==='branch-from'||action==='fork'){
+     ensureIdle();const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');if(state.messages[index].role!=='user')throw new Error('Ответвление можно создать только от сообщения пользователя.');
+     const text=data.text===undefined?'':String(data.text).trim();
+     const result=await branchAt(index,{text,name:data.name});reply(200,result);return;
+    }
+    if(action==='rename-branch'){
+     const name=String(data.name||'').trim();if(!name)throw new Error('Введите название ветки.');
+     await rpc.request('set_session_name',{name:name.slice(0,80)});active={...active,name:name.slice(0,80)};await catalog();changed();reply(200,{ok:true});return;
+    }
     reply(404,{error:'Неизвестное действие.'});return;
    }
-   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript']},asset=assets[url.pathname];
+   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript'],'/fonts/geist-cyrillic.woff2':['web/fonts/geist-cyrillic.woff2','font/woff2'],'/fonts/geist-latin.woff2':['web/fonts/geist-latin.woff2','font/woff2'],'/fonts/geist-mono-cyrillic.woff2':['web/fonts/geist-mono-cyrillic.woff2','font/woff2'],'/fonts/geist-mono-latin.woff2':['web/fonts/geist-mono-latin.woff2','font/woff2'],'/fonts/OFL-Geist.txt':['web/fonts/OFL-Geist.txt','text/plain'],'/fonts/OFL-Geist-Mono.txt':['web/fonts/OFL-Geist-Mono.txt','text/plain']},asset=assets[url.pathname];
    if(req.method!=='GET'||!asset){reply(404,{error:'Страница не найдена.'});return;}
-   res.writeHead(200,{'Content-Type':asset[1]+'; charset=utf-8'});res.end(await readFile(fileURLToPath(new URL(asset[0],import.meta.url))));
+   res.writeHead(200,{'Content-Type':asset[1]+'; charset=utf-8','Cache-Control':asset[1]==='font/woff2'?'public, max-age=86400':'no-store'});res.end(await readFile(fileURLToPath(new URL(asset[0],import.meta.url))));
   }catch(error){if(!res.headersSent)reply(400,{error:error.message});else res.end();}
  });
  const heartbeat=setInterval(()=>{for(const res of clients)res.write(': heartbeat\n\n');state.questions=state.questions.filter(q=>!q.expires||q.expires>Date.now());},15000);heartbeat.unref();

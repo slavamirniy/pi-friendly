@@ -115,3 +115,70 @@ test('web entry and its local module dependencies are served as JavaScript',asyn
  }
  assert.ok(seen.has('/message-versions.js'));
 });
+
+test('messages sent while the agent runs are queued as follow-ups',async t=>{
+ const h=await fixture(t),p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const state=await h.state();
+ assert.equal((await h.request('prompt',{chat:state.active.id,text:'Первый'})).status,200);
+ assert.equal((await h.state()).busy,true);
+ const queued=await h.request('prompt',{chat:state.active.id,text:'После ответа'});
+ assert.equal(queued.status,200);assert.equal(queued.data.queued,true);
+ const payload=h.calls.filter(c=>c.type==='prompt').at(-1);
+ assert.equal(payload.data.message,'После ответа');assert.equal(payload.data.streamingBehavior,'followUp');
+ h.emit({type:'queue_update',steering:[],followUp:['После ответа']});
+ assert.deepEqual((await h.state()).queue.followUp,['После ответа']);
+ h.emit({type:'queue_update',steering:[],followUp:[]});
+ assert.deepEqual((await h.state()).queue.followUp,[]);
+});
+
+function customRpc(handler){
+ return options=>{
+  const emit=options.onEvent;
+  return {
+   request:async(type,data={})=>handler({type,data,emit}),
+   respond(){},
+   dispose:async()=>{},
+  };
+ };
+}
+
+test('clear-queue returns pending texts and empties the visible queue',async t=>{
+ let emit;
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type,emit:onEvent})=>{
+  emit=onEvent;
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:true};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='prompt'){emit({type:'agent_start'});return{};}
+  if(type==='clear_queue')return{followUp:['Очередь'],steering:[]};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const state=await h.state();
+ emit({type:'agent_start'});emit({type:'queue_update',steering:[],followUp:['Очередь']});
+ const cleared=await h.request('clear-queue',{chat:state.active.id});
+ assert.equal(cleared.status,200);assert.deepEqual(cleared.data.followUp,['Очередь']);
+ assert.deepEqual((await h.state()).queue.followUp,[]);
+});
+
+test('forking a user message creates a new branch and sends the edited text',async t=>{
+ const calls=[];
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type,data,emit})=>{
+  calls.push({type,data});
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false,sessionFile:'/test/branch.jsonl'};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='get_fork_messages')return{messages:[{entryId:'entry-1',text:'Привет'}]};
+  if(type==='fork')return{};
+  if(type==='prompt'){emit({type:'agent_start'});return{};}
+  if(type==='clear_queue')return{steering:[],followUp:[]};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const before=await h.state();
+ const result=await h.request('fork',{chat:before.active.id,index:0,text:'Исправлено'});
+ assert.equal(result.status,200);
+ assert.equal(calls.find(c=>c.type==='fork').data.entryId,'entry-1');
+ assert.equal(calls.find(c=>c.type==='prompt').data.message,'Исправлено');
+ assert.notEqual(result.data.active.id,before.active.id);
+ assert.match(result.data.active.name,/Чат/);
+ assert.equal(result.data.busy,true);
+});
