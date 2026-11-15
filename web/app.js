@@ -2729,10 +2729,11 @@ function updateImageGenerateButton() {
 function updatePanelGenerateButton() {
   const button = $("panel-generate");
   if (!button) return;
-  const loading = imageJobs.some((job) => job.surface === "panel" && job.status === "loading");
-  button.disabled = loading || !$("panel-prompt").value.trim();
-  button.textContent = loading ? "Генерирую…" : "Сгенерировать";
-  button.setAttribute("aria-busy", String(loading));
+  const loading = panelLoadingJobs().length;
+  const full = loading >= 4;
+  button.disabled = full || !$("panel-prompt").value.trim();
+  button.textContent = full ? "Максимум 4" : loading ? `Ещё (${loading}/4)` : "Сгенерировать";
+  button.setAttribute("aria-busy", String(loading > 0));
 }
 
 function stopImageTimer() {
@@ -2921,6 +2922,10 @@ function generatePanelImage() {
     showHint("Сначала откройте чат в проекте.", true);
     return;
   }
+  if (panelLoadingJobs().length >= 4) {
+    showHint("Можно генерировать не больше четырёх изображений одновременно.", true);
+    return;
+  }
   const sources = panelRefs.map((ref) => ref.path);
   const job = {
     id: crypto.randomUUID(),
@@ -2936,8 +2941,6 @@ function generatePanelImage() {
     error: null,
   };
   imageJobs.push(job);
-  $("panel-prompt").value = "";
-  $("panel-prompt").style.height = "";
   updatePanelGenerateButton();
   runImageJob(job);
   $("gallery-grid").scrollTop = 0;
