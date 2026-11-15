@@ -3002,8 +3002,11 @@ button.image-job-visual { cursor: pointer; }
   animation: spin .7s linear infinite;
   flex: none;
 }
+@media (max-width: 1320px) {
+  .image-gallery-open { right: 16px; bottom: 176px; }
+}
 @media (max-width: 760px) {
-  .image-gallery-open { right: 12px; bottom: 86px; }
+  .image-gallery-open { right: 12px; bottom: 160px; }
   .studio-row { grid-template-columns: 1fr; }
   .image-jobs { grid-template-columns: 1fr; }
   .gallery-cards { grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); }
