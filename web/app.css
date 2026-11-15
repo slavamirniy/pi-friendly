@@ -4464,3 +4464,23 @@ button.image-job-visual { cursor: pointer; }
   text-align: center;
   white-space: nowrap;
 }
+
+.panel-prompt-wrap .panel-mic {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  z-index: 4;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: var(--ring);
+}
+.panel-prompt-wrap .panel-mic:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.panel-composer .panel-prompt-wrap textarea { padding-right: 44px; }
+#panel-voice-view { padding: 8px 44px 8px 12px; }

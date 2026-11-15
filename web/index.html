@@ -243,6 +243,9 @@
               <span id="panel-voice-label"></span>
               <canvas id="panel-wave" aria-label="Уровень звука"></canvas>
             </div>
+            <button type="button" id="panel-mic" class="panel-mic" title="Голосовой ввод" aria-label="Голосовой ввод">
+              <span data-icon="mic" aria-hidden="true"></span>
+            </button>
           </div>
           <div class="panel-compose-actions">
             <label class="sr-only" for="panel-aspect">Пропорции</label>
@@ -254,9 +257,6 @@
               <option value="1920x1080">16:9</option>
               <option value="1080x1920">9:16</option>
             </select>
-            <button type="button" id="panel-mic" class="panel-mic" title="Голосовой ввод" aria-label="Голосовой ввод">
-              <span data-icon="mic" aria-hidden="true"></span>
-            </button>
             <button type="submit" id="panel-generate" class="button primary">Сгенерировать</button>
           </div>
         </form>
