@@ -161,7 +161,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     if(req.method==='GET'&&url.pathname==='/api/billing'){reply(200,billing?.snapshot()||{});return;}
     if(req.method==='GET'&&url.pathname==='/api/offers'){if(!billing)throw Error('Пополнение не подключено.');reply(200,await billing.offers());return;}
     if(req.method==='GET'&&url.pathname==='/api/catalog'){reply(200,{projects:await catalog()});return;}
-    if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:models().map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
+    if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:(await models()).map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
    if(req.method==='GET'&&url.pathname==='/api/browse-folders'){
     const start=String(url.searchParams.get('path')||'').trim()||join(homedir());
     if(!isAbsolute(start))throw new Error('Укажите полный путь.');
@@ -267,7 +267,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      try{cleared=await rpc.request('clear_queue',{},15000)||cleared;}catch{}
      await rpc.request('abort');state.busy=false;state.queue={steering:[],followUp:[]};for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}changed();reply(200,{ok:true,cleared});return;
     }
-    if(action==='model'){ensureIdle();const model=models().find(m=>m.id===data.id&&m.provider===data.provider);if(!model)throw new Error('Модель недоступна.');await rpc.request('set_model',{provider:model.provider,modelId:model.id});onModelSelected(model);active.model={id:model.id,name:model.name,provider:model.provider};changed();reply(200,{ok:true});return;}
+    if(action==='model'){ensureIdle();const model=(await models()).find(m=>m.id===data.id&&m.provider===data.provider);if(!model)throw new Error('Модель недоступна.');await rpc.request('set_model',{provider:model.provider,modelId:model.id});onModelSelected(model);active.model={id:model.id,name:model.name,provider:model.provider};changed();reply(200,{ok:true});return;}
     if(action==='answer'){const q=state.questions.find(q=>q.id===data.id);if(!q)throw new Error('Запрос уже закрыт.');rpc.respond({id:q.id,...(data.cancelled?{cancelled:true}:q.method==='confirm'?{confirmed:data.confirmed===true}:{value:String(data.value||'')})});state.questions=state.questions.filter(q=>q!==q);changed();reply(200,{ok:true});return;}
     if(action==='edit-message'){
      ensureIdle();const index=Number(data.index);if(!Number.isInteger(index)||index<0||index>=state.messages.length)throw new Error('Неверный индекс сообщения.');if(state.messages[index].role!=='user')throw new Error('Можно редактировать только сообщения пользователя.');const text=String(data.text||'').trim();if(!text)throw new Error('Введите текст сообщения.');
