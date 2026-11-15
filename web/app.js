@@ -853,7 +853,10 @@ function wireChrome() {
     renderBranches();
   };
   document.addEventListener("click", (event) => collapseRecent(event.target));
-  document.addEventListener("focusin", (event) => collapseRecent(event.target));
+  document.addEventListener("focusin", (event) => {
+    if (event.target === document.body) return;
+    collapseRecent(event.target);
+  });
   document.addEventListener("pointerdown", (event) => collapseRecent(event.target), true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("image-lightbox").hidden) {
