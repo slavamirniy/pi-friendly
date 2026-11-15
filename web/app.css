@@ -332,24 +332,28 @@ svg {
   display: grid;
   gap: 1px;
 }
-.recent-create {
-  margin-bottom: 4px;
-  border: 1px dashed var(--line);
-  color: var(--accent-ink);
+.recent-project.recent-create {
+  margin: 2px 0 4px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px dashed var(--text);
+  border-radius: var(--radius);
   background: transparent;
+  color: var(--text);
 }
-.recent-create:hover {
-  background: var(--accent-tint);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+.recent-project.recent-create:hover {
+  background: var(--surface);
+  border-color: var(--text);
+  color: var(--text);
 }
-.recent-create svg {
-  color: var(--accent-ink);
+.recent-project.recent-create svg {
+  color: var(--text);
 }
-.recent-create .recent-project-name {
-  color: var(--accent-ink);
+.recent-project.recent-create .recent-project-name {
+  color: var(--text);
   font-weight: 500;
 }
+
 .recent-toggle {
   display: flex;
   align-items: center;
@@ -622,8 +626,8 @@ svg {
   margin: 2px 0 4px;
   min-height: 34px;
   padding: 0 10px;
-  border: 1px dashed var(--line);
-  color: var(--accent-ink);
+  border: 1px dashed var(--text);
+  color: var(--text);
   background: transparent;
   box-shadow: none;
 }
@@ -631,20 +635,21 @@ svg {
   opacity: 0.55;
 }
 .branch-create:hover:not(:disabled) {
-  background: var(--accent-tint);
-  border-color: var(--accent);
+  background: var(--surface);
+  border-color: var(--text);
+  color: var(--text);
 }
 .branch-create .branch-name {
   min-width: 0;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--accent-ink);
+  color: var(--text);
   font-weight: 500;
 }
 .branch-create .branch-icon,
 .branch-create svg {
-  color: var(--accent-ink);
+  color: var(--text);
 }
 .branch-tree {
   color: var(--disabled);
@@ -1005,22 +1010,53 @@ h1 {
   padding-bottom: 90px;
 }
 .floating-pager {
-  position: absolute;
-  right: 24px;
-  bottom: 16px;
+  position: fixed;
+  left: 50%;
+  right: auto;
+  bottom: 24px;
   z-index: 20;
+  transform: translateX(-50%);
 }
 .floating-pager .pager {
   margin: 0;
-  padding: 4px;
-  gap: 2px;
-  border-radius: var(--radius-lg);
-  background: var(--bg);
-  box-shadow: var(--menu-shadow);
+  padding: 6px;
+  gap: 4px;
+  min-width: 280px;
+  border-radius: 12px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+}
+.floating-pager .pager-button {
+  height: 34px;
+  padding: 0 12px;
+  color: inherit;
+  opacity: 0.76;
+  font-size: 12.5px;
+}
+.floating-pager .pager-button:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.2);
+  color: inherit;
+  opacity: 1;
+}
+.floating-pager .pager-button:disabled {
+  color: inherit;
+  opacity: 0.3;
+}
+.floating-pager .pager-button svg {
+  width: 13px;
+  height: 13px;
 }
 .floating-pager .pager-info {
-  flex: none;
-  padding: 0 8px;
+  flex: 1;
+  padding: 0 12px;
+  color: inherit;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-align: center;
+  opacity: 0.9;
 }
 .pager {
   display: flex;
@@ -1091,20 +1127,20 @@ h1 {
 }
 .row-create {
   margin-bottom: 4px;
-  border: 1px dashed var(--line);
+  border: 1px solid var(--text);
   border-radius: var(--radius);
   box-shadow: none;
-  color: var(--accent-ink);
+  color: var(--text);
 }
 .row-create:hover {
-  background: var(--accent-tint);
-  border-color: var(--accent);
+  background: var(--surface);
+  border-color: var(--text);
 }
 .row-create > svg:first-child {
-  color: var(--accent-ink);
+  color: var(--text);
 }
 .row-create .row-copy strong {
-  color: var(--accent-ink);
+  color: var(--text);
   font-weight: 500;
 }
 .row-item.selected {
@@ -1116,6 +1152,9 @@ h1 {
 }
 .row-item > svg:first-child {
   color: var(--muted);
+}
+.row-item.row-create > svg:first-child {
+  color: var(--text);
 }
 .row-item.selected > svg:first-child {
   color: var(--accent);
@@ -1309,10 +1348,6 @@ h1 {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-}
-.message.assistant.continued {
-  padding-left: 34px;
-  margin-top: -8px;
 }
 .assistant-mark {
   flex: none;
@@ -3294,19 +3329,19 @@ button.image-job-visual { cursor: pointer; }
   .message.user {
     max-width: 90%;
   }
-  .message.assistant.continued {
-    padding-left: 30px;
-  }
   .queue-panel {
     margin-bottom: 6px;
   }
   .floating-pager {
-    left: 12px;
-    right: 12px;
-    bottom: 10px;
+    left: 50%;
+    right: auto;
+    bottom: 14px;
+    width: calc(100vw - 24px);
+    max-width: 360px;
   }
   .floating-pager .pager {
     justify-content: space-between;
+    min-width: 0;
   }
   #page.with-pager {
     padding-bottom: 82px;

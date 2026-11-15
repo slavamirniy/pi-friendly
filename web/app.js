@@ -641,12 +641,15 @@ function wireChrome() {
       }
       await api("voice", { chat: state.active?.id }, 20000);
     });
-  document.addEventListener("click", (event) => {
+  const collapseRecent = (target) => {
     if (!recentExpanded) return;
-    if ($("recent-projects").contains(event.target)) return;
+    if (target && $("recent-projects").contains(target)) return;
     recentExpanded = false;
     renderBranches();
-  });
+  };
+  document.addEventListener("click", (event) => collapseRecent(event.target));
+  document.addEventListener("focusin", (event) => collapseRecent(event.target));
+  document.addEventListener("pointerdown", (event) => collapseRecent(event.target), true);
   document.addEventListener("keydown", (event) => {
     if (
       event.key === "Escape" &&
@@ -911,7 +914,7 @@ function renderRecentProjects() {
     toggle.onclick = (event) => {
       event.stopPropagation();
       recentExpanded = true;
-      renderRecentProjects();
+      renderBranches();
     };
     list.append(toggle);
   }
@@ -1595,6 +1598,41 @@ function renderMessages() {
   const frag = document.createDocumentFragment();
   const messages = state.messages || [];
   let previousAssistant = false;
+  let assistantContent = null;
+  let assistantText = "";
+  let assistantStreaming = false;
+  let assistantAnswer = null;
+
+  const finishAssistant = () => {
+    if (!assistantContent) return;
+    if (assistantStreaming && assistantAnswer) {
+      assistantAnswer.append(el("span", "▍", "typing-caret"));
+    }
+    if (assistantStreaming) {
+      const quota = Number.isFinite(state.routerProgress?.quota)
+        ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
+        : Number.isFinite(state.billing?.account?.available)
+          ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
+          : "";
+      const meta = [progressTime(), quota].filter(Boolean).join(" · ");
+      const generation = el("div", null, "inline-generation");
+      generation.append(el("span", null, "inline-generation-spinner"));
+      if (meta) generation.append(el("span", meta, "inline-generation-meta"));
+      assistantContent.append(generation);
+    } else if (assistantText) {
+      const foot = el("div", null, "assistant-foot");
+      const copy = el("button", null, "copy-btn");
+      copy.type = "button";
+      copy.append(icon("copy"), el("span", "Копировать"));
+      copy.onclick = () => copyText(assistantText);
+      foot.append(copy);
+      assistantContent.append(foot);
+    }
+    assistantContent = null;
+    assistantText = "";
+    assistantStreaming = false;
+    assistantAnswer = null;
+  };
 
   messages.forEach((message, index) => {
     if (
@@ -1606,8 +1644,10 @@ function renderMessages() {
     )
       return;
     const user = message.role === "user";
-    if (user) previousAssistant = false;
-    const continued = !user && previousAssistant;
+    if (user) {
+      finishAssistant();
+      previousAssistant = false;
+    }
     const nextUser = messages.findIndex((item, position) => position > index && item.role === "user");
     const historical = nextUser >= 0;
     const recovered = messages
@@ -1617,11 +1657,11 @@ function renderMessages() {
     if (message.error && !showFailure && !message.text && !message.thinking && !message.tools?.length)
       return;
 
-    const row = el("article", null, "message " + (user ? "user" : "assistant") + (continued ? " continued" : ""));
-    row.dataset.index = String(index);
     const messageKey = (state.active?.id || "") + ":" + index;
 
     if (user) {
+      const row = el("article", null, "message user");
+      row.dataset.index = String(index);
       const wrapper = el("div", null, "user-message-wrapper");
       if (editingIndex === index) {
         wrapper.append(editBox(message, index));
@@ -1656,10 +1696,21 @@ function renderMessages() {
         }
       }
       row.append(wrapper);
+      frag.append(row);
     } else {
-      const mark = el("div", null, "assistant-mark");
-      mark.textContent = "π";
-      const content = el("div", null, "assistant-body");
+      let content = assistantContent;
+      if (!content) {
+        const row = el("article", null, "message assistant");
+        row.dataset.index = String(index);
+        const mark = el("div", null, "assistant-mark");
+        mark.textContent = "π";
+        content = el("div", null, "assistant-body");
+        row.append(mark, content);
+        frag.append(row);
+        assistantContent = content;
+      }
+      assistantText += (assistantText && message.text ? "\n\n" : "") + (message.text || "");
+      assistantStreaming = message.status === "streaming";
       if (message.thinking) {
         const body = el("div", null, "reasoning-text");
         markdown(body, message.thinking);
@@ -1675,11 +1726,7 @@ function renderMessages() {
       }
       const answer = el("div", null, "answer");
       markdown(answer, message.text || "");
-      if (message.status === "streaming" && message.text) {
-        const caret = el("span", "▍", "typing-caret");
-        caret.setAttribute("aria-hidden", "true");
-        answer.append(caret);
-      }
+      if (message.text) assistantAnswer = answer;
       content.append(answer);
       if (message.status === "streaming" && !message.text && !message.thinking && !message.tools?.length) {
         const skeleton = el("div", null, "stream-skeleton");
@@ -1743,33 +1790,10 @@ function renderMessages() {
           ),
         );
       }
-      if (message.status === "streaming") {
-        const quota = Number.isFinite(state.routerProgress?.quota)
-          ? `${state.routerProgress.estimated ? "≈" : ""}${state.routerProgress.quota.toLocaleString("ru-RU")} квоты`
-          : Number.isFinite(state.billing?.account?.available)
-            ? `${state.billing.account.available.toLocaleString("ru-RU")} доступно`
-            : "";
-        const meta = [progressTime(), quota].filter(Boolean).join(" · ");
-        const generation = el("div", null, "inline-generation");
-        generation.append(el("span", null, "inline-generation-spinner"));
-        if (meta) generation.append(el("span", meta, "inline-generation-meta"));
-        content.append(generation);
-      }
-      const foot = el("div", null, "assistant-foot");
-      if (message.status !== "streaming" && message.text) {
-        const copy = el("button", null, "copy-btn");
-        copy.type = "button";
-        copy.append(icon("copy"), el("span", "Копировать"));
-        copy.onclick = () => copyText(message.text);
-        foot.append(copy);
-      }
-      if (foot.childNodes.length) content.append(foot);
-      if (!continued) row.append(mark);
-      row.append(content);
       previousAssistant = true;
     }
-    frag.append(row);
   });
+  finishAssistant();
 
   if (state.active && state.ready === false && !state.busy) {
     const connecting = el("div", null, "inline-generation connecting");
