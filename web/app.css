@@ -4357,3 +4357,20 @@ button.image-job-visual { cursor: pointer; }
 .user-bubble a:hover {
   color: var(--link-hover);
 }
+
+.image-panel-head {
+  height: 42px;
+  padding: 0 12px;
+  gap: 8px;
+  box-shadow: none;
+}
+.image-panel-head h2 { font-size: 14px; }
+.image-panel-title { gap: 6px; }
+.image-panel-title svg { width: 15px; height: 15px; }
+.image-count-badge {
+  height: 18px;
+  min-width: 20px;
+  padding: 0 6px;
+  font-size: 9.5px;
+}
+.image-panel .gallery-tabs { margin: 0 10px 8px; }
