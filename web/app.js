@@ -2530,14 +2530,16 @@ function renderPanelSkeletons() {
     key: job.id,
     label: Math.round(job.progress) + "%",
   }));
-  for (const message of state.messages || []) {
-    for (const tool of message.tools || []) {
-      if (
-        tool.name === "generate_image" &&
-        (tool.status === "running" || tool.status === "pending") &&
-        !tool.images?.length
-      ) {
-        entries.push({ key: "tool:" + (tool.id || tool.label || "image"), label: "Генерация" });
+  if (state.busy) {
+    for (const message of state.messages || []) {
+      for (const tool of message.tools || []) {
+        if (
+          tool.name === "generate_image" &&
+          (tool.status === "running" || tool.status === "pending") &&
+          !tool.images?.length
+        ) {
+          entries.push({ key: "tool:" + (tool.id || tool.label || "image"), label: "Генерация" });
+        }
       }
     }
   }
