@@ -120,6 +120,7 @@ let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
 let imageRefreshPending = false;
+let imageRefreshQueued = false;
 try {
   queueCollapsed = localStorage.getItem("pf-queue-collapsed") === "1";
 } catch {}
@@ -2322,7 +2323,10 @@ function updateImageBadge() {
 }
 
 async function refreshImageLibrary() {
-  if (imageRefreshPending) return;
+  if (imageRefreshPending) {
+    imageRefreshQueued = true;
+    return;
+  }
   imageRefreshPending = true;
   try {
     const project = activeProjectId();
@@ -2345,6 +2349,10 @@ async function refreshImageLibrary() {
     }
   } finally {
     imageRefreshPending = false;
+    if (imageRefreshQueued) {
+      imageRefreshQueued = false;
+      void refreshImageLibrary();
+    }
   }
 }
 
