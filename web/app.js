@@ -575,7 +575,7 @@ function wireChrome() {
     event.preventDefault();
     navigate("projects");
   };
-  $("image-open").onclick = () => openImageCompose();
+  $("image-open").onclick = () => openImagePanel();
   $("image-gallery-open").onclick = () => openImagePanel();
   $("image-compose-back").onclick = () => closeImageCompose();
   $("image-compose-gallery").onclick = () => {
