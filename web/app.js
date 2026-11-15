@@ -618,7 +618,12 @@ function wireChrome() {
     event.preventDefault();
     if (!$("panel-generate").disabled) generatePanelImage();
   };
-  $("panel-prompt").oninput = () => updatePanelGenerateButton();
+  $("panel-prompt").oninput = () => {
+    const area = $("panel-prompt");
+    area.style.height = "auto";
+    area.style.height = `${Math.min(area.scrollHeight, 200)}px`;
+    updatePanelGenerateButton();
+  };
   $("panel-prompt").onkeydown = (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
     event.preventDefault();
@@ -2664,7 +2669,7 @@ function runImageJob(job) {
       job.status = "done";
       job.progress = 100;
       job.image = result.image;
-      if (job.surface === "panel" && imagePanelOpen) {
+      if (job.surface === "panel" && imagePanelOpen && imageGallerySelected) {
         imageGallerySelected = result.image;
         imageGalleryScope = "chat";
         renderGallery();
