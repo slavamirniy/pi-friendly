@@ -2028,7 +2028,8 @@ function openGallery() {
     showHint("Сначала выберите проект.", true);
     return;
   }
-  if (!state.active?.sessionId) imageGalleryScope = "project";
+  const chatId = state.active?.sessionId;
+  if (!chatId || !imageImages.some((image) => image.chatId === chatId)) imageGalleryScope = "project";
   imageGallerySelected = null;
   $("image-gallery").showModal();
   renderGallery();
@@ -2041,6 +2042,7 @@ function openGalleryAt(image) {
     return;
   }
   imageGallerySelected = image;
+  imageGalleryScope = image.chatId && image.chatId !== state.active?.sessionId ? "project" : "chat";
   if (!$("image-gallery").open) $("image-gallery").showModal();
   renderGallery();
   refreshImageLibrary();
@@ -2054,9 +2056,13 @@ function galleryTabs() {
 function renderGallery() {
   galleryTabs();
   const selected = imageGallerySelected;
+  const chatId = state.active?.sessionId;
+  const images = imageGalleryScope === "chat" && chatId
+    ? imageImages.filter((image) => image.chatId === chatId)
+    : imageImages;
   $("gallery-grid").hidden = Boolean(selected);
   $("gallery-view").hidden = !selected;
-  $("gallery-count").textContent = selected ? "" : String(imageImages.length);
+  $("gallery-count").textContent = selected ? "" : String(images.length);
   if (selected) {
     const image = selected;
     $("gallery-image").src = imageUrl(image);
@@ -2074,10 +2080,6 @@ function renderGallery() {
 
   const grid = $("gallery-grid");
   grid.replaceChildren();
-  const chatId = state.active?.sessionId;
-  const images = imageGalleryScope === "chat" && chatId
-    ? imageImages.filter((image) => image.chatId === chatId)
-    : imageImages;
   if (!images.length) {
     const empty = el("div", null, "gallery-empty");
     empty.append(
