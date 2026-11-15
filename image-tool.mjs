@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import http from "node:http";
+import https from "node:https";
 import { mkdir, open, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -69,12 +71,60 @@ function validateSize(size) {
   return size;
 }
 
+async function bodyBuffer(body) {
+  if (body instanceof FormData) {
+    const boundary = "----pi" + randomUUID();
+    const chunks = [];
+    for (const [name, value] of body.entries()) {
+      if (typeof value === "string") {
+        chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+      } else {
+        const data = Buffer.from(await value.arrayBuffer());
+        const filename = value.name || "blob";
+        const type = value.type || "application/octet-stream";
+        chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${filename}"\r\nContent-Type: ${type}\r\n\r\n`));
+        chunks.push(data, Buffer.from("\r\n"));
+      }
+    }
+    chunks.push(Buffer.from(`--${boundary}--\r\n`));
+    return { data: Buffer.concat(chunks), contentType: `multipart/form-data; boundary=${boundary}` };
+  }
+  return { data: Buffer.isBuffer(body) ? body : Buffer.from(body || ""), contentType: null };
+}
+
+async function nativeFetch(url, options = {}) {
+  const target = new URL(url);
+  const lib = target.protocol === "https:" ? https : http;
+  const { data, contentType } = await bodyBuffer(options.body);
+  const headers = { ...(options.headers || {}) };
+  if (contentType) headers["Content-Type"] = contentType;
+  headers["Content-Length"] = String(data.length);
+  if (!Object.keys(headers).some((key) => key.toLowerCase() === "accept-encoding")) headers["Accept-Encoding"] = "identity";
+  return new Promise((resolve, reject) => {
+    const request = lib.request(target, { method: options.method || "GET", headers }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        resolve(new Response(Buffer.concat(chunks), { status: response.statusCode || 0, headers: response.headers }));
+      });
+    });
+    const abort = () => request.destroy(new Error("Запрос прерван."));
+    if (options.signal) {
+      if (options.signal.aborted) abort();
+      else options.signal.addEventListener("abort", abort, { once: true });
+      request.on("close", () => options.signal.removeEventListener("abort", abort));
+    }
+    request.on("error", reject);
+    request.end(data);
+  });
+}
+
 export async function runImageTool(
-  { prompt, source, size, idempotencyKey, sessionId },
+  { prompt, source, sources, size, idempotencyKey, sessionId },
   cwd,
   connection,
   signal,
-  fetcher = fetch,
+  fetcher = nativeFetch,
   options = {},
 ) {
   if (typeof prompt !== "string" || !prompt.trim() || Buffer.byteLength(prompt) > 32000)
@@ -103,43 +153,48 @@ export async function runImageTool(
     "Idempotency-Key": key,
   };
   let body;
-  let sourcePath;
-  if (source) {
-    const path = await realpath(resolve(root, source));
-    const rel = relative(root, path);
-    if (!rel || rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel))
-      throw new Error("Исходное изображение должно находиться в папке проекта.");
-    const file = await open(path, "r");
-    try {
-      const stat = await file.stat();
-      if (!stat.isFile() || stat.size > 11 * 1024 * 1024)
-        throw new Error("Выберите PNG или JPEG до 11 МБ.");
-      const data = await file.readFile();
-      const jpeg = data[0] === 0xff && data[1] === 0xd8;
-      sourcePath = rel.split(sep).join("/");
-      body = new FormData();
-      for (const [field, value] of Object.entries(fields)) body.set(field, String(value));
-      body.set(
-        "image",
-        new Blob([data], { type: jpeg ? "image/jpeg" : "image/png" }),
-        jpeg ? "input.jpg" : "input.png",
-      );
-    } finally {
-      await file.close();
+  const refs = (Array.isArray(sources) ? sources : source ? [source] : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const sourcePaths = [];
+  if (refs.length) {
+    body = new FormData();
+    for (const [field, value] of Object.entries(fields)) body.set(field, String(value));
+    for (const ref of refs) {
+      const path = await realpath(resolve(root, ref));
+      const rel = relative(root, path);
+      if (!rel || rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel))
+        throw new Error("Исходное изображение должно находиться в папке проекта.");
+      const file = await open(path, "r");
+      try {
+        const stat = await file.stat();
+        if (!stat.isFile() || stat.size > 11 * 1024 * 1024)
+          throw new Error("Выберите PNG или JPEG до 11 МБ.");
+        const data = await file.readFile();
+        const jpeg = data[0] === 0xff && data[1] === 0xd8;
+        sourcePaths.push(rel.split(sep).join("/"));
+        body.append(
+          "image",
+          new Blob([data], { type: jpeg ? "image/jpeg" : "image/png" }),
+          `${jpeg ? "input" : "input"}-${sourcePaths.length}.${jpeg ? "jpg" : "png"}`,
+        );
+      } finally {
+        await file.close();
+      }
     }
   } else {
     body = JSON.stringify(fields);
     headers["Content-Type"] = "application/json";
   }
   url.pathname =
-    url.pathname.replace(/\/$/, "") + (source ? "/images/edits" : "/images/generations");
-  const timeout = AbortSignal.timeout(610000);
+    url.pathname.replace(/\/$/, "") + (sourcePaths.length ? "/images/edits" : "/images/generations");
   const response = await fetcher(url, {
     method: "POST",
     headers,
     body,
     redirect: "error",
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    signal: signal || undefined,
   });
   const chunks = [];
   let sizeBytes = 0;
@@ -190,7 +245,8 @@ export async function runImageTool(
     format: dimensions.format,
     prompt,
     size: imageSize || null,
-    source: sourcePath || null,
+    source: sourcePaths[0] || null,
+    sources: sourcePaths,
     createdAt: new Date().toISOString(),
     chatId: session,
     requestId: key,

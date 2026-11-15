@@ -52,3 +52,21 @@ test('image tool rejects invalid size and reports insufficient quota',async t=>{
  await assert.rejects(runImageTool({prompt:'x',size:'100x100'},cwd,connection,undefined,async()=>Response.json({})),/размер/);
  await assert.rejects(runImageTool({prompt:'x'},cwd,connection,undefined,async()=>Response.json({error:{code:'insufficient_quota',message:'Мало кредитов'}},{status:402})),(error)=>{assert.equal(error.status,402);assert.equal(error.code,'insufficient_quota');return /Мало кредитов/.test(error.message);});
 });
+
+test('image tool sends multiple reference images',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'pi-image-'));
+ t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const data=Buffer.from(png,'base64');
+ await (await import('node:fs/promises')).writeFile(join(cwd,'a.png'),data);
+ await (await import('node:fs/promises')).writeFile(join(cwd,'b.png'),data);
+ let images=0;
+ const fake=async(url,opts)=>{
+  assert.equal(url.pathname,'/v1/images/edits');
+  assert.equal(opts.body.getAll('image').length,2);
+  images=opts.body.getAll('image').length;
+  return Response.json({data:[{b64_json:png}]});
+ };
+ const result=await runImageTool({prompt:'совмести',sources:['a.png','b.png'],size:'1024x1024'},cwd,{baseURL:'https://router.example/v1',apiKey:'test'},undefined,fake);
+ assert.equal(images,2);
+ assert.deepEqual(result.details.image.sources,['a.png','b.png']);
+});

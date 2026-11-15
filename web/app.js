@@ -111,6 +111,9 @@ let imageComposeOpen = false;
 let imagePanelOpen = false;
 let imageWorkspaceChatId = null;
 let imageSourceUploading = false;
+let panelRefs = [];
+let galleryRendered = 0;
+const GALLERY_BATCH = 12;
 let imageJobs = [];
 let imageProgressTimer = null;
 try {
@@ -232,7 +235,7 @@ function run(label, fn) {
 
 async function api(path, data, timeout = 30000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(), Math.min(timeout, 0x7fffffff)) : null;
   try {
     const response = await fetch("/api/" + path, {
       method: data === undefined ? "GET" : "POST",
@@ -255,13 +258,13 @@ async function api(path, data, timeout = 30000) {
     return value;
   } catch (error) {
     if (error.name === "AbortError")
-      throw new Error(`pi не ответил за ${Math.round(timeout / 1000)} с. Попробуйте ещё раз.`);
+      throw new Error(timeout > 0 ? `pi не ответил за ${Math.round(timeout / 1000)} с. Попробуйте ещё раз.` : "Запрос прерван.");
     if (!navigator.onLine) throw new Error("Нет сети. Проверьте подключение.");
     if (/Failed to fetch|NetworkError|load failed/i.test(error.message))
       throw new Error("Нет соединения с pi. Убедитесь, что программа запущена.");
     throw error;
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -326,21 +329,47 @@ function renderProgress() {
 
 /* ============================== markdown ============================== */
 
+function appendMarkdownLink(parent, label, href) {
+  const link = el("a", label);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  parent.append(link);
+}
+
+function trimLinkTail(value) {
+  let href = value;
+  let tail = "";
+  while (/[.,;:!?]$/.test(href)) {
+    tail = href.slice(-1) + tail;
+    href = href.slice(0, -1);
+  }
+  while (href.endsWith(")") && (href.match(/\(/g) || []).length < (href.match(/\)/g) || []).length) {
+    tail = ")" + tail;
+    href = href.slice(0, -1);
+  }
+  return { href, tail };
+}
+
 function inlineMarkdown(parent, text) {
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<>"'`]+)/g;
   let last = 0;
   for (const match of text.matchAll(pattern)) {
     parent.append(document.createTextNode(text.slice(last, match.index)));
     const token = match[0];
-    if (token.startsWith("`")) parent.append(el("code", token.slice(1, -1)));
-    else if (token.startsWith("**")) parent.append(el("strong", token.slice(2, -2)));
-    else {
+    if (token.startsWith("`")) {
+      const inner = token.slice(1, -1);
+      if (/^https?:\/\//i.test(inner)) appendMarkdownLink(parent, inner, inner);
+      else parent.append(el("code", inner));
+    } else if (token.startsWith("**")) {
+      parent.append(el("strong", token.slice(2, -2)));
+    } else if (token.startsWith("[")) {
       const parsed = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-      const link = el("a", parsed[1]);
-      link.href = parsed[2];
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      parent.append(link);
+      if (parsed) appendMarkdownLink(parent, parsed[1], parsed[2]);
+    } else {
+      const { href, tail } = trimLinkTail(token);
+      appendMarkdownLink(parent, href, href);
+      if (tail) parent.append(document.createTextNode(tail));
     }
     last = match.index + token.length;
   }
@@ -568,7 +597,7 @@ function wireChrome() {
   $("image-file-input").onchange = (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) uploadImageSource(file);
+    if (file) uploadImageSource(file, "compose");
   };
   const resizeImagePrompt = () => {
     const area = $("image-prompt");
@@ -595,19 +624,22 @@ function wireChrome() {
     event.preventDefault();
     if (!$("panel-generate").disabled) generatePanelImage();
   };
-  $("panel-source-remove").onclick = () => showGalleryGrid();
+  $("panel-ref-add").onclick = () => $("panel-file-input").click();
+  $("panel-file-input").onchange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) uploadImageSource(file, "panel");
+  };
   $("gallery-close").onclick = () => closeImagePanel();
   $("gallery-chat").onclick = () => {
     imageGalleryScope = "chat";
     imageGallerySelected = null;
-    updatePanelSource();
-    renderGallery();
+    renderGallery({ reset: true });
   };
   $("gallery-project").onclick = () => {
     imageGalleryScope = "project";
     imageGallerySelected = null;
-    updatePanelSource();
-    renderGallery();
+    renderGallery({ reset: true });
   };
   $("gallery-back").onclick = () => showGalleryGrid();
   $("gallery-edit").onclick = () => {
@@ -627,6 +659,45 @@ function wireChrome() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("image-source-menu").hidden) closeSourceMenu();
   });
+  const imageDropData = (event) => {
+    const path = event.dataTransfer.getData("application/x-pf-image") || event.dataTransfer.getData("text/plain");
+    if (!path) return null;
+    return imageImages.find((image) => image.path === path) || { path, name: imageName(path) };
+  };
+  const wireImageDrop = (zone, target) => {
+    if (!zone) return;
+    const highlight = () => $("panel-refs-drop")?.classList.add("drop-target");
+    const clear = () => $("panel-refs-drop")?.classList.remove("drop-target");
+    zone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      highlight();
+    });
+    zone.addEventListener("dragleave", (event) => {
+      if (zone.contains(event.relatedTarget)) return;
+      clear();
+    });
+    zone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      clear();
+      const image = imageDropData(event);
+      if (image) {
+        if (target === "panel") addPanelRef(image);
+        else setImageSource(image);
+        return;
+      }
+      const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
+      if (file) uploadImageSource(file, target);
+    });
+  };
+  wireImageDrop($("panel-refs-drop"), "panel");
+  wireImageDrop($("panel-prompt-form"), "panel");
+  wireImageDrop(document.querySelector(".compose-ref-row"), "compose");
+  $("gallery-grid").onscroll = () => {
+    const grid = $("gallery-grid");
+    if (!imagePanelOpen || imageGallerySelected || grid.hidden) return;
+    if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 160) appendGalleryBatch();
+  };
   $("gallery-delete").onclick = () => {
     if (!imageGallerySelected) return;
     pendingImageDelete = { project: activeProjectId(), image: imageGallerySelected };
@@ -2100,7 +2171,10 @@ async function refreshImageLibrary() {
     imageImages = result.images || [];
   } catch {}
   updateImageBadge();
-  if ($("image-panel") && !$("image-panel").hidden) renderGallery();
+  if ($("image-panel") && !$("image-panel").hidden) {
+    if (imageGallerySelected) renderGallery();
+    else renderGallery({ reset: true });
+  }
   if ($("image-source-menu") && !$("image-source-menu").hidden && !$("image-source-generated-list").hidden) {
     renderSourceMenuGallery();
   }
@@ -2181,9 +2255,10 @@ function openImagePanel() {
   const chatId = state.active?.sessionId;
   if (!chatId || !imageImages.some((image) => image.chatId === chatId)) imageGalleryScope = "project";
   imageGallerySelected = null;
-  updatePanelSource();
+  panelRefs = [];
+  renderPanelRefs();
   renderImageWorkspace();
-  renderGallery();
+  renderGallery({ reset: true });
   renderPanelJobs();
   refreshImageLibrary();
 }
@@ -2198,7 +2273,7 @@ function openImagePanelAt(image) {
   imageWorkspaceChatId = state.active?.id || null;
   imageGallerySelected = image;
   imageGalleryScope = image.chatId && image.chatId !== state.active?.sessionId ? "project" : "chat";
-  updatePanelSource();
+  if (image?.path) addPanelRef(image);
   renderImageWorkspace();
   renderGallery();
   renderPanelJobs();
@@ -2208,7 +2283,8 @@ function openImagePanelAt(image) {
 function closeImagePanel() {
   imagePanelOpen = false;
   imageGallerySelected = null;
-  updatePanelSource();
+  panelRefs = [];
+  renderPanelRefs();
   renderImageWorkspace();
   $("draft").focus({ preventScroll: true });
 }
@@ -2225,14 +2301,13 @@ function galleryImages() {
     : imageImages;
 }
 
-function renderGallery() {
+function renderGallery({ reset = false } = {}) {
   galleryTabs();
   const selected = imageGallerySelected;
   const images = galleryImages();
   $("gallery-grid").hidden = Boolean(selected);
   $("gallery-view").hidden = !selected;
-  $("gallery-count").textContent = selected ? "" : String(images.length);
-  if (!selected) updatePanelSource();
+  $("gallery-count").textContent = String(images.length);
   if (selected) {
     const image = selected;
     $("gallery-image").src = imageUrl(image);
@@ -2245,88 +2320,118 @@ function renderGallery() {
     $("gallery-download").download = imageName(image.path);
     $("gallery-edit").disabled = !image.path;
     $("gallery-delete").disabled = !image.path;
-    updatePanelSource();
     return;
   }
 
   const grid = $("gallery-grid");
-  grid.replaceChildren();
+  if (reset) {
+    grid.replaceChildren();
+    grid.scrollTop = 0;
+    galleryRendered = 0;
+  }
   if (!images.length) {
-    const empty = el("div", null, "gallery-empty");
-    empty.append(
-      el("strong", imageGalleryScope === "chat" ? "В этом чате пока нет изображений" : "В проекте пока нет изображений"),
-      el("span", "Напишите запрос внизу панели, чтобы создать первое."),
-    );
-    grid.append(empty);
+    if (!grid.childNodes.length) {
+      const empty = el("div", null, "gallery-empty");
+      empty.append(
+        el("strong", imageGalleryScope === "chat" ? "В этом чате пока нет изображений" : "В проекте пока нет изображений"),
+        el("span", "Напишите запрос внизу панели или перетащите картинку в референсы."),
+      );
+      grid.append(empty);
+    }
     return;
   }
+  if (!grid.childNodes.length) appendGalleryBatch();
+}
 
-  const card = (image) => {
-    const button = el("button", null, "gallery-card");
-    button.type = "button";
-    button.title = image.prompt || "Изображение";
-    const img = el("img");
-    img.src = imageUrl(image);
-    img.loading = "lazy";
-    img.alt = image.prompt || "Изображение";
-    const copy = el("span", null, "gallery-card-copy");
-    copy.append(el("strong", (image.prompt || "Изображение").slice(0, 90)));
-    copy.append(el("small", imageMeta(image)));
-    button.append(img, copy);
-    button.onclick = () => openGalleryImage(image);
-    return button;
+function galleryCard(image) {
+  const button = el("button", null, "gallery-card");
+  button.type = "button";
+  button.draggable = true;
+  button.title = image.prompt || "Изображение";
+  const img = el("img");
+  img.src = imageUrl(image);
+  img.loading = "lazy";
+  img.alt = image.prompt || "Изображение";
+  if (image.width && image.height) img.style.aspectRatio = `${image.width} / ${image.height}`;
+  button.append(img);
+  button.onclick = () => openGalleryImage(image);
+  button.ondragstart = (event) => {
+    if (!image.path) return;
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-pf-image", image.path);
+    event.dataTransfer.setData("text/image-url", imageUrl(image));
+    event.dataTransfer.setData("text/plain", image.path);
   };
+  return button;
+}
 
-  if (imageGalleryScope === "project") {
-    const groups = new Map();
-    for (const image of images) {
-      const key = image.chatId || "chat";
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(image);
-    }
-    for (const [, group] of groups) {
-      const section = el("div", null, "gallery-group");
-      section.append(el("div", group[0].chatName || "Чат", "gallery-group-title"));
-      const row = el("div", null, "gallery-cards");
-      for (const image of group) row.append(card(image));
-      section.append(row);
-      grid.append(section);
-    }
-    return;
+function appendGalleryBatch() {
+  const grid = $("gallery-grid");
+  if (!grid || imageGallerySelected) return;
+  const images = galleryImages();
+  const end = Math.min(images.length, galleryRendered + GALLERY_BATCH);
+  if (galleryRendered >= end) return;
+  const frag = document.createDocumentFragment();
+  for (let index = galleryRendered; index < end; index += 1) frag.append(galleryCard(images[index]));
+  grid.append(frag);
+  galleryRendered = end;
+  if (galleryRendered < images.length && grid.scrollHeight <= grid.clientHeight + 10) {
+    appendGalleryBatch();
   }
-  const row = el("div", null, "gallery-cards");
-  for (const image of images) row.append(card(image));
-  grid.append(row);
 }
 
 function openGalleryImage(image) {
   imageGallerySelected = image;
-  updatePanelSource();
   renderGallery();
 }
 
 function showGalleryGrid() {
   imageGallerySelected = null;
-  updatePanelSource();
-  renderGallery();
+  renderGallery({ reset: true });
 }
 
-function updatePanelSource() {
-  const box = $("panel-source");
-  const name = $("panel-source-name");
-  const prompt = $("panel-prompt");
-  if (!box || !name || !prompt) return;
-  if (!imageGallerySelected) {
-    box.hidden = true;
-    name.textContent = "";
-    prompt.placeholder = "Опишите изображение…";
+function addPanelRef(source) {
+  const ref = normalizeImageSource(source);
+  if (!ref || !ref.path) return;
+  if (panelRefs.some((item) => item.path === ref.path)) return;
+  if (panelRefs.length >= 4) {
+    showHint("Можно добавить до четырёх референсов.", true);
     return;
   }
-  box.hidden = false;
-  name.textContent = imageName(imageGallerySelected.path);
-  prompt.placeholder = "Опишите изменения…";
+  panelRefs.push(ref);
+  renderPanelRefs();
 }
 
+function removePanelRef(path) {
+  panelRefs = panelRefs.filter((item) => item.path !== path);
+  renderPanelRefs();
+}
+
+function renderPanelRefs() {
+  const box = $("panel-refs");
+  const prompt = $("panel-prompt");
+  if (!box) return;
+  box.replaceChildren();
+  for (const ref of panelRefs) {
+    const item = el("div", null, "panel-ref");
+    item.title = ref.name || imageName(ref.path);
+    const img = el("img");
+    img.src = imageUrl(ref);
+    img.alt = item.title;
+    const remove = el("button", null, "panel-ref-remove");
+    remove.type = "button";
+    remove.textContent = "✕";
+    remove.title = "Убрать референс";
+    remove.setAttribute("aria-label", "Убрать референс");
+    remove.onclick = (event) => {
+      event.stopPropagation();
+      removePanelRef(ref.path);
+    };
+    item.append(img, remove);
+    box.append(item);
+  }
+  if (prompt) prompt.placeholder = panelRefs.length ? "Опишите изменения…" : "Опишите изображение…";
+}
 function renderImageSource() {
   const list = $("image-ref-list");
   if (!list) return;
@@ -2399,7 +2504,7 @@ function renderSourceMenuGallery() {
   }
 }
 
-async function uploadImageSource(file) {
+async function uploadImageSource(file, target = "compose") {
   if (!file) return;
   if (!/image\/(png|jpeg)/.test(file.type) && !/\.(png|jpe?g)$/i.test(file.name)) {
     showHint("Выберите PNG или JPEG.", true);
@@ -2418,7 +2523,8 @@ async function uploadImageSource(file) {
     for (let index = 0; index < buffer.length; index += 0x8000)
       binary += String.fromCharCode(...buffer.subarray(index, index + 0x8000));
     const result = await api("image-source", { name: file.name, content: btoa(binary) }, 60000);
-    setImageSource(result);
+    if (target === "panel") addPanelRef(result);
+    else setImageSource(result);
     showHint("Референс добавлен.");
   } catch (error) {
     showHint(error.message, true);
@@ -2440,6 +2546,7 @@ function updatePanelGenerateButton() {
   if (!button) return;
   const loading = imageJobs.some((job) => job.surface === "panel" && job.status === "loading");
   button.disabled = loading || !$("panel-prompt").value.trim();
+  button.textContent = loading ? "Генерирую…" : "Сгенерировать";
   button.setAttribute("aria-busy", String(loading));
 }
 
@@ -2545,12 +2652,13 @@ function runImageJob(job) {
   renderImageJobs();
   renderPanelJobs();
   startImageTimer();
-  api("image/generate", {
+  api("image-generate", {
     prompt: job.prompt,
     size: job.size,
     source: job.source,
+    sources: job.sources,
     requestId: job.id,
-  }, 620000)
+  }, 0)
     .then((result) => {
       if (!result?.image) throw new Error("Роутер не вернул изображение.");
       job.status = "done";
@@ -2559,7 +2667,6 @@ function runImageJob(job) {
       if (job.surface === "panel" && imagePanelOpen) {
         imageGallerySelected = result.image;
         imageGalleryScope = "chat";
-        updatePanelSource();
         renderGallery();
       }
     })
@@ -2604,6 +2711,7 @@ function generateImages() {
       prompt,
       size,
       source,
+      sources: source ? [source] : undefined,
       status: "loading",
       progress: 4,
       startedAt: Date.now(),
@@ -2627,12 +2735,14 @@ function generatePanelImage() {
     showHint("Сначала откройте чат в проекте.", true);
     return;
   }
+  const sources = panelRefs.map((ref) => ref.path);
   const job = {
     id: crypto.randomUUID(),
     surface: "panel",
     prompt,
     size: $("panel-aspect").value,
-    source: imageGallerySelected?.path || undefined,
+    source: sources[0],
+    sources: sources.length ? sources : undefined,
     status: "loading",
     progress: 4,
     startedAt: Date.now(),
@@ -2651,6 +2761,7 @@ function toolImageGrid(images) {
   for (const image of images) {
     const button = el("button", null, "tool-image");
     button.type = "button";
+    button.draggable = true;
     button.title = "Открыть изображение";
     const img = el("img");
     img.src = imageUrl(image);
@@ -2658,6 +2769,12 @@ function toolImageGrid(images) {
     img.alt = image.prompt || "Изображение";
     button.append(img);
     button.onclick = () => openImagePanelAt(image);
+    button.ondragstart = (event) => {
+      if (!image.path) return;
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-pf-image", image.path);
+      event.dataTransfer.setData("text/image-url", imageUrl(image));
+    };
     box.append(button);
   }
   return box;

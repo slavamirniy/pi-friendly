@@ -471,7 +471,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      try{await unlink(target.replace(/\.[^.]+$/,'.json'));}catch{}
      reply(200,{ok:true});return;
     }
-    if(action==='image-generate'){
+    if(action==='image-generate'||action==='image/generate'){
      if(!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
      if(!generateImage)throw new Error('Генерация изображений не подключена.');
      if(!allProjects.length)await catalog();
@@ -480,7 +480,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      const prompt=String(data.prompt||'').trim();
      if(!prompt)throw new Error('Опишите изображение.');
      try{
-      const result=await generateImage({prompt,size:data.size?String(data.size):undefined,source:data.source?String(data.source):undefined,cwd:project.cwd,sessionId:activeSessionId(),idempotencyKey:data.requestId?String(data.requestId):undefined,signal:AbortSignal.timeout(620000)});
+      const result=await generateImage({prompt,size:data.size?String(data.size):undefined,source:data.source?String(data.source):undefined,sources:Array.isArray(data.sources)?data.sources.map(value=>String(value||'')).filter(Boolean).slice(0,4):undefined,cwd:project.cwd,sessionId:activeSessionId(),idempotencyKey:data.requestId?String(data.requestId):undefined});
       reply(200,{image:result?.details?.image||null,images:result?.details?.images||[]});
      }catch(error){
       reply(error.status===402?402:error.status===409?409:400,{error:error.message,code:error.code,requestId:error.requestId});
