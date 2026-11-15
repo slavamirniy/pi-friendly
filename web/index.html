@@ -214,13 +214,20 @@
           <img id="gallery-image" alt="Сгенерированное изображение">
           <div id="gallery-meta" class="gallery-meta"></div>
           <div class="gallery-actions">
-            <button type="button" id="gallery-edit" class="button">Редактировать</button>
-            <a id="gallery-download" class="button" download>Скачать</a>
-            <button type="button" id="gallery-copy" class="button ghost">Копировать путь</button>
-            <button type="button" id="gallery-delete" class="button danger">Удалить</button>
+            <button type="button" id="gallery-edit" class="button">
+              <span data-icon="edit" aria-hidden="true"></span><span>Редактировать</span>
+            </button>
+            <a id="gallery-download" class="button" download>
+              <span data-icon="download" aria-hidden="true"></span><span>Скачать</span>
+            </a>
+            <button type="button" id="gallery-copy" class="button ghost">
+              <span data-icon="copy" aria-hidden="true"></span><span>Копировать путь</span>
+            </button>
+            <button type="button" id="gallery-delete" class="button danger">
+              <span data-icon="trash" aria-hidden="true"></span><span>Удалить</span>
+            </button>
           </div>
         </div>
-        <div id="panel-jobs" class="image-jobs panel-jobs"></div>
         <form id="panel-prompt-form" class="panel-composer">
           <div id="panel-refs-drop" class="panel-refs-row">
             <div id="panel-refs" class="panel-refs"></div>

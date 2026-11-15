@@ -3907,3 +3907,74 @@ button.image-job-visual { cursor: pointer; }
   font-weight: 500;
   box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
+
+.gallery-skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  aspect-ratio: 1;
+  margin: 0 0 6px;
+  break-inside: avoid;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-raised) 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.gallery-skeleton-spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--text-2);
+  animation: spin 0.8s linear infinite;
+}
+.gallery-skeleton-percent {
+  color: var(--text-2);
+  font: 10px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-panel .gallery-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 14px;
+}
+.image-panel .gallery-actions .button {
+  height: 32px;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--ring);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.image-panel .gallery-actions .button:hover:not(:disabled) {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--text);
+}
+.image-panel .gallery-actions .button svg {
+  width: 13px;
+  height: 13px;
+}
+.image-panel .gallery-actions .button.ghost {
+  background: var(--bg);
+  color: var(--text-2);
+  box-shadow: var(--ring);
+}
+.image-panel .gallery-actions .button.danger {
+  background: var(--bg);
+  color: var(--red-ink);
+  box-shadow: var(--ring);
+}
+.image-panel .gallery-actions .button.danger:hover:not(:disabled) {
+  background: var(--red-tint);
+  color: var(--red-ink);
+  box-shadow: 0 0 0 1px var(--red);
+}

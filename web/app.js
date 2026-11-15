@@ -673,8 +673,15 @@ function wireChrome() {
     if (!zone) return;
     const highlight = () => $("panel-refs-drop")?.classList.add("drop-target");
     const clear = () => $("panel-refs-drop")?.classList.remove("drop-target");
+    zone.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      $("drop-overlay").hidden = true;
+      highlight();
+    });
     zone.addEventListener("dragover", (event) => {
       event.preventDefault();
+      event.stopPropagation();
       event.dataTransfer.dropEffect = "copy";
       highlight();
     });
@@ -684,6 +691,8 @@ function wireChrome() {
     });
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
+      event.stopPropagation();
+      $("drop-overlay").hidden = true;
       clear();
       const image = imageDropData(event);
       if (image) {
@@ -2143,10 +2152,11 @@ function imageName(path) {
 }
 
 function imageMeta(image) {
-  const size = image.width && image.height ? `${image.width}×${image.height}` : "";
-  const format = image.size && image.size !== "auto" ? image.size : "";
+  const actual = image.width && image.height ? `${image.width}×${image.height}` : "";
+  const requested = image.size && image.size !== "auto" ? image.size.replace("x", "×") : "";
+  const size = requested && requested !== actual ? requested : "";
   const date = dateLabel(image.createdAt);
-  return [size, format, date].filter(Boolean).join(" · ");
+  return [actual, size, date].filter(Boolean).join(" · ");
 }
 
 function updateImageBadge() {
@@ -2334,8 +2344,10 @@ function renderGallery({ reset = false } = {}) {
     grid.scrollTop = 0;
     galleryRendered = 0;
   }
+  renderPanelSkeletons();
   if (!images.length) {
-    if (!grid.childNodes.length) {
+    if (!grid.querySelector(".gallery-skeleton")) {
+      grid.replaceChildren();
       const empty = el("div", null, "gallery-empty");
       empty.append(
         el("strong", imageGalleryScope === "chat" ? "В этом чате пока нет изображений" : "В проекте пока нет изображений"),
@@ -2345,7 +2357,37 @@ function renderGallery({ reset = false } = {}) {
     }
     return;
   }
-  if (!grid.childNodes.length) appendGalleryBatch();
+  if (!galleryRendered) appendGalleryBatch();
+}
+
+function panelLoadingJobs() {
+  return imageJobs.filter((job) => job.surface === "panel" && job.status === "loading");
+}
+
+function renderPanelSkeletons() {
+  const grid = $("gallery-grid");
+  if (!grid) return;
+  const jobs = panelLoadingJobs();
+  if (jobs.length) grid.querySelector(".gallery-empty")?.remove();
+  const ids = new Set(jobs.map((job) => job.id));
+  for (const node of grid.querySelectorAll(".gallery-skeleton")) {
+    if (!ids.has(node.dataset.job)) node.remove();
+  }
+  const existing = new Map(
+    [...grid.querySelectorAll(".gallery-skeleton")].map((node) => [node.dataset.job, node]),
+  );
+  for (let index = jobs.length - 1; index >= 0; index -= 1) {
+    const job = jobs[index];
+    let card = existing.get(job.id);
+    if (!card) {
+      card = el("div", null, "gallery-skeleton");
+      card.dataset.job = job.id;
+      card.append(el("span", null, "gallery-skeleton-spinner"), el("span", null, "gallery-skeleton-percent"));
+      grid.prepend(card);
+    }
+    const percent = card.querySelector(".gallery-skeleton-percent");
+    if (percent) percent.textContent = Math.round(job.progress) + "%";
+  }
 }
 
 function galleryCard(image) {
@@ -2644,7 +2686,7 @@ function renderImageJobs() {
 }
 
 function renderPanelJobs() {
-  renderJobCards($("panel-jobs"), imageJobs.filter((job) => job.surface === "panel"));
+  renderPanelSkeletons();
   updatePanelGenerateButton();
 }
 
@@ -2680,6 +2722,7 @@ function runImageJob(job) {
       job.error = error.message;
       job.statusCode = error.status;
       job.code = error.code;
+      if (job.surface === "panel") showHint(error.message, true);
     })
     .finally(() => {
       renderImageJobs();
@@ -2759,6 +2802,7 @@ function generatePanelImage() {
   $("panel-prompt").style.height = "";
   updatePanelGenerateButton();
   runImageJob(job);
+  $("gallery-grid").scrollTop = 0;
 }
 
 function toolImageGrid(images) {
