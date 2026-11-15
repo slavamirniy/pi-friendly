@@ -2296,7 +2296,7 @@ dialog p {
     padding: 0 14px;
   }
   .topbar-actions #connection {
-    font-size: 0;
+    font-size: 11px;
   }
   #page {
     padding: 20px 14px 40px;

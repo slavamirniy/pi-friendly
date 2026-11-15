@@ -160,11 +160,11 @@ test('clear-queue returns pending texts and empties the visible queue',async t=>
  assert.deepEqual((await h.state()).queue.followUp,[]);
 });
 
-test('forking a user message creates a new branch and sends the edited text',async t=>{
+test('forking the first user message creates a real empty chat and sends the edited text',async t=>{
  const calls=[];
  const h=await fixture(t,{options:{makeRpc:customRpc(({type,data,emit})=>{
   calls.push({type,data});
-  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false,sessionFile:'/test/branch.jsonl'};
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false,sessionFile:'/test/new.jsonl'};
   if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
   if(type==='get_fork_messages')return{messages:[{entryId:'entry-1',text:'Привет'}]};
   if(type==='fork')return{};
@@ -176,9 +176,37 @@ test('forking a user message creates a new branch and sends the edited text',asy
  const before=await h.state();
  const result=await h.request('fork',{chat:before.active.id,index:0,text:'Исправлено'});
  assert.equal(result.status,200);
- assert.equal(calls.find(c=>c.type==='fork').data.entryId,'entry-1');
+ assert.equal(calls.some(c=>c.type==='fork'),false);
  assert.equal(calls.find(c=>c.type==='prompt').data.message,'Исправлено');
- assert.notEqual(result.data.active.id,before.active.id);
+ assert.match(result.data.active.name,/Чат/);
+ assert.equal(result.data.busy,true);
+});
+
+test('forking a later user message asks pi to create a branched session',async t=>{
+ const calls=[];
+ const conversation=[
+  {role:'user',content:[{type:'text',text:'Первый'}],timestamp:1},
+  {role:'assistant',content:[{type:'text',text:'Ответ'}],timestamp:2,stopReason:'stop'},
+  {role:'user',content:[{type:'text',text:'Второй'}],timestamp:3},
+ ];
+ const h=await fixture(t,{options:{
+  readSession:()=>conversation,
+  makeRpc:customRpc(({type,data,emit})=>{
+   calls.push({type,data});
+   if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false,sessionFile:'/test/branch.jsonl'};
+   if(type==='get_messages')return{messages:conversation};
+   if(type==='get_fork_messages')return{messages:[{entryId:'entry-1',text:'Первый'},{entryId:'entry-2',text:'Второй'}]};
+   if(type==='fork')return{};
+   if(type==='prompt'){emit({type:'agent_start'});return{};}
+   if(type==='clear_queue')return{steering:[],followUp:[]};
+   return{};
+  })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const before=await h.state();
+ const result=await h.request('fork',{chat:before.active.id,index:2,text:'Исправлено'});
+ assert.equal(result.status,200);
+ assert.equal(calls.find(c=>c.type==='fork').data.entryId,'entry-2');
+ assert.equal(calls.find(c=>c.type==='prompt').data.message,'Исправлено');
  assert.match(result.data.active.name,/Чат/);
  assert.equal(result.data.busy,true);
 });

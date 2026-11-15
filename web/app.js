@@ -917,7 +917,14 @@ function renderChatsPage(project) {
         el("small", plural(chat.count || 0, "сообщение", "сообщения", "сообщений")),
       );
       row.append(copy, icon("arrow"));
-      row.onclick = () => openBranch(chat);
+      row.onclick = () => {
+        if (chat.id === state.active?.id) {
+          page = "chat";
+          renderRoute();
+          return;
+        }
+        openBranch(chat);
+      };
       list.append(row);
     }
     if (!chats.length) {
@@ -1914,6 +1921,7 @@ function applyState(next) {
   if (previous !== state.active?.id) {
     store(previous, $("draft").value);
     $("draft").value = saved(state.active?.id);
+    editingIndex = null;
     questionId = undefined;
     versionManager.reset();
     renderedSignature = "";

@@ -25,7 +25,26 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  const changed=()=>{if(!publishTimer)publishTimer=setTimeout(broadcast,35);};
  const unsubBilling=billing?.subscribe(()=>changed());
  const unsub=voice?.subscribe?.(event=>{if(event.type==='state'){state.voice=event.state;if(['ready','error'].includes(event.state.phase))voiceOwned=false;changed();}if(event.type==='text'&&event.context?.web){state.dictation={id:randomBytes(8).toString('hex'),text:event.text,chat:event.context.chat};voiceOwned=false;changed();}if(event.type==='error'&&voiceOwned){state.error=event.message;voiceOwned=false;changed();}});
- async function catalog(){allProjects=projects.list();const registered=new Set(allProjects.map(p=>folderKey(p.cwd)));const known=new Set();allSessions=(await listSessions()).filter(s=>s.cwd&&registered.has(folderKey(s.cwd)));for(const s of allSessions)known.add(key(s.path));return allProjects.map(p=>({id:key(folderKey(p.cwd)),name:p.name,folder:p.cwd,chats:allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||s.firstMessage?.slice(0,80)||'Новый чат',modified:s.modified,count:s.messageCount||0,parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}))}));}
+ async function catalog(){
+  allProjects=projects.list();
+  const registered=new Set(allProjects.map(p=>folderKey(p.cwd)));
+  const known=new Set();
+  allSessions=(await listSessions()).filter(s=>s.cwd&&registered.has(folderKey(s.cwd)));
+  for(const s of allSessions)known.add(key(s.path));
+  return allProjects.map(p=>{
+   const projectKey=key(folderKey(p.cwd));
+   const chats=allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||(s.firstMessage&&s.firstMessage!=='(no messages)'?s.firstMessage.slice(0,80):'Новый чат'),modified:s.modified,count:s.messageCount||0,parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}));
+   // pi writes a forked session file only after the first assistant message.
+   // Keep an empty fork visible as the active chat until its file exists.
+   if(active?.file&&!active.host&&active.projectId===projectKey){
+    const activeId=key(active.file);
+    if(!chats.some(chat=>chat.id===activeId)){
+     chats.unshift({id:activeId,name:active.name||'Новый чат',modified:new Date().toISOString(),count:state.messages.filter(m=>['user','assistant'].includes(m.role)).length,parent:active.parent||null,terminal:false,pendingFile:true});
+    }
+   }
+   return {id:projectKey,name:p.name,folder:p.cwd,chats};
+  });
+ }
  const ensureIdle=()=>{if(loading||navigating||state.busy||voiceOwned||!canExit())throw new Error('Сначала завершите запись или остановите ответ.');};
  function eventHandler(event,epoch){
   if(epoch!==generation||disposed)return;
@@ -63,17 +82,17 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   }
   changed();
  }
- async function openSession(session){
+ async function openSession(session,{notify=true}={}){
   loading=true;state.error=null;changed();const epoch=++generation;
   try{
    if(rpc)await rpc.dispose();rpc=undefined;
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||session.firstMessage?.slice(0,80)||'Новый чат',host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
+   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc};
    state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
    if(!active.readOnly){rpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});const [current,messages]=await Promise.all([rpc.request('get_state',{},20000),rpc.request('get_messages',{},20000)]);active.model=current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null;active.file=current?.sessionFile||session.path;state.busy=Boolean(current?.isStreaming);state.queue={steering:[],followUp:[]};const preferred=getPreferredModel();if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){await rpc.request('set_model',{provider:preferred.provider,modelId:preferred.id});active.model={id:preferred.id,provider:preferred.provider,name:preferred.name};}state.messages=publicMessages(messages?.messages||[]);}
   }catch(error){if(rpc)await rpc.dispose();rpc=undefined;state.error=error.message;throw error;}
-  finally{loading=false;broadcast();}
+  finally{loading=false;if(notify)broadcast();}
  }
  async function branchAt(index,{text='',name=''}={}){
   if(!rpc||!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
@@ -84,13 +103,33 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   const ordinal=userIndexes.indexOf(index);
   const target=ordinal>=0?forkMessages[ordinal]:undefined;
   if(!target)throw new Error('Не удалось найти это сообщение в текущем чате.');
+  const label=(name||`Чат от «${String(target.text||'').replace(/\s+/g,' ').slice(0,42)}»`).slice(0,80);
+  // Forking at the first user message produces an empty conversation. pi keeps
+  // such a session in memory and writes no file until an assistant reply, so
+  // create a real empty chat instead; it appears in the list immediately.
+  if(ordinal===0){
+   const project=allProjects.find(p=>key(folderKey(p.cwd))===active.projectId);
+   if(!project)throw new Error('Проект не найден.');
+   const nextPath=projects.createChat(project.cwd);
+   await openSession({path:nextPath,cwd:project.cwd,name:label},{notify:false});
+   try{await rpc.request('set_session_name',{name:label},10000);}catch{}
+   active={...active,name:label};
+   await catalog();
+   if(text){
+    state.busy=true;changed();
+    try{await rpc.request('prompt',{message:text},300000);}
+    catch(error){state.busy=false;state.error=error.message;changed();throw error;}
+   }
+   broadcast();
+   return snapshot();
+  }
   const forked=await rpc.request('fork',{entryId:target.entryId},30000);
   if(forked?.cancelled)throw new Error('Создание ответвления отменено расширением.');
   const current=await rpc.request('get_state',{},20000);
   if(!current?.sessionFile)throw new Error('pi не сообщил файл нового чата.');
-  const label=(name||`Чат от «${String(target.text||'').replace(/\s+/g,' ').slice(0,42)}»`).slice(0,80);
   try{await rpc.request('set_session_name',{name:label},10000);}catch{}
-  active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,host:false,readOnly:false};
+  const previousFile=active.file;
+  active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,parent:previousFile?key(previousFile):null,host:false,readOnly:false};
   const messages=await rpc.request('get_messages',{},20000);
   state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
   await catalog();
