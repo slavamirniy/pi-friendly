@@ -1,5 +1,5 @@
 import { Type } from '@earendil-works/pi-ai';
-import { IMAGE_SIZES, runImageTool } from './image-tool.mjs';
+import { IMAGE_SIZES, runImageTool, setImageTitle } from './image-tool.mjs';
 import routerProgress from './router/index.ts';
 import {createBilling} from './billing.mjs';
 import {pickProjectFolder,pickChatFiles} from './folder-picker.mjs';
@@ -7,7 +7,7 @@ import {createModelPreference} from './model-preference.mjs';
 import {createHostBridge} from './web-host.mjs';
 import {startWebServer} from './web-server.mjs';
 import {createRpc} from './web-rpc.mjs';
-import {createTitleGenerator} from './title.mjs';
+import {createTitleGenerator, createImageTitleGenerator, finalImageTitle} from './title.mjs';
 import {spawn} from 'node:child_process';
 import {readClipboardText} from './clipboard.mjs';
 import { createVoiceService } from './voice.mjs';
@@ -36,6 +36,7 @@ export default function friendly(pi: ExtensionAPI) {
     }),
     async execute(_id:any,params:any,signal:any,_update:any,ctx:any){
       const result=await runImageTool({...params,sessionId:ctx.sessionManager.getSessionId()},ctx.cwd,await getConnection(),signal);
+      await applyImageTitle(result,params.prompt,ctx);
       void billing.refresh();
       return result;
     }
@@ -46,6 +47,20 @@ export default function friendly(pi: ExtensionAPI) {
   pi.on('session_shutdown',()=>{clearInterval(billingTimer);billing.dispose();});
   const openExternal=(url:string)=>{const c=process.platform==='win32'?spawn('rundll32.exe',['url.dll,FileProtocolHandler',url],{windowsHide:true,stdio:'ignore'}):spawn(process.platform==='darwin'?'open':'xdg-open',[url],{stdio:'ignore'});c.on('error',()=>{});c.unref();};
   const modelPreference=createModelPreference(join(getAgentDir(),'friendly-model.json'));
+  async function applyImageTitle(result:any,prompt:string,ctx:any,cwd:string=ctx.cwd){
+    const image=result?.details?.image;
+    if(!image)return result;
+    let raw='';
+    try{
+      const generate=createImageTitleGenerator({complete:(model:any,context:any,options:any)=>ctx.modelRegistry.complete(model,context,options),resolveModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model});
+      raw=await generate(prompt,AbortSignal.timeout(15000));
+    }catch{}
+    const title=finalImageTitle(raw,prompt);
+    image.title=title;
+    for(const item of result.details?.images||[])if(item.id===image.id)item.title=title;
+    await setImageTitle(cwd,image,title);
+    return result;
+  }
   pi.on('model_select',(event)=>{if(event.source!=='restore')modelPreference.save(event.model);});
   pi.on('session_start',async(_event,ctx)=>{const model=modelPreference.resolve(ctx.modelRegistry.getAvailable());if(model)await pi.setModel(model);});
   const preferencePath = join(getAgentDir(), "friendly-ui.json");
@@ -61,7 +76,7 @@ export default function friendly(pi: ExtensionAPI) {
     if(!web||web.closed){
       opening??=startWebServer({billing,projects,listSessions:()=>SessionManager.listAll(),readSession:(path: string)=>SessionManager.open(path).buildSessionContext().messages,
         makeHostRpc:({onEvent}:any)=>createHostBridge({pi,ctx,observers:hostObservers,onEvent}),
-        pickProjectFolder,pickChatFiles,sessionDirFor:(cwd:string)=>SessionManager.create(cwd).getSessionDir(),generateImage:async(options:any)=>{const result=await runImageTool(options,options.cwd,await getConnection(),options.signal);void billing.refresh();return result;},onExit:()=>ctx.shutdown(),canExit:()=>ctx.isIdle(),getPreferredModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable()),onModelSelected:(model:any)=>modelPreference.save(model),
+        pickProjectFolder,pickChatFiles,sessionDirFor:(cwd:string)=>SessionManager.create(cwd).getSessionDir(),generateImage:async(options:any)=>{const result=await runImageTool(options,options.cwd,await getConnection(),options.signal);await applyImageTitle(result,options.prompt,ctx,options.cwd);void billing.refresh();return result;},onExit:()=>ctx.shutdown(),canExit:()=>ctx.isIdle(),getPreferredModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable()),onModelSelected:(model:any)=>modelPreference.save(model),
         getHostStatuses,models:()=>ctx.modelRegistry.getAvailable(),hostSession:()=>ctx.sessionManager.getSessionFile(),voice,
         generateTitle:createTitleGenerator({complete:(model:any,context:any,options:any)=>ctx.modelRegistry.complete(model,context,options),resolveModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model}),
         makeRpc:(options: any)=>createRpc({...options,cli:join(getPackageDir(),'dist','bundle','cli.js'),model:modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model})});

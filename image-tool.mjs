@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import http from "node:http";
 import https from "node:https";
-import { mkdir, open, realpath, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const IMAGE_SIZES = [
@@ -260,4 +260,15 @@ export async function runImageTool(
     content: [{ type: "text", text: `Готовое изображение сохранено в проекте: ${relPath}` }],
     details: { file: relPath, image: record, images: [record] },
   };
+}
+
+export async function setImageTitle(cwd, record, title) {
+  if (!record?.file || !title) return;
+  record.title = title;
+  try {
+    const sidecar = join(resolve(cwd), record.file.replace(/\.[^.]+$/, ".json"));
+    const data = JSON.parse(await readFile(sidecar, "utf8"));
+    data.title = title;
+    await writeFile(sidecar, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
+  } catch {}
 }

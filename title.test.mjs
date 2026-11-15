@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cleanChatTitle,isValidChatTitle,fallbackChatTitle,finalChatTitle,createTitleGenerator,buildTitlePrompt} from './title.mjs';
+import {cleanChatTitle,isValidChatTitle,fallbackChatTitle,finalChatTitle,createTitleGenerator,buildTitlePrompt,finalImageTitle,fallbackImageTitle,createImageTitleGenerator} from './title.mjs';
 
 test('cleanChatTitle removes labels, quotes, fences and markdown',()=>{
  assert.equal(cleanChatTitle('```\nНазвание: Сайт пекарни.\n```'),'Сайт пекарни');
@@ -67,4 +67,16 @@ test('title generator rejects empty, truncated and failed responses',async()=>{
  await assert.rejects(make({stopReason:'stop',content:[]})('x'),/пустой/);
  const noModel=createTitleGenerator({complete:async()=>({}),resolveModel:()=>undefined});
  await assert.rejects(noModel('x'),/Нет доступной модели/);
+});
+
+
+test('image titles are short and fall back on model errors',async()=>{
+ assert.equal(finalImageTitle('Котик на облаках','очень длинное описание'),'Котик на облаках');
+ assert.equal(finalImageTitle('Извините, не могу','Котик летит на облаках с облаками'),'Котик летит на облаках с');
+ assert.ok(finalImageTitle('Слишком много слов в названии изображения для панели','x').split(/\s+/).length<=6);
+ assert.equal(fallbackImageTitle(''),'Изображение');
+ const generate=createImageTitleGenerator({complete:async()=>({stopReason:'stop',content:[{type:'text',text:'Котик на облаках'}]}),resolveModel:()=>({id:'m'})});
+ assert.equal(await generate('котик'),'Котик на облаках');
+ const failed=createImageTitleGenerator({complete:async()=>({stopReason:'error',errorMessage:'down',content:[]}),resolveModel:()=>({id:'m'})});
+ await assert.rejects(failed('котик'),/down/);
 });

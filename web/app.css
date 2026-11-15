@@ -4142,3 +4142,47 @@ button.image-job-visual { cursor: pointer; }
   .lightbox-info { width: 100%; max-width: none; height: auto; max-height: 42dvh; flex: none; padding: 18px 16px 16px; }
   .lightbox-actions { margin-top: 0; }
 }
+
+.image-panel .gallery-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: hidden;
+  column-count: initial;
+}
+.image-panel .gallery-card,
+.image-panel .gallery-skeleton {
+  flex: none;
+  width: 100%;
+  margin: 0;
+}
+
+.image-panel { position: relative; }
+.panel-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+:root[data-theme="dark"] .panel-drop-hint { background: rgba(10, 10, 10, 0.74); }
+.panel-drop-card {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 22px 18px;
+  border: 2px dashed var(--gray);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  text-align: center;
+}
+.panel-drop-card svg { width: 28px; height: 28px; color: var(--text-2); }
+.panel-drop-card strong { font-size: 13px; font-weight: 500; }
+.panel-drop-card small { color: var(--muted); font-size: 11px; }

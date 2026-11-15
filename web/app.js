@@ -652,8 +652,11 @@ function wireChrome() {
   $("gallery-edit").onclick = () => {
     if (!imageGallerySelected) return;
     const source = imageGallerySelected;
-    closeImagePanel();
-    openImageCompose(source);
+    closeImageLightbox();
+    openImagePanel();
+    panelRefs = normalizeImageSource(source) ? [normalizeImageSource(source)] : [];
+    renderPanelRefs();
+    $("panel-prompt").focus();
   };
   $("gallery-copy").onclick = () => {
     if (imageGallerySelected) copyText(imageGallerySelected.path);
@@ -671,31 +674,46 @@ function wireChrome() {
     if (!path) return null;
     return imageImages.find((image) => image.path === path) || { path, name: imageName(path) };
   };
+  const showPanelDropHint = () => {
+    const hint = $("panel-drop-hint");
+    if (hint) hint.hidden = false;
+  };
+  const hidePanelDropHint = () => {
+    const hint = $("panel-drop-hint");
+    if (hint) hint.hidden = true;
+  };
   const wireImageDrop = (zone, target) => {
     if (!zone) return;
     const highlight = () => $("panel-refs-drop")?.classList.add("drop-target");
     const clear = () => $("panel-refs-drop")?.classList.remove("drop-target");
+    const reveal = () => {
+      if (target === "panel") showPanelDropHint();
+    };
     zone.addEventListener("dragenter", (event) => {
       event.preventDefault();
       event.stopPropagation();
       $("drop-overlay").hidden = true;
+      reveal();
       highlight();
     });
     zone.addEventListener("dragover", (event) => {
       event.preventDefault();
       event.stopPropagation();
       event.dataTransfer.dropEffect = "copy";
+      reveal();
       highlight();
     });
     zone.addEventListener("dragleave", (event) => {
       if (zone.contains(event.relatedTarget)) return;
       clear();
+      if (target === "panel" && !$("image-panel").contains(event.relatedTarget)) hidePanelDropHint();
     });
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
       event.stopPropagation();
       $("drop-overlay").hidden = true;
       clear();
+      if (target === "panel") hidePanelDropHint();
       const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
       if (file) {
         uploadImageSource(file, target);
@@ -716,13 +734,19 @@ function wireChrome() {
     event.preventDefault();
     event.stopPropagation();
     $("drop-overlay").hidden = true;
+    showPanelDropHint();
   };
   panel.addEventListener("dragenter", panelDragOver);
   panel.addEventListener("dragover", panelDragOver);
+  panel.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget && panel.contains(event.relatedTarget)) return;
+    hidePanelDropHint();
+  });
   panel.addEventListener("drop", (event) => {
     event.preventDefault();
     event.stopPropagation();
     $("drop-overlay").hidden = true;
+    hidePanelDropHint();
     const file = [...(event.dataTransfer.files || [])].find((item) => /^image\/(png|jpeg)/.test(item.type));
     if (file) {
       uploadImageSource(file, "panel");
@@ -754,8 +778,11 @@ function wireChrome() {
     if (!imageLightboxImage) return;
     const image = imageLightboxImage;
     closeImageLightbox();
-    closeImagePanel();
-    openImageCompose(image);
+    openImagePanel();
+    const ref = normalizeImageSource(image);
+    panelRefs = ref ? [ref] : [];
+    renderPanelRefs();
+    $("panel-prompt").focus();
   };
   $("lightbox-delete").onclick = () => {
     if (!imageLightboxImage) return;
@@ -2504,9 +2531,11 @@ function openImageLightbox(image) {
   if (!image?.path) return;
   imageLightboxImage = image;
   const prompt = String(image.prompt || "").trim();
+  const shortPrompt = prompt.split(/\s+/).slice(0, 6).join(" ").slice(0, 56).trim();
+  const title = String(image.title || shortPrompt || "Изображение").trim();
   $("lightbox-image").src = imageUrl(image);
-  $("lightbox-image").alt = prompt || "Изображение";
-  $("lightbox-title").textContent = prompt || "Изображение";
+  $("lightbox-image").alt = title;
+  $("lightbox-title").textContent = title;
   $("lightbox-prompt").textContent = prompt;
   $("lightbox-prompt-section").hidden = !prompt;
   const actual = image.width && image.height ? `${image.width}×${image.height}` : "";
