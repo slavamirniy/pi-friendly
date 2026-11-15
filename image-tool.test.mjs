@@ -50,5 +50,5 @@ test('image tool rejects invalid size and reports insufficient quota',async t=>{
  t.after(()=>rm(cwd,{recursive:true,force:true}));
  const connection={baseURL:'https://router.example/v1',apiKey:'test'};
  await assert.rejects(runImageTool({prompt:'x',size:'100x100'},cwd,connection,undefined,async()=>Response.json({})),/размер/);
- await assert.rejects(runImageTool({prompt:'x'},cwd,connection,undefined,async()=>Response.json({error:{code:'insufficient_quota',message:'Мало кредитов'}},{status:402})),/Мало кредитов/);
+ await assert.rejects(runImageTool({prompt:'x'},cwd,connection,undefined,async()=>Response.json({error:{code:'insufficient_quota',message:'Мало кредитов'}},{status:402})),(error)=>{assert.equal(error.status,402);assert.equal(error.code,'insufficient_quota');return /Мало кредитов/.test(error.message);});
 });
