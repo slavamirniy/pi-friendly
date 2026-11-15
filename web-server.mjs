@@ -1,9 +1,9 @@
 import {createServer} from 'node:http';
-import {readFile,readdir,mkdir,stat} from 'node:fs/promises';
+import {readFile,readdir,mkdir,stat,unlink,rename} from 'node:fs/promises';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {homedir} from 'node:os';
-import {join,resolve,basename,sep,isAbsolute} from 'node:path';
+import {join,resolve,basename,dirname,sep,isAbsolute} from 'node:path';
 import {folderKey} from './projects.mjs';
 import {sanitizeUploadName} from './uploads.mjs';
 import {clean} from './menu.mjs';
@@ -214,7 +214,22 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      const entries=[];for(const e of names){if(!e.isDirectory())continue;let ok=true;try{await stat(join(cwd,e.name));}catch{ok=false;}if(ok)entries.push({name:e.name});}
      entries.sort((a,b)=>a.name.localeCompare(b.name,'ru'));const visible=entries.filter(e=>!e.name.startsWith('.')),hidden=entries.filter(e=>e.name.startsWith('.'));
      const all=hidden.concat(visible).slice(0,500);
-     reply(200,{path:resolve(cwd),parent:dirnameOf(cwd)===cwd?null:dirnameOf(cwd),entries:all.map(e=>({name:e.name,path:join(cwd,e.name)})),hasMore:hidden.length+visible.length>all.length});
+     const home=homedir();
+     const candidates=[
+      {name:'Домашняя папка',path:home,kind:'home'},
+      {name:'Документы',path:join(home,'Documents'),kind:'documents'},
+      {name:'Рабочий стол',path:join(home,'Desktop'),kind:'desktop'},
+      {name:'Загрузки',path:join(home,'Downloads'),kind:'downloads'},
+      {name:'Проекты AI DIY',path:projects.root||join(home,'Documents','AI DIY Projects'),kind:'projects'},
+     ];
+     const shortcuts=[];const seenPaths=new Set();
+     for(const item of candidates){
+      if(!item.path)continue;
+      const clean=resolve(item.path);
+      if(seenPaths.has(clean)||!(await isDir(clean)))continue;
+      seenPaths.add(clean);shortcuts.push({...item,path:clean});
+     }
+     reply(200,{path:resolve(cwd),parent:dirnameOf(cwd)===cwd?null:dirnameOf(cwd),entries:all.map(e=>({name:e.name,path:join(cwd,e.name)})),hasMore:hidden.length+visible.length>all.length,shortcuts});
     }catch(error){reply(400,{error:'Не удалось открыть папку: '+error.message});}
     return;
    }
@@ -259,6 +274,29 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      reply(200,{ok:true});return;
     }
     if(action==='close'){ensureIdle();if(!canExit())throw new Error('Сначала остановите текущую работу.');navigating=true;reply(200,{ok:true});setTimeout(async()=>{await close();await onExit();},50);return;}
+    if(action==='delete-chat'||action==='archive-chat'){
+     const session=allSessions.find(s=>key(s.path)===data.chat);
+     if(!session)throw new Error('Чат не найден. Обновите список.');
+     if(session.path===hostSession())throw new Error('Чат открыт в консоли и не может быть изменён из веба.');
+     const isActive=Boolean(active&&key(session.path)===active.id);
+     if(isActive&&state.busy)throw new Error('Сначала остановите ответ.');
+     if(isActive){
+      if(rpc)await rpc.dispose();
+      rpc=undefined;generation++;active=null;
+      state={...state,active:null,messages:[],busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},routerProgress:null};
+     }
+     if(action==='delete-chat')await unlink(session.path);
+     else{
+      const archived=join(dirname(session.path),'archived');
+      await mkdir(archived,{recursive:true});
+      const ext='.jsonl',stem=basename(session.path,ext);
+      let target=join(archived,basename(session.path));
+      for(let n=1;await exists(target);n++)target=join(archived,`${stem}-${n}${ext}`);
+      await rename(session.path,target);
+     }
+     const projects=await catalog();changed();
+     reply(200,{ok:true,projects});return;
+    }
     if(!rpc||!active||active.readOnly)throw new Error(active?.readOnly?'Этот чат открыт в консоли. Создайте новый чат в этом проекте.':'Сначала откройте чат в проекте.');
     if(data.chat!==active.id)throw new Error('Чат был переключён в другом окне. Проверьте текущий разговор.');
     if(action==='prompt'){
@@ -304,6 +342,52 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      for(const message of rest)await rpc.request('prompt',{message,streamingBehavior:'followUp'},60000);
      state.queue={steering,followUp:rest};changed();
      reply(200,{ok:true,removed:text,queue:state.queue});return;
+    }
+    if(action==='edit-queue'){
+     if(!rpc||!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+     const index=Number(data.index),text=String(data.text||'').trim();
+     if(!text)throw new Error('Введите текст сообщения.');
+     const removed=await rpc.request('clear_queue',{},15000);
+     const follow=Array.isArray(removed?.followUp)?[...removed.followUp]:[],steering=Array.isArray(removed?.steering)?removed.steering:[];
+     if(!Number.isInteger(index)||index<0||index>=follow.length)throw new Error('Сообщение уже отправлено или очередь изменилась.');
+     follow[index]=text;
+     if(state.busy)for(const message of follow)await rpc.request('prompt',{message,streamingBehavior:'followUp'},60000);
+     state.queue={steering,followUp:state.busy?follow:[]};changed();
+     reply(200,{ok:true,queue:state.queue});return;
+    }
+    if(action==='send-now'||action==='send-all'){
+     if(!rpc||!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+     const removed=await rpc.request('clear_queue',{},15000);
+     const follow=Array.isArray(removed?.followUp)?[...removed.followUp]:[],steering=Array.isArray(removed?.steering)?removed.steering:[];
+     if(!follow.length)throw new Error('Очередь пуста.');
+     let selected,rest;
+     if(action==='send-all'){
+      selected=follow.length?follow[0]:'';
+      rest=follow.slice(1);
+     }else{
+      const index=Number(data.index);
+      if(!Number.isInteger(index)||index<0||index>=follow.length)throw new Error('Сообщение уже отправлено или очередь изменилась.');
+      selected=follow[index];rest=follow.filter((_,i)=>i!==index);
+     }
+     if(!selected)throw new Error('Очередь пуста.');
+     if(state.busy){
+      await rpc.request('abort');
+      state.busy=false;
+      for(const m of state.messages){if(m.status==='streaming')m.status='stopped';for(const t of m.tools)if(t.status==='running')t.status='stopped';}
+      state.queue={steering,followUp:[]};changed();
+      await new Promise(resolve=>setTimeout(resolve,80));
+     }
+     state.busy=true;state.error=null;changed();
+     try{
+      await rpc.request('prompt',{message:selected},300000);
+      for(const message of rest)await rpc.request('prompt',{message,streamingBehavior:'followUp'},60000);
+      state.queue={steering,followUp:rest};changed();
+      void maybeNameChat(selected);
+      reply(200,{ok:true,queue:state.queue});
+     }catch(error){
+      state.busy=false;state.error=error.message;state.queue={steering,followUp:[selected,...rest]};changed();throw error;
+     }
+     return;
     }
     if(action==='abort'){
      let cleared={steering:[],followUp:[]};

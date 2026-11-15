@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,stat,readdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash} from 'node:crypto';
 import {startWebServer,publicMessage} from './web-server.mjs';
 async function fixture(t,{host=false,options={}}={}){
  const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
@@ -270,4 +274,115 @@ test('an explicitly named chat keeps its name',async t=>{
  await tick();
  assert.deepEqual(seen,[]);
  assert.equal((await h.state()).active.name,'Уже назван');
+});
+
+test('editing a queued message re-queues the whole queue in order',async t=>{
+ const calls=[];
+ let emit;
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type,data,emit:onEvent})=>{
+  emit=onEvent;
+  calls.push({type,data});
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:true};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='prompt'){emit({type:'agent_start'});return{};}
+  if(type==='clear_queue')return{followUp:['one','two'],steering:[]};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const state=await h.state();
+ emit({type:'agent_start'});emit({type:'queue_update',steering:[],followUp:['one','two']});
+ const result=await h.request('edit-queue',{chat:state.active.id,index:1,text:'two edited'});
+ assert.equal(result.status,200);
+ assert.deepEqual(result.data.queue.followUp,['one','two edited']);
+ const prompts=calls.filter(c=>c.type==='prompt').map(c=>c.data);
+ assert.deepEqual(prompts,[{message:'one',streamingBehavior:'followUp'},{message:'two edited',streamingBehavior:'followUp'}]);
+});
+
+test('send-now interrupts the answer and sends the selected queued message first',async t=>{
+ const calls=[];
+ let emit;
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type,data,emit:onEvent})=>{
+  emit=onEvent;
+  calls.push({type,data});
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:true};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='prompt'){emit({type:'agent_start'});return{};}
+  if(type==='clear_queue')return{followUp:['one','two','three'],steering:[]};
+  if(type==='abort')return{};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const state=await h.state();
+ emit({type:'agent_start'});emit({type:'queue_update',steering:[],followUp:['one','two','three']});
+ const result=await h.request('send-now',{chat:state.active.id,index:1});
+ assert.equal(result.status,200);
+ assert.ok(calls.some(c=>c.type==='abort'));
+ const prompts=calls.filter(c=>c.type==='prompt').map(c=>c.data);
+ assert.deepEqual(prompts,[{message:'two'},{message:'one',streamingBehavior:'followUp'},{message:'three',streamingBehavior:'followUp'}]);
+ assert.deepEqual(result.data.queue.followUp,['one','three']);
+});
+
+test('send-all interrupts the answer and sends the whole queue',async t=>{
+ const calls=[];
+ let emit;
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type,data,emit:onEvent})=>{
+  emit=onEvent;
+  calls.push({type,data});
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:true};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='prompt'){emit({type:'agent_start'});return{};}
+  if(type==='clear_queue')return{followUp:['one','two'],steering:[]};
+  if(type==='abort')return{};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const state=await h.state();
+ emit({type:'agent_start'});emit({type:'queue_update',steering:[],followUp:['one','two']});
+ const result=await h.request('send-all',{chat:state.active.id});
+ assert.equal(result.status,200);
+ assert.ok(calls.some(c=>c.type==='abort'));
+ const prompts=calls.filter(c=>c.type==='prompt').map(c=>c.data);
+ assert.deepEqual(prompts,[{message:'one'},{message:'two',streamingBehavior:'followUp'}]);
+ assert.deepEqual(result.data.queue.followUp,['two']);
+});
+
+
+test('deleting and archiving chats removes or moves their session files',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'pf-chats-'));
+ const names=['one','two','three'];
+ const files=names.map(name=>join(dir,name+'.jsonl'));
+ for(const file of files)await writeFile(file,'{"type":"session"}\n');
+ let sessions=files.map((path,index)=>({cwd:process.cwd(),path,name:names[index],modified:new Date(Date.now()+index).toISOString(),messageCount:0}));
+ const exists=async file=>{try{await stat(file);return true;}catch{return false;}};
+ const web=await startWebServer({
+  projects:{list:()=>[{cwd:process.cwd(),name:'Проект'}],isProject:()=>true,markOpened(){},create(){throw Error('no')},createChat(){throw Error('no')},attach(){throw Error('no')}},
+  listSessions:async()=>{const live=[];for(const session of sessions)if(await exists(session.path))live.push(session);return live;},
+  readSession:()=>[{role:'user',content:'Привет'}],
+  models:()=>[{id:'test',name:'Test',provider:'local'}],
+  hostSession:()=>undefined,
+  makeRpc:()=>({request:async(type)=>{if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};return{};},respond(){},dispose:async()=>{}}),
+ });
+ t.after(()=>web.close());
+ const auth=await fetch(web.origin+'/api/auth',{method:'POST',body:JSON.stringify({token:web.url.split('#')[1]})});
+ const cookie=auth.headers.get('set-cookie').split(';')[0];
+ const request=async(path,data)=>{const response=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{cookie,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});return{status:response.status,data:await response.json()};};
+ const id=file=>createHash('sha256').update(file).digest('hex').slice(0,24);
+ const catalog=await request('catalog');
+ assert.equal(catalog.data.projects[0].chats.length,3);
+ const deletedId=catalog.data.projects[0].chats.find(chat=>chat.name==='two').id;
+ assert.equal((await request('delete-chat',{chat:deletedId})).status,200);
+ assert.equal(await exists(files[1]),false);
+ assert.equal((await request('catalog')).data.projects[0].chats.length,2);
+ const archivedId=(await request('catalog')).data.projects[0].chats.find(chat=>chat.name==='three').id;
+ assert.equal((await request('archive-chat',{chat:archivedId})).status,200);
+ assert.equal(await exists(files[2]),false);
+ const archived=await readdir(join(dir,'archived'));
+ assert.ok(archived.some(name=>name.includes('three')));
+ assert.equal((await request('catalog')).data.projects[0].chats.length,1);
+ const activeId=(await request('catalog')).data.projects[0].chats[0].id;
+ const opened=await request('open',{id:activeId});assert.equal(opened.status,200);
+ const removed=await request('delete-chat',{chat:activeId});assert.equal(removed.status,200);
+ assert.equal(removed.data.projects[0].chats.length,0);
+ const state=await (async()=>{const res=await fetch(web.origin+'/api/events',{headers:{cookie}});const reader=res.body.getReader();const {value}=await reader.read();await reader.cancel();return JSON.parse(new TextDecoder().decode(value).split('data: ')[1].split('\n')[0]);})();
+ assert.equal(state.active,null);
 });

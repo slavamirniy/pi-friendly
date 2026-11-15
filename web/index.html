@@ -66,7 +66,6 @@
 
       <div class="progress-host" aria-hidden="true">
         <div class="progress-track" id="progress-bar" hidden><span></span></div>
-        <div class="task-label" id="task-label" role="status" hidden></div>
       </div>
 
       <div id="notice" role="status" hidden></div>
@@ -82,7 +81,6 @@
             <pre id="error-text"></pre>
           </details>
           <div id="question"></div>
-          <div id="activity" role="status"></div>
           <details id="widgets" hidden>
             <summary>Информация расширений</summary>
             <div id="widget-content"></div>
@@ -118,6 +116,7 @@
               </div>
             </div>
           </form>
+          <div id="activity" role="status"></div>
         </div>
       </section>
     </main>
@@ -134,6 +133,15 @@
     </div>
   </dialog>
 
+  <dialog id="chat-confirm">
+    <h2 id="chat-confirm-title">Удалить чат?</h2>
+    <p id="chat-confirm-text"></p>
+    <div class="dialog-actions">
+      <button type="button" id="chat-confirm-cancel">Отмена</button>
+      <button type="button" id="chat-confirm-ok" class="danger">Удалить</button>
+    </div>
+  </dialog>
+
   <dialog id="folder-dialog" class="browser-dialog">
     <div class="browser-head">
       <h2>Выберите папку проекта</h2>
@@ -144,9 +152,7 @@
       <input id="folder-path" autocomplete="off" placeholder="Вставьте путь к папке">
       <button type="submit">Перейти</button>
     </form>
-    <div class="browser-shortcuts">
-      <button type="button" id="folder-home">Домашняя папка</button>
-    </div>
+    <div class="browser-shortcuts" id="browser-shortcuts"></div>
     <p id="browser-status" role="status"></p>
     <div id="browser-list" class="browser-list" role="group" aria-label="Папки"></div>
     <div class="dialog-actions browser-actions">

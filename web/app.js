@@ -36,6 +36,11 @@ const paths = {
   refresh: "M20 7v-4l-4 1 M20 7a8 8 0 1 0 1 9",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
   file: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6",
+  home: "M3 11 12 3l9 8M5 10v11h14V10",
+  desktop: "M3 4h18v12H3zM8 20h8M12 16v4",
+  download: "M12 3v12m-5-5 5 5 5-5M4 21h16",
+  send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
+  archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
   warning: "M12 3 2 21h20L12 3Zm0 6v5m0 4h.01",
 };
 
@@ -77,6 +82,13 @@ let pending = 0;
 let operationLabel = "";
 let uploading = false;
 let editingIndex = null;
+let queueCollapsed = false;
+let editingQueueIndex = null;
+let queueEditDraft = "";
+let pendingChatDelete = null;
+try {
+  queueCollapsed = localStorage.getItem("pf-queue-collapsed") === "1";
+} catch {}
 let searchValue = "";
 let searchOpen = false;
 let renderedSignature = "";
@@ -266,24 +278,9 @@ function stopProgress() {
   }, 220);
 }
 function renderProgress() {
-  const voice = state.voice;
-  const voiceBusy = voice && ["installing", "downloading", "loading", "transcribing"].includes(voice.phase);
-  const reconnecting = !connected && !booting && reconnectAttempts > 0;
-  const active = Boolean(pending || booting || state.loading || uploading || voiceBusy || catalogLoading || reconnecting);
+  const active = Boolean(pending || booting || state.loading || uploading);
   if (active) startProgress();
   else stopProgress();
-  $("task-label").hidden = !active;
-  if (!active) return;
-  let label = operationLabel;
-  if (!label && booting) label = "Подключаюсь к pi…";
-  if (!label && state.loading) label = "Открываю чат…";
-  if (!label && uploading) label = "Загружаю файлы…";
-  if (!label && catalogLoading) label = "Загружаю проекты…";
-  if (!label && voiceBusy) {
-    label = voice.phase === "transcribing" ? "Распознаю запись…" : voice.label || "Готовлю голосовой ввод…";
-  }
-  if (!label && reconnecting) label = "Переподключение к pi…";
-  $("task-label").textContent = label || "Загрузка…";
 }
 
 /* ============================== markdown ============================== */
@@ -571,7 +568,14 @@ function wireChrome() {
     event.preventDefault();
     browseFolders($("folder-path").value);
   };
-  $("folder-home").onclick = () => browseFolders("");
+  $("chat-confirm-cancel").onclick = () => {
+    $("chat-confirm").close();
+    pendingChatDelete = null;
+  };
+  $("chat-confirm-ok").onclick = () => confirmDeleteChat();
+  $("chat-confirm").addEventListener("close", () => {
+    pendingChatDelete = null;
+  });
   $("folder-close").onclick = () => $("folder-dialog").close();
   $("folder-cancel").onclick = () => $("folder-dialog").close();
   $("folder-choose").onclick = () => chooseFolder();
@@ -611,7 +615,7 @@ function navigate(target) {
     projectId = null;
     page = "projects";
     renderRoute();
-    run("Обновляю проекты…", () => loadCatalog());
+    loadCatalog().catch(() => {});
     return;
   }
   if (target === "new") return newBranch();
@@ -625,7 +629,7 @@ function openProject(project) {
   searchValue = "";
   searchOpen = false;
   renderRoute();
-  run("Открываю проект…", () => api("open-project", { project: project.id }, 30000));
+  api("open-project", { project: project.id }, 30000).catch(() => {});
 }
 
 function openBranch(chat) {
@@ -640,11 +644,18 @@ function openBranch(chat) {
   }
   renderRoute();
   beginTask("Открываю чат…");
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    endTask();
+  };
   api("open", { id: chat.id }, 45000)
     .then(async (next) => {
       applyState(next);
       page = "chat";
       editingIndex = null;
+      finish();
       await loadCatalog();
       renderRoute();
       $("draft").focus();
@@ -652,10 +663,11 @@ function openBranch(chat) {
     .catch((error) => {
       state = previous.state;
       page = previous.page;
+      finish();
       renderRoute();
       showHint(error.message, true);
     })
-    .finally(() => endTask());
+    .finally(finish);
 }
 
 function newBranch() {
@@ -673,7 +685,7 @@ function newBranch() {
     editingIndex = null;
     $("draft").value = "";
     store(next.active?.id, "");
-    await loadCatalog();
+    loadCatalog().catch(() => {});
     renderRoute();
     autoGrow();
     $("draft").focus();
@@ -717,19 +729,20 @@ function renderBranches() {
   list.append(create);
   for (const chat of project.chats || []) {
     const active = chat.id === state.active?.id;
-    const row = el("button", null, "branch-row" + (active ? " active" : ""));
-    row.type = "button";
+    const row = el("div", null, "branch-row has-actions" + (active ? " active" : ""));
     row.setAttribute("role", "listitem");
-    row.disabled = Boolean(state.busy) && !active;
-    row.title = row.disabled
+    const open = el("button", null, "branch-open");
+    open.type = "button";
+    open.disabled = Boolean(state.busy) && !active;
+    open.title = open.disabled
       ? "Остановите ответ, чтобы переключить чат"
       : chat.name || "Чат";
     const branchIcon = icon("branch");
     branchIcon.classList.add("branch-icon");
     const copy = el("span", null, "branch-copy");
     copy.append(el("span", chat.name || "Новый чат", "branch-name"));
-    row.append(branchIcon, copy);
-    row.onclick = () => {
+    open.append(branchIcon, copy);
+    open.onclick = () => {
       if (active) {
         if (page !== "chat") {
           page = "chat";
@@ -739,8 +752,66 @@ function renderBranches() {
       }
       openBranch(chat);
     };
+    const actions = el("div", null, "branch-actions");
+    const archive = iconAction("archive", "Архивировать", () => archiveChat(chat), "branch-action");
+    archive.disabled = Boolean(state.busy) || chat.terminal;
+    const remove = iconAction("trash", "Удалить", () => deleteChat(chat), "branch-action danger");
+    remove.disabled = Boolean(state.busy) || chat.terminal;
+    actions.append(archive, remove);
+    row.append(open, actions);
     list.append(row);
   }
+}
+
+function archiveChat(chat) {
+  if (state.busy) {
+    showHint("Сначала остановите ответ.", true);
+    return;
+  }
+  const projectIdBefore = activeProjectId();
+  const wasActive = chat.id === state.active?.id;
+  run("Архивирую чат…", async () => {
+    const result = await api("archive-chat", { chat: chat.id }, 30000);
+    catalog = result.projects || catalog;
+    if (wasActive) {
+      state = { ...state, active: null, messages: [], busy: false };
+      projectId = projectIdBefore;
+      page = "chats";
+    }
+    renderRoute();
+    showHint("Чат перемещён в архив.");
+  });
+}
+
+function deleteChat(chat) {
+  if (state.busy) {
+    showHint("Сначала остановите ответ.", true);
+    return;
+  }
+  pendingChatDelete = chat;
+  $("chat-confirm-title").textContent = "Удалить чат?";
+  $("chat-confirm-text").textContent = `«${chat.name || "Чат"}» будет удалён вместе с файлом переписки. Это действие нельзя отменить.`;
+  $("chat-confirm").showModal();
+}
+
+function confirmDeleteChat() {
+  const chat = pendingChatDelete;
+  if (!chat) return;
+  $("chat-confirm").close();
+  pendingChatDelete = null;
+  const projectIdBefore = activeProjectId();
+  const wasActive = chat.id === state.active?.id;
+  run("Удаляю чат…", async () => {
+    const result = await api("delete-chat", { chat: chat.id }, 30000);
+    catalog = result.projects || catalog;
+    if (wasActive) {
+      state = { ...state, active: null, messages: [], busy: false };
+      projectId = projectIdBefore;
+      page = "chats";
+    }
+    renderRoute();
+    showHint("Чат удалён.");
+  });
 }
 
 /* ============================== page rendering ============================== */
@@ -750,6 +821,7 @@ function setBreadcrumb(title) {
 }
 
 function renderRoute() {
+  if (page === "chat" && !state.active) page = "chats";
   const chatPage = page === "chat" && state.active;
   $("page").hidden = chatPage;
   $("chat").hidden = !chatPage;
@@ -1050,7 +1122,7 @@ function renderCreatePage() {
       applyState(next);
       page = "chat";
       projectId = next.active?.projectId || null;
-      await loadCatalog();
+      loadCatalog().catch(() => {});
       renderRoute();
     }).finally(() => {
       submit.disabled = false;
@@ -1118,6 +1190,7 @@ function renderMessages() {
   const oldTop = area.scrollTop;
   const frag = document.createDocumentFragment();
   const messages = state.messages || [];
+  let previousAssistant = false;
 
   messages.forEach((message, index) => {
     if (
@@ -1129,6 +1202,8 @@ function renderMessages() {
     )
       return;
     const user = message.role === "user";
+    if (user) previousAssistant = false;
+    const continued = !user && previousAssistant;
     const nextUser = messages.findIndex((item, position) => position > index && item.role === "user");
     const historical = nextUser >= 0;
     const recovered = messages
@@ -1138,8 +1213,9 @@ function renderMessages() {
     if (message.error && !showFailure && !message.text && !message.thinking && !message.tools?.length)
       return;
 
-    const row = el("article", null, "message " + (user ? "user" : "assistant"));
+    const row = el("article", null, "message " + (user ? "user" : "assistant") + (continued ? " continued" : ""));
     row.dataset.index = String(index);
+    const messageKey = (state.active?.id || "") + ":" + index;
 
     if (user) {
       const wrapper = el("div", null, "user-message-wrapper");
@@ -1187,11 +1263,17 @@ function renderMessages() {
             body,
             "reasoning",
             message.status === "streaming" ? { label: "идёт", cls: "warn" } : null,
+            messageKey + ":thinking",
           ),
         );
       }
       const answer = el("div", null, "answer");
       markdown(answer, message.text || "");
+      if (message.status === "streaming" && message.text) {
+        const caret = el("span", "▍", "typing-caret");
+        caret.setAttribute("aria-hidden", "true");
+        answer.append(caret);
+      }
       content.append(answer);
       if (message.status === "streaming" && !message.text && !message.thinking && !message.tools?.length) {
         content.append(el("div", "Пишет ответ…", "generating-message"));
@@ -1214,24 +1296,44 @@ function renderMessages() {
           ? String(tool.label || "Действие").replace("Создаю файл", "Файл записан").replace("Обновляю файл", "Файл изменён").replace("Читаю файл", "Файл прочитан")
           : tool.label || "Действие";
         content.append(
-          disclosure(label, body, "tool-card " + status, {
-            label: labels[status] || status,
-            cls: status === "error" ? "err" : status === "done" ? "ok" : status === "running" ? "warn" : "",
-            dot: true,
-          }),
+          disclosure(
+            label,
+            body,
+            "tool-card " + status,
+            {
+              label: labels[status] || status,
+              cls: status === "error" ? "err" : status === "done" ? "ok" : status === "running" ? "warn" : "",
+              dot: true,
+            },
+            messageKey + ":tool:" + (tool.id || tool.label || "tool"),
+          ),
         );
       }
       if (showFailure) {
         content.append(
-          disclosure("Не удалось получить ответ · Подробнее", el("pre", message.error), "message-error"),
+          disclosure(
+            "Не удалось получить ответ · Подробнее",
+            el("pre", message.error),
+            "message-error",
+            null,
+            messageKey + ":error",
+          ),
         );
       }
-      if (message.status === "stopped") content.append(el("p", "Ответ прерван. Полученная часть сохранена.", "stream-label"));
-      if (message.retained) content.append(el("p", "Сохранённый фрагмент: сервис не вернул его в итоговой истории.", "stream-label"));
+      if (message.status === "stopped") content.append(el("p", "Ответ прерван. Полученная часть сохранена.", "stopped-note"));
+      if (message.retained) content.append(el("p", "Сохранённый фрагмент: сервис не вернул его в итоговой истории.", "stopped-note"));
       if (message.versions?.length) {
         const body = el("div");
         for (const version of message.versions) body.append(el("pre", version.text || version.thinking || ""));
-        content.append(disclosure("Предыдущий фрагмент ответа · сервис заменил текст", body, "reasoning"));
+        content.append(
+          disclosure(
+            "Предыдущий фрагмент ответа · сервис заменил текст",
+            body,
+            "reasoning",
+            null,
+            messageKey + ":versions",
+          ),
+        );
       }
       const foot = el("div", null, "assistant-foot");
       if (message.status !== "streaming" && message.text) {
@@ -1242,7 +1344,9 @@ function renderMessages() {
         foot.append(copy);
       }
       if (foot.childNodes.length) content.append(foot);
-      row.append(mark, content);
+      if (!continued) row.append(mark);
+      row.append(content);
+      previousAssistant = true;
     }
     frag.append(row);
   });
@@ -1266,15 +1370,15 @@ function renderMessages() {
   }
 }
 
-function disclosure(label, body, cls = "", badge = null) {
+function disclosure(label, body, cls = "", badge = null, key = null) {
   const details = el("details", null, cls);
-  const key = cls + ":" + label;
-  details.open = expandedDetails.get(key) || false;
+  const stateKey = key || cls + ":" + label;
+  details.open = expandedDetails.get(stateKey) || false;
   const summary = el("summary");
   if (badge?.dot) summary.append(el("span", null, "tool-dot"));
   summary.append(el("span", label));
   if (badge && !badge.dot) summary.append(el("span", badge.label, "pill-badge " + (badge.cls || "")));
-  summary.onclick = () => expandedDetails.set(key, !details.open);
+  summary.onclick = () => expandedDetails.set(stateKey, !details.open);
   details.append(summary, body);
   return details;
 }
@@ -1326,11 +1430,24 @@ function copyText(text) {
 
 /* ============================== queue ============================== */
 
+function iconAction(name, title, run, cls = "queue-action") {
+  const button = el("button", null, cls);
+  button.type = "button";
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.append(icon(name));
+  button.onclick = (event) => {
+    event.stopPropagation();
+    run();
+  };
+  return button;
+}
+
 function renderQueue() {
   const panel = $("queue-panel");
   const queue = queueOf();
-  const messages = [...(queue.steering || []), ...(queue.followUp || [])];
-  const signature = JSON.stringify(messages);
+  const messages = [...(queue.followUp || [])];
+  const signature = JSON.stringify([messages, queueCollapsed, editingQueueIndex]);
   if (signature === queueSignature) {
     panel.hidden = !messages.length;
     return;
@@ -1338,36 +1455,130 @@ function renderQueue() {
   queueSignature = signature;
   panel.replaceChildren();
   panel.hidden = !messages.length;
-  if (!messages.length) return;
+  panel.classList.toggle("collapsed", queueCollapsed);
+  if (!messages.length) {
+    editingQueueIndex = null;
+    return;
+  }
+
   const head = el("div", null, "queue-head");
-  const title = el("div", null, "queue-title");
-  title.append(
-    icon("chevron-right"),
-    el("span", "В очереди"),
+  const toggle = el("button", null, "queue-toggle");
+  toggle.type = "button";
+  toggle.title = queueCollapsed ? "Развернуть очередь" : "Свернуть очередь";
+  toggle.append(
+    icon("chevron-down"),
+    el("span", "Очередь"),
     el("span", String(messages.length), "pill-badge info"),
   );
-  const clear = el("button", "Очистить", "queue-clear");
-  clear.type = "button";
-  clear.onclick = () => clearQueue();
-  head.append(title, clear);
+  toggle.onclick = () => {
+    queueCollapsed = !queueCollapsed;
+    try {
+      localStorage.setItem("pf-queue-collapsed", queueCollapsed ? "1" : "0");
+    } catch {}
+    queueSignature = "";
+    renderQueue();
+  };
+
+  const actions = el("div", null, "queue-actions");
+  const sendAll = iconAction("send", "Отправить всё сейчас", sendAllQueued);
+  sendAll.disabled = !messages.length;
+  const clear = iconAction("trash", "Очистить очередь", clearQueue, "queue-action danger");
+  actions.append(sendAll, clear);
+  head.append(toggle, actions);
+
+  const body = el("div", null, "queue-body");
+  body.hidden = queueCollapsed;
   const list = el("div", null, "queue-list");
-  messages.forEach((text, index) => {
-    const row = el("div", null, "queue-item");
-    row.append(el("span", String(index + 1), "queue-index"));
-    const copy = el("span", text, "queue-text");
-    copy.title = text;
-    row.append(copy);
-    const remove = el("button", null, "queue-remove");
-    remove.type = "button";
-    remove.title = "Убрать из очереди";
-    remove.setAttribute("aria-label", "Убрать из очереди");
-    remove.append(icon("close"));
-    remove.disabled = index >= (queue.steering || []).length + (queue.followUp || []).length;
-    remove.onclick = () => unqueue(index);
-    row.append(remove);
-    list.append(row);
+  if (!queueCollapsed) {
+    messages.forEach((text, index) => {
+      if (editingQueueIndex === index) {
+        const row = el("div", null, "queue-item editing");
+        const box = el("div", null, "queue-edit");
+        const textarea = el("textarea");
+        textarea.value = queueEditDraft;
+        textarea.rows = 2;
+        textarea.setAttribute("aria-label", "Текст сообщения в очереди");
+        textarea.oninput = () => {
+          queueEditDraft = textarea.value;
+        };
+        const editActions = el("div", null, "queue-edit-actions");
+        const save = iconAction("check", "Сохранить", () => saveQueueEdit(index, textarea.value), "queue-action");
+        save.classList.add("ok");
+        const cancel = iconAction("close", "Отмена", () => {
+          editingQueueIndex = null;
+          queueEditDraft = "";
+          queueSignature = "";
+          renderQueue();
+        });
+        editActions.append(cancel, save);
+        box.append(textarea, editActions);
+        row.append(box);
+        list.append(row);
+        return;
+      }
+      const row = el("div", null, "queue-item");
+      row.append(el("span", String(index + 1), "queue-index"));
+      const copy = el("span", text, "queue-text");
+      copy.title = text;
+      row.append(copy);
+      const itemActions = el("div", null, "queue-item-actions");
+      itemActions.append(
+        iconAction("send", "Отправить сейчас, прервав ответ", () => sendQueuedNow(index)),
+        iconAction("edit", "Редактировать", () => {
+          editingQueueIndex = index;
+          queueEditDraft = text;
+          queueSignature = "";
+          renderQueue();
+        }),
+        iconAction("close", "Удалить из очереди", () => unqueue(index)),
+      );
+      row.append(itemActions);
+      list.append(row);
+    });
+  }
+  body.append(list);
+  panel.append(head, body);
+}
+
+function sendQueuedNow(index) {
+  run("Отправляю сейчас…", async () => {
+    const result = await api("send-now", { chat: state.active.id, index }, 120000);
+    state.queue = result.queue || { steering: [], followUp: [] };
+    editingQueueIndex = null;
+    queueEditDraft = "";
+    queueSignature = "";
+    renderQueue();
+    showHint("Сообщение отправлено.");
   });
-  panel.append(head, list);
+}
+
+function sendAllQueued() {
+  run("Отправляю очередь…", async () => {
+    const result = await api("send-all", { chat: state.active.id }, 120000);
+    state.queue = result.queue || { steering: [], followUp: [] };
+    editingQueueIndex = null;
+    queueEditDraft = "";
+    queueSignature = "";
+    renderQueue();
+    showHint("Очередь отправлена.");
+  });
+}
+
+function saveQueueEdit(index, text) {
+  const value = String(text || "").trim();
+  if (!value) {
+    showHint("Введите текст сообщения.", true);
+    return;
+  }
+  run("Сохраняю сообщение…", async () => {
+    const result = await api("edit-queue", { chat: state.active.id, index, text: value }, 60000);
+    state.queue = result.queue || { steering: [], followUp: [] };
+    editingQueueIndex = null;
+    queueEditDraft = "";
+    queueSignature = "";
+    renderQueue();
+    showHint("Сообщение в очереди обновлено.");
+  });
 }
 
 function queueMessage(text) {
@@ -1428,6 +1639,10 @@ function unqueue(index) {
   run("Убираю из очереди…", async () => {
     const result = await api("unqueue", { chat: state.active.id, index }, 30000);
     state.queue = result.queue || { steering: [], followUp: [] };
+    if (editingQueueIndex != null && editingQueueIndex >= index) {
+      editingQueueIndex = null;
+      queueEditDraft = "";
+    }
     queueSignature = "";
     renderQueue();
     if (result.removed && !$("draft").value) {
@@ -1443,6 +1658,8 @@ function clearQueue() {
     const result = await api("clear-queue", { chat: state.active.id }, 30000);
     const returned = [...(result.steering || []), ...(result.followUp || [])];
     state.queue = { steering: [], followUp: [] };
+    editingQueueIndex = null;
+    queueEditDraft = "";
     queueSignature = "";
     renderQueue();
     if (returned.length && !$("draft").value) {
@@ -1494,6 +1711,8 @@ function abortGeneration() {
     const result = await api("abort", { chat: state.active.id }, 30000);
     const returned = [...(result.cleared?.steering || []), ...(result.cleared?.followUp || [])];
     state.queue = { steering: [], followUp: [] };
+    editingQueueIndex = null;
+    queueEditDraft = "";
     queueSignature = "";
     renderQueue();
     if (returned.length && !$("draft").value) {
@@ -1516,7 +1735,7 @@ function forkMessage(index, text) {
     page = "chat";
     editingIndex = null;
     renderedSignature = "";
-    await loadCatalog();
+    loadCatalog().catch(() => {});
     renderRoute();
     $("draft").focus();
     showHint(text ? "Новый чат создан, сообщение отправлено." : "Новый чат создан.");
@@ -1581,28 +1800,19 @@ function renderActivity(busy) {
   const voice = state.voice;
   const recording = ["starting", "recording", "transcribing"].includes(voice?.phase);
   activity.classList.toggle("generating", busy);
-  activity.classList.toggle("has-preview", false);
+  activity.classList.toggle("waiting", false);
   activity.replaceChildren();
   if (busy) {
-    const preview =
-      state.routerProgress?.preview ||
-      state.messages?.findLast((message) => message.role === "assistant")?.text ||
-      state.messages?.findLast((message) => message.role === "assistant")?.thinking ||
-      "";
-    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-100).join("");
-    activity.classList.toggle("has-preview", Boolean(tail));
+    const current = state.messages?.findLast(
+      (message) => message.role === "assistant" && message.status === "streaming",
+    );
+    const preview = state.routerProgress?.preview || current?.text || current?.thinking || "";
+    const tail = Array.from(String(preview).replace(/\s+/g, " ").trim()).slice(-120).join("");
+    const waiting = !tail;
+    activity.classList.toggle("waiting", waiting);
     activity.append(
       el("span", progressTime(), "activity-time"),
-      el("span", tail || "Подготавливаю ответ…", "activity-preview"),
-      el(
-        "span",
-        Number.isFinite(state.routerProgress?.quota)
-          ? (state.routerProgress.estimated ? "≈" : "") +
-              state.routerProgress.quota.toLocaleString("ru-RU") +
-              " квоты"
-          : "",
-        "activity-quota",
-      ),
+      el("span", tail || "Подготавливаю ответ…", "activity-preview" + (waiting ? " waiting-label" : "")),
     );
     return;
   }
@@ -1861,17 +2071,49 @@ async function browseFolders(path) {
   }
 }
 
-function renderBrowser({ path, parent, entries }) {
+function renderBrowser({ path, parent, entries, shortcuts = [] }) {
   $("folder-path").value = path;
   $("browser-status").textContent = entries.length
     ? "Откройте нужную папку и нажмите «Выбрать эту папку»."
     : "Вложенных папок нет. Можно выбрать эту папку.";
+  const quick = $("browser-shortcuts");
+  quick.replaceChildren();
+  quick.hidden = !shortcuts.length;
+  if (shortcuts.length) {
+    const title = el("div", "Быстрый переход", "browser-section-title");
+    const grid = el("div", null, "browser-shortcut-grid");
+    for (const shortcut of shortcuts) {
+      const card = el("button", null, "browser-shortcut");
+      card.type = "button";
+      const kind =
+        shortcut.kind === "desktop"
+          ? "desktop"
+          : shortcut.kind === "downloads"
+            ? "download"
+            : shortcut.kind === "documents"
+              ? "file"
+              : shortcut.kind === "projects"
+                ? "projects"
+                : "home";
+      card.append(
+        icon(kind === "projects" ? "folder" : kind),
+        el("span", shortcut.name, "shortcut-name"),
+        el("span", shortcut.path, "shortcut-path"),
+      );
+      card.title = shortcut.path;
+      card.onclick = () => browseFolders(shortcut.path);
+      grid.append(card);
+    }
+    quick.append(title, grid);
+  }
   const list = $("browser-list");
   list.replaceChildren();
   const up = el("button", null, "browser-row parent");
   up.type = "button";
   up.disabled = !parent;
-  up.append(icon("chevron-right"), el("span", "На уровень выше", "browser-name"));
+  const upIcon = icon("arrow");
+  upIcon.classList.add("up");
+  up.append(upIcon, el("span", "На уровень выше", "browser-name"));
   up.onclick = () => browseFolders(parent);
   list.append(up);
   for (const entry of entries.filter((item) => !item.name.startsWith("."))) {
@@ -2001,6 +2243,11 @@ function applyState(next) {
   if (state.active && !lastChat) {
     lastChat = state.active.id;
     page = "chat";
+    renderRoute();
+    return;
+  }
+  if (!state.active && page === "chat") {
+    page = "chats";
     renderRoute();
     return;
   }
