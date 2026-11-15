@@ -423,3 +423,34 @@ test('history returns session messages without starting pi',async t=>{
  assert.equal(result.data.messages[0].text,'Привет');
  assert.equal(h.calls.length,0);
 });
+
+test('image endpoints list, serve, generate and delete project images',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'pf-image-project-'));
+ t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRZkAAAAASUVORK5CYII=','base64');
+ await (await import('node:fs/promises')).mkdir(join(cwd,'generated','chat-1'),{recursive:true});
+ await writeFile(join(cwd,'generated','chat-1','pic.png'),png);
+ const record={id:'pic-1',path:'generated/chat-1/pic.png',file:'generated/chat-1/pic.png',name:'pic.png',width:1,height:1,format:'png',prompt:'круг',size:'1024x1024',source:null,createdAt:new Date().toISOString(),chatId:'chat-1'};
+ await writeFile(join(cwd,'generated','chat-1','pic.json'),JSON.stringify(record));
+ const sessions=[{id:'chat-1',cwd,path:join(cwd,'chat.jsonl'),name:'Чат с картинкой',modified:new Date().toISOString(),messageCount:1,firstMessage:'Привет'}];
+ const generated=[];
+ const web=await startWebServer({
+  projects:{list:()=>[{cwd,name:'Проект'}],isProject:()=>true,markOpened(){},create(){throw Error('no')},createChat(){throw Error('no')},attach(){throw Error('no')}},
+  listSessions:async()=>sessions,readSession:()=>[{role:'user',content:'Привет'}],
+  models:()=>[{id:'test',name:'Test',provider:'local'}],hostSession:()=>undefined,
+  sessionDirFor:()=>cwd,
+  generateImage:async(options)=>{generated.push(options);return{details:{image:{...record,id:'pic-2',path:'generated/chat-1/pic-2.png'},images:[{...record,id:'pic-2',path:'generated/chat-1/pic-2.png'}]}};},
+  makeRpc:()=>({request:async(type)=>{if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false,sessionId:'chat-1',sessionFile:join(cwd,'chat.jsonl')};if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};return{};},respond(){},dispose:async()=>{}}),
+ });
+ t.after(()=>web.close());
+ const auth=await fetch(web.origin+'/api/auth',{method:'POST',body:JSON.stringify({token:web.url.split('#')[1]})});
+ const cookie=auth.headers.get('set-cookie').split(';')[0];
+ const request=async(path,data)=>{const response=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{cookie,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});const type=response.headers.get('content-type')||'';return{status:response.status,data:type.includes('json')?await response.json():Buffer.from(await response.arrayBuffer())};};
+ const project=(await request('catalog')).data.projects[0];
+ const list=await request('images',{project:project.id});assert.equal(list.status,200);assert.equal(list.data.images.length,1);assert.equal(list.data.images[0].chatName,'Чат с картинкой');
+ const served=await request('image?project='+encodeURIComponent(project.id)+'&path='+encodeURIComponent(record.path));assert.equal(served.status,200);assert.deepEqual(served.data,png);
+ const opened=await request('open',{id:project.chats[0].id});assert.equal(opened.status,200);
+ const made=await request('image-generate',{prompt:'сделай круг',size:'1024x1024'});assert.equal(made.status,200);assert.equal(generated[0].sessionId,'chat-1');assert.equal(generated[0].size,'1024x1024');assert.equal(made.data.image.id,'pic-2');
+ const removed=await request('image-delete',{project:project.id,path:record.path});assert.equal(removed.status,200);
+ const after=await request('images',{project:project.id});assert.equal(after.data.images.length,0);
+});

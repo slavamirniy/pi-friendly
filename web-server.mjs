@@ -3,7 +3,7 @@ import {readFile,readdir,mkdir,stat,unlink,rename,writeFile} from 'node:fs/promi
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {homedir} from 'node:os';
-import {join,resolve,basename,dirname,sep,isAbsolute} from 'node:path';
+import {join,resolve,basename,dirname,relative,sep,isAbsolute} from 'node:path';
 import {folderKey} from './projects.mjs';
 import {sanitizeUploadName} from './uploads.mjs';
 import {clean} from './menu.mjs';
@@ -16,7 +16,7 @@ import {publicMessage,publicMessages,mergeMessage,reconcileMessages,toolView,upd
 import {finalChatTitle,fallbackChatTitle,isValidChatTitle} from './title.mjs';
 import {stripAttachments} from './web/attachments.js';
 export {publicMessage,publicMessages} from './web-messages.mjs';
-export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle,pickChatFiles,sessionDirFor,dropDir}){
+export async function startWebServer({billing,projects,listSessions,readSession,makeRpc,makeHostRpc,getHostStatuses=()=>[],models=()=>[],hostSession=()=>undefined,voice,port=0,onExit=()=>{},canExit=()=>true,getPreferredModel=()=>undefined,onModelSelected=()=>{},pickProjectFolder,generateTitle,pickChatFiles,sessionDirFor,dropDir,generateImage}){
  const token=randomBytes(32).toString('hex'),cookie='pf_'+randomBytes(6).toString('hex'),clients=new Set();
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false,dropRoot;
  let state={active:null,messages:[],busy:false,loading:false,ready:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
@@ -36,7 +36,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   for(const s of allSessions)known.add(key(s.path));
   return allProjects.map(p=>{
    const projectKey=key(folderKey(p.cwd));
-   const chats=allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),name:s.name||(s.firstMessage&&s.firstMessage!=='(no messages)'?s.firstMessage.slice(0,80):'Новый чат'),modified:s.modified,count:s.messageCount||0,named:Boolean(s.name),parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}));
+   const chats=allSessions.filter(s=>folderKey(s.cwd)===folderKey(p.cwd)).sort((a,b)=>+new Date(b.modified)-+new Date(a.modified)).map(s=>({id:key(s.path),sessionId:s.id,name:s.name||(s.firstMessage&&s.firstMessage!=='(no messages)'?s.firstMessage.slice(0,80):'Новый чат'),modified:s.modified,count:s.messageCount||0,named:Boolean(s.name),parent:s.parentSessionPath&&known.has(key(s.parentSessionPath))?key(s.parentSessionPath):null,terminal:s.path===hostSession()}));
    // pi writes a forked session file only after the first assistant message.
    // Keep an empty fork visible as the active chat until its file exists.
    if(active?.file&&!active.host&&active.projectId===projectKey){
@@ -74,6 +74,42 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    result.push({id:key(path),name:title||basename(name,'.jsonl'),count:publicOnes.filter(message=>['user','assistant'].includes(message.role)).length,modified:info.mtime.toISOString()});
   }
   return result.sort((a,b)=>+new Date(b.modified)-+new Date(a.modified));
+ }
+ function imageTarget(project,rel){
+  const root=resolve(project.cwd,'generated');
+  const target=resolve(project.cwd,String(rel||''));
+  if(target!==root&&!target.startsWith(root+sep))throw new Error('Недопустимый путь к изображению.');
+  return target;
+ }
+ function activeSessionId(){
+  if(active?.sessionId)return active.sessionId;
+  if(active?.file){const match=/_([0-9a-f-]{8,})\.jsonl$/i.exec(basename(active.file));if(match)return match[1];}
+  return undefined;
+ }
+ async function imageRecords(project){
+  const root=join(project.cwd,'generated');
+  let chatDirs=[];
+  try{chatDirs=await readdir(root,{withFileTypes:true});}catch{return [];}
+  if(!allSessions.length)await catalog();
+  const chatNames=new Map(allSessions.map(session=>[session.id,session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Чат')]));
+  const records=[];
+  for(const chatDir of chatDirs){
+   if(!chatDir.isDirectory())continue;
+   const chatId=chatDir.name;
+   let files=[];
+   try{files=await readdir(join(root,chatId));}catch{continue;}
+   for(const file of files){
+    if(!/\.(png|jpe?g)$/i.test(file))continue;
+    const target=join(root,chatId,file);
+    let info;
+    try{info=await stat(target);}catch{continue;}
+    let meta=null;
+    try{meta=JSON.parse(await readFile(target.replace(/\.[^.]+$/,'.json'),'utf8'));}catch{}
+    const rel=relative(project.cwd,target).split(sep).join('/');
+    records.push({...(meta||{}),path:rel,file:rel,name:file,chatId:meta?.chatId||chatId,chatName:chatNames.get(chatId)||meta?.chatName||chatId,createdAt:meta?.createdAt||info.mtime.toISOString(),width:meta?.width||0,height:meta?.height||0});
+   }
+  }
+  return records.sort((a,b)=>+new Date(b.createdAt)-+new Date(a.createdAt));
  }
  function uniqueTitle(title,chatId){
   const project=allProjects.find(p=>key(folderKey(p.cwd))===active?.projectId);
@@ -161,7 +197,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    const previousRpc=rpc;rpc=undefined;if(previousRpc)void previousRpc.dispose();
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
+   active={id:key(session.path),sessionId:session.id,projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
    state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},ready:false};
    loading=false;
    if(active.readOnly){
@@ -178,7 +214,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      rpc=nextRpc;
      const [current,messages]=await Promise.all([nextRpc.request('get_state',{},20000),nextRpc.request('get_messages',{},20000)]);
      if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
-     active={...active,model:current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null,file:current?.sessionFile||session.path};
+     active={...active,model:current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null,file:current?.sessionFile||session.path,sessionId:current?.sessionId||active.sessionId};
      state={...state,busy:Boolean(current?.isStreaming),queue:{steering:[],followUp:[]}};
      const preferred=getPreferredModel();
      if(preferred&&!state.busy&&(active.model?.id!==preferred.id||active.model?.provider!==preferred.provider)){
@@ -275,6 +311,17 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     if(req.method==='GET'&&url.pathname==='/api/offers'){if(!billing)throw Error('Пополнение не подключено.');reply(200,await billing.offers());return;}
     if(req.method==='GET'&&url.pathname==='/api/catalog'){reply(200,{projects:await catalog()});return;}
     if(req.method==='GET'&&url.pathname==='/api/models'){reply(200,{models:(await models()).map(m=>({id:m.id,name:m.name||m.id,provider:m.provider}))});return;}
+    if(req.method==='GET'&&url.pathname==='/api/image'){
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===url.searchParams.get('project'));
+     if(!project)throw new Error('Проект не найден.');
+     const target=imageTarget(project,url.searchParams.get('path'));
+     const info=await stat(target);
+     if(!info.isFile())throw new Error('Изображение не найдено.');
+     const type=/\.png$/i.test(target)?'image/png':/\.jpe?g$/i.test(target)?'image/jpeg':'application/octet-stream';
+     res.writeHead(200,{'Content-Type':type,'Content-Length':info.size,'Cache-Control':'private, max-age=3600'});
+     res.end(await readFile(target));return;
+    }
    if(req.method==='GET'&&url.pathname==='/api/browse-folders'){
     const start=String(url.searchParams.get('path')||'').trim()||join(homedir());
     if(!isAbsolute(start))throw new Error('Укажите полный путь.');
@@ -389,6 +436,37 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      }
      const projects=await catalog();changed();
      reply(200,{ok:true,projects});return;
+    }
+    if(action==='images'){
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===data.project);
+     if(!project)throw new Error('Проект не найден.');
+     reply(200,{images:await imageRecords(project)});return;
+    }
+    if(action==='image-delete'){
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===data.project);
+     if(!project)throw new Error('Проект не найден.');
+     const target=imageTarget(project,data.path);
+     await unlink(target);
+     try{await unlink(target.replace(/\.[^.]+$/,'.json'));}catch{}
+     reply(200,{ok:true});return;
+    }
+    if(action==='image-generate'){
+     if(!active||active.readOnly)throw new Error('Сначала откройте чат в проекте.');
+     if(!generateImage)throw new Error('Генерация изображений не подключена.');
+     if(!allProjects.length)await catalog();
+     const project=allProjects.find(p=>key(folderKey(p.cwd))===active.projectId);
+     if(!project)throw new Error('Проект не найден.');
+     const prompt=String(data.prompt||'').trim();
+     if(!prompt)throw new Error('Опишите изображение.');
+     try{
+      const result=await generateImage({prompt,size:data.size?String(data.size):undefined,source:data.source?String(data.source):undefined,cwd:project.cwd,sessionId:activeSessionId(),idempotencyKey:data.requestId?String(data.requestId):undefined,signal:AbortSignal.timeout(620000)});
+      reply(200,{image:result?.details?.image||null,images:result?.details?.images||[]});
+     }catch(error){
+      reply(error.status===402?402:error.status===409?409:400,{error:error.message,code:error.code,requestId:error.requestId});
+     }
+     return;
     }
     if(action==='history'){
      if(!allProjects.length||!allSessions.length)await catalog();

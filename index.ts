@@ -1,3 +1,5 @@
+import { Type } from '@earendil-works/pi-ai';
+import { IMAGE_SIZES, runImageTool } from './image-tool.mjs';
 import routerProgress from './router/index.ts';
 import {createBilling} from './billing.mjs';
 import {pickProjectFolder,pickChatFiles} from './folder-picker.mjs';
@@ -18,10 +20,25 @@ import { join } from "node:path";
 import { installFriendly } from "./friendly.mjs";
 export default function friendly(pi: ExtensionAPI) {
   let billingContext:any;
-  const billing=createBilling({receiptFile:join(getAgentDir(),'purchase-consents.jsonl'),getConnection:async()=>{
+  const getConnection=async()=>{
     const m=billingContext?.modelRegistry.getAvailable().find((m:any)=>m.provider==='router');
     if(!m)throw Error('Роутер не подключён.');const auth=await billingContext.modelRegistry.getApiKeyAndHeaders(m);if(!auth?.ok)throw Error('Доступ к роутеру не настроен.');const bearer=Object.entries(auth.headers||{}).find(([k])=>k.toLowerCase()==='authorization')?.[1];return {baseURL:auth.baseUrl||m.baseUrl,apiKey:typeof bearer==='string'&&/^Bearer /i.test(bearer)?bearer.slice(7):auth.apiKey};
-  }});
+  };
+  const billing=createBilling({receiptFile:join(getAgentDir(),'purchase-consents.jsonl'),getConnection});
+  pi.registerTool({
+    name:'generate_image',label:'Создать изображение',
+    description:'Generate an image from a description, or edit a project image using its relative path. Uses a paid image credit operation. Use only when the user asks to generate or edit an image. Optional size must be one of the supported image sizes.',
+    parameters:Type.Object({
+      prompt:Type.String(),
+      source:Type.Optional(Type.String({description:'Relative path to a source PNG or JPEG in this project'})),
+      size:Type.Optional(Type.String({enum:IMAGE_SIZES,description:'auto, 1024x1024, 1024x1536, 1536x1024, 1920x1080, 2048x1152, 2048x2048 or 2560x1440'})),
+    }),
+    async execute(_id:any,params:any,signal:any,_update:any,ctx:any){
+      const result=await runImageTool({...params,sessionId:ctx.sessionManager.getSessionId()},ctx.cwd,await getConnection(),signal);
+      void billing.refresh();
+      return result;
+    }
+  });
   let billingTimer:any;
   pi.on('session_start',async(_event,ctx)=>{billingContext=ctx;if(ctx.mode!=='tui')return;void billing.refresh();clearInterval(billingTimer);billingTimer=setInterval(()=>void billing.refresh(),30000);billingTimer.unref?.();});
   pi.on('agent_end',()=>{void billing.refresh();});
@@ -43,7 +60,7 @@ export default function friendly(pi: ExtensionAPI) {
     if(!web||web.closed){
       opening??=startWebServer({billing,projects,listSessions:()=>SessionManager.listAll(),readSession:(path: string)=>SessionManager.open(path).buildSessionContext().messages,
         makeHostRpc:({onEvent}:any)=>createHostBridge({pi,ctx,observers:hostObservers,onEvent}),
-        pickProjectFolder,pickChatFiles,sessionDirFor:(cwd:string)=>SessionManager.create(cwd).getSessionDir(),onExit:()=>ctx.shutdown(),canExit:()=>ctx.isIdle(),getPreferredModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable()),onModelSelected:(model:any)=>modelPreference.save(model),
+        pickProjectFolder,pickChatFiles,sessionDirFor:(cwd:string)=>SessionManager.create(cwd).getSessionDir(),generateImage:async(options:any)=>{const result=await runImageTool(options,options.cwd,await getConnection(),options.signal);void billing.refresh();return result;},onExit:()=>ctx.shutdown(),canExit:()=>ctx.isIdle(),getPreferredModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable()),onModelSelected:(model:any)=>modelPreference.save(model),
         getHostStatuses,models:()=>ctx.modelRegistry.getAvailable(),hostSession:()=>ctx.sessionManager.getSessionFile(),voice,
         generateTitle:createTitleGenerator({complete:(model:any,context:any,options:any)=>ctx.modelRegistry.complete(model,context,options),resolveModel:()=>modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model}),
         makeRpc:(options: any)=>createRpc({...options,cli:join(getPackageDir(),'dist','bundle','cli.js'),model:modelPreference.resolve(ctx.modelRegistry.getAvailable())||ctx.model})});

@@ -81,6 +81,10 @@
 
       <section id="page" aria-live="polite"></section>
       <div id="floating-pager" class="floating-pager" hidden></div>
+      <button type="button" id="image-gallery-open" class="image-gallery-open" title="Изображения" aria-label="Изображения" hidden>
+        <span data-icon="image" aria-hidden="true"></span>
+        <span id="image-count" class="image-count" hidden>0</span>
+      </button>
 
       <section id="chat" hidden>
         <div id="messages" tabindex="0" aria-label="Переписка"></div>
@@ -111,6 +115,9 @@
                 <span>Модель</span>
               </button>
               <div class="composer-actions">
+                <button type="button" id="image-open" title="Создать изображение" aria-label="Создать изображение">
+                  <span data-icon="image" aria-hidden="true"></span>
+                </button>
                 <button type="button" id="attach" title="Загрузить файлы в папку проекта" aria-label="Загрузить файлы">
                   <span data-icon="attach" aria-hidden="true"></span>
                 </button>
@@ -168,6 +175,76 @@
     <div class="dialog-actions">
       <button type="button" id="archive-cancel">Закрыть</button>
     </div>
+  </dialog>
+
+  <dialog id="image-studio" class="image-studio">
+    <div class="studio-head">
+      <h2>Генерация изображения</h2>
+      <button type="button" id="image-studio-close" class="browser-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="studio-body">
+      <label class="studio-label" for="image-prompt">Описание</label>
+      <textarea id="image-prompt" class="studio-prompt" rows="3" placeholder="Например, обложка для сайта кофейни: тёплый свет, чашка на деревянном столе"></textarea>
+      <div id="image-source" class="image-source" hidden>
+        <span class="attachment-icon" data-icon="image" aria-hidden="true"></span>
+        <span id="image-source-name" class="image-source-name"></span>
+        <button type="button" id="image-source-remove" class="attachment-remove" title="Убрать исходник" aria-label="Убрать исходник">
+          <span data-icon="close" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="studio-row">
+        <label>Размер
+          <select id="image-size">
+            <option value="auto">Авто</option>
+            <option value="1024x1024">1024 × 1024</option>
+            <option value="1024x1536">1024 × 1536</option>
+            <option value="1536x1024">1536 × 1024</option>
+            <option value="1920x1080">1920 × 1080</option>
+            <option value="2048x1152">2048 × 1152</option>
+            <option value="2048x2048">2048 × 2048</option>
+            <option value="2560x1440">2560 × 1440</option>
+          </select>
+        </label>
+        <label>Количество
+          <select id="image-count-select">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </label>
+      </div>
+      <div id="image-jobs" class="image-jobs"></div>
+      <div class="studio-foot">
+        <span id="image-studio-note" class="studio-note">500 000 AI-кредитов за изображение</span>
+        <button type="button" id="image-generate" class="button primary">Сгенерировать</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="image-gallery" class="gallery-dialog">
+    <div class="browser-head">
+      <h2>Изображения</h2>
+      <button type="button" id="gallery-close" class="browser-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="gallery-tabs">
+      <button type="button" id="gallery-chat" class="gallery-tab active">Этот чат</button>
+      <button type="button" id="gallery-project" class="gallery-tab">Проект</button>
+      <span id="gallery-count" class="gallery-count"></span>
+    </div>
+    <div id="gallery-grid" class="gallery-grid"></div>
+    <div id="gallery-view" class="gallery-view" hidden>
+      <button type="button" id="gallery-back" class="back">← Все изображения</button>
+      <img id="gallery-image" alt="Сгенерированное изображение">
+      <div id="gallery-meta" class="gallery-meta"></div>
+      <div class="gallery-actions">
+        <button type="button" id="gallery-edit" class="button">Редактировать</button>
+        <a id="gallery-download" class="button" download>Скачать</a>
+        <button type="button" id="gallery-copy" class="button ghost">Копировать путь</button>
+        <button type="button" id="gallery-delete" class="button danger">Удалить</button>
+      </div>
+    </div>
+    <div class="dialog-actions"><button type="button" id="gallery-cancel">Закрыть</button></div>
   </dialog>
 
   <dialog id="folder-dialog" class="browser-dialog">
