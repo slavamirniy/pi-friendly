@@ -60,9 +60,9 @@
   --line: rgba(0, 0, 0, 0.08);
   --divider: rgba(0, 0, 0, 0.06);
   --header-line: rgba(0, 0, 0, 0.1);
-  --accent: #3b82f6;
-  --accent-ink: #1e40af;
-  --accent-tint: #eff6ff;
+  --accent: #171717;
+  --accent-ink: #171717;
+  --accent-tint: #f5f5f5;
   --green: #10b981;
   --green-ink: #059669;
   --green-tint: #ecfdf5;
@@ -78,7 +78,7 @@
   --ring: 0 0 0 1px var(--line);
   --card-shadow: 0 0 0 1px var(--line), 0 2px 4px rgba(0, 0, 0, 0.04);
   --menu-shadow: 0 0 0 1px var(--line), 0 8px 16px rgba(0, 0, 0, 0.06);
-  --focus: 0 0 0 2px hsla(212, 100%, 48%, 0.5);
+  --focus: 0 0 0 2px rgba(23, 23, 23, 0.18);
   --radius: 6px;
   --radius-lg: 8px;
   --sidebar: 240px;
@@ -103,9 +103,10 @@
   --line: rgba(255, 255, 255, 0.1);
   --divider: rgba(255, 255, 255, 0.07);
   --header-line: rgba(255, 255, 255, 0.14);
-  --accent: #60a5fa;
-  --accent-ink: #93c5fd;
-  --accent-tint: #12233c;
+  --accent: #ededed;
+  --accent-ink: #ededed;
+  --accent-tint: #1f1f1f;
+  --focus: 0 0 0 2px rgba(255, 255, 255, 0.22);
   --green-tint: #0d2b22;
   --red-tint: #2c1416;
   --orange-tint: #2c2110;
@@ -2088,7 +2089,7 @@ h1 {
   transition: box-shadow 80ms linear;
 }
 #composer:focus-within {
-  box-shadow: var(--ring), 0 0 0 2px hsla(212, 100%, 48%, 0.18);
+  box-shadow: var(--ring), 0 0 0 2px rgba(23, 23, 23, 0.16);
 }
 .draft-area {
   position: relative;
@@ -4268,3 +4269,51 @@ button.image-job-visual { cursor: pointer; }
 .recent-project .recent-chevron { width: 12px; height: 12px; }
 .recent-project.expanded { background: var(--surface-raised); }
 .recent-project.active.expanded { background: var(--accent-tint); }
+
+.recent-project.recent-create,
+.branch-create,
+.row-item.row-create,
+.row-item.row-create-chat {
+  color: var(--text-2);
+  border-color: var(--gray);
+}
+.recent-project.recent-create .recent-project-name,
+.branch-create .branch-name,
+.row-item.row-create .row-copy strong,
+.row-item.row-create-chat .row-copy strong {
+  color: var(--text-2);
+}
+.recent-project.recent-create svg,
+.branch-create svg,
+.row-item.row-create > svg:first-child,
+.row-item.row-create-chat > svg:first-child {
+  color: var(--muted);
+}
+.recent-project.recent-create:hover,
+.branch-create:hover:not(:disabled),
+.row-item.row-create:hover,
+.row-item.row-create-chat:hover {
+  color: var(--text);
+  border-color: var(--text-2);
+}
+.row-item.row-create,
+.row-item.row-create-chat {
+  border: 1px dashed var(--gray);
+}
+.row-item.row-create-chat {
+  border-style: dashed;
+}
+.recent-chat.recent-chat-create,
+.recent-chat.recent-chat-create .recent-chat-name {
+  color: var(--muted);
+}
+
+.recent-chat.recent-chat-all {
+  grid-template-columns: minmax(0, 1fr) 12px;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.recent-chat.recent-chat-all .recent-chat-name { color: var(--muted); }
+.recent-chat.recent-chat-all:hover,
+.recent-chat.recent-chat-all:hover .recent-chat-name { color: var(--text); }
+.recent-chat.recent-chat-all svg { color: var(--muted); justify-self: end; }
