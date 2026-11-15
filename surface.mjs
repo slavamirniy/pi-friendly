@@ -19,8 +19,8 @@ export function voiceWaveform(levels=[],width=0,height=3){
  }).join(''));
 }
 export const palettes = {
- light:{canvas:'255;255;255',sidebar:'242;245;247',text:'31;41;51',muted:'79;92;105',button:'237;241;243',selection:'215;232;250',accent:'0;112;110',onAccent:'255;255;255',bubble:'226;241;242',border:'158;179;190',error:'157;35;42',errorBg:'255;237;237'},
- dark:{canvas:'26;29;33',sidebar:'33;38;43',text:'239;243;247',muted:'177;188;199',button:'49;58;65',selection:'39;73;106',accent:'117;223;185',onAccent:'18;39;31',bubble:'41;59;54',border:'96;115;128',error:'255;186;186',errorBg:'67;36;40'},
+ light:{canvas:'255;255;255',sidebar:'246;247;249',text:'24;28;32',muted:'104;116;128',button:'238;242;245',selection:'226;243;239',accent:'13;148;136',onAccent:'255;255;255',bubble:'230;245;241',border:'204;214;221',error:'176;35;44',errorBg:'255;240;241'},
+ dark:{canvas:'17;20;24',sidebar:'23;27;32',text:'236;241;245',muted:'148;160;172',button:'35;41;48',selection:'20;55;52',accent:'94;234;212',onAccent:'8;35;31',bubble:'27;45;43',border:'55;66;77',error:'255;166;172',errorBg:'61;31;36'},
 };
 export function chatMessages(ctx, live) {
  const branch=ctx.sessionManager?.getBranch?.() ?? ctx.sessionManager?.getEntries?.() ?? [];
@@ -49,53 +49,54 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    const base=`\x1b[48;2;${bg}m\x1b[38;2;${fg}m`;
    const value=truncate(text,w,'');return base+value.replace(/\x1b\[(?:0)?m/g,base).replace(/\x1b\[39m/g,`\x1b[38;2;${fg}m`).replace(/\x1b\[49m/g,`\x1b[48;2;${bg}m`)+' '.repeat(Math.max(0,w-measure(value)))+'\x1b[0m';
   };
-  if(s.loading){editorRect=undefined;return Array.from({length:height},(_,i)=>paint(i===Math.floor(height/2)?centered(s.loading,width,truncate,measure):i===Math.floor(height/2)+2?centered('Подождите немного',width,truncate,measure):'',width));}
+  const frames='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',spin=frames[(s.spinnerFrame??0)%frames.length];
+  if(s.loading){editorRect=undefined;return Array.from({length:height},(_,i)=>paint(i===Math.floor(height/2)?centered(spin+'  '+s.loading,width,truncate,measure):i===Math.floor(height/2)+2?centered('Подождите немного',width,truncate,measure):'',width));}
   if(s.webActive){editorRect=undefined;return Array.from({length:height},(_,i)=>paint(i===Math.floor(height/2)-1?centered('Сейчас идёт работа в веб-интерфейсе',width,truncate,measure):i===Math.floor(height/2)+1?centered('Enter — открыть браузер снова. Выход — в браузере.',width,truncate,measure):'',width));}
   if(width<44||height<12)return [paint('Увеличьте окно. F2 — меню.',width),...Array(Math.max(0,height-1)).fill(paint('',width))];
-  const side=width>=100?26:18,main=width-side,pad=2,cw=main-2*pad;
+  const side=width>=110?28:24,main=width-side,pad=2,cw=main-2*pad;
   const left=Array(height).fill(paint('',side,p.sidebar));
   const right=Array(height).fill(paint('',main));
   const put=(y,text,bg=p.canvas,fg=p.text)=>{if(y>=0&&y<height)right[y]=paint('',pad)+paint(text,cw,bg,fg)+paint('',main-pad-cw);};
-  const bold=text=>`\x1b[1m${text}\x1b[22m`;
+  const bold=text=>`[1m${text}[22m`;
   const center=(text,w)=>' '.repeat(Math.max(0,Math.floor((w-measure(text))/2)))+text;
-  left[1]=paint('  '+bold('Просто pi'),side,p.sidebar,p.text);
-  const button=(y,label,run,primary=false,danger=false,disabled=false)=>{
-   if(y<3||y+2>=height)return;
-   const returning=primary&&run===actions.newChat&&s.paneOpen;
-   const w=side,bg=disabled?p.button:danger?p.errorBg:primary?(returning?p.selection:p.bubble):p.button,fg=disabled?p.muted:danger?p.error:primary?(returning?p.text:p.accent):p.text;
-   const rows=buttonRows(label,w,truncate,measure);
-   for(let dy=0;dy<3;dy++)left[y+dy]=paint(dy===2?'▁'.repeat(w):rows[dy],w,!disabled&&hovering(0,y,w,3)?shade(bg):bg,dy===2?p.border:fg);
-   if(!disabled)targets.push({x:0,y,w,h:3,run});
-  };
-  const exitY=height-3,footerY=height-6;
   const themeX=side-5,themeIcon=s.scheme==='dark'?'☀':'☾';
-  left[1]=paint('  '+bold('Просто pi'),themeX,p.sidebar,p.text)+paint(centered(themeIcon,4,truncate,measure),4,hovering(themeX,0,4,3)?p.button:p.sidebar,p.accent)+paint('',1,p.sidebar);
+  left[1]=paint('  '+bold('π  Просто pi'),themeX,p.sidebar,p.text)+paint(centered(themeIcon,4,truncate,measure),4,hovering(themeX,0,4,3)?p.button:p.sidebar,p.accent)+paint('',1,p.sidebar);
   targets.push({x:themeX,y:0,w:4,h:3,run:actions.theme});
-  if(height>=21){
-   button(4,s.paneOpen?'Вернуться к чату':side<24?'Новый чат':'Новый разговор',actions.newChat,true);
-   button(7,'Проекты',actions.history);
-   if(actions.web)button(10,side<24?'Веб-интерфейс':'Открыть в браузере',actions.web);
-  }else{
-   const labels=[s.paneOpen?'← В чат':'Новый чат','Проекты','Веб-интерфейс'];
-   [actions.newChat,actions.history,actions.web].forEach((run,i)=>{if(run){left[3+i]=paint(centered(labels[i],side,truncate,measure),side,p.button,p.text);targets.push({x:0,y:3+i,w:side,h:1,run});}});
-  }
-  button(exitY,'🚪 Выйти',actions.exit,false,true,!ctx.isIdle());
-  left[footerY]=paint('',side,p.sidebar);
+  const sidebarRow=(y,label,run,{primary=false,danger=false,disabled=false,accent=false}={})=>{
+   if(y<2||y>=height)return;
+   const base=disabled?p.sidebar:danger?p.errorBg:primary?p.accent:accent?p.button:p.sidebar;
+   const bg=!disabled&&hovering(0,y,side,1)?shade(base):base;
+   const fg=disabled?p.muted:danger?p.error:primary?p.onAccent:accent?p.accent:p.text;
+   left[y]=paint('  '+truncate(label,side-4,''),side,bg,fg);
+   if(!disabled)targets.push({x:0,y,w:side,h:1,run});
+  };
+  const section=(y,label)=>{if(y>=2&&y<height)left[y]=paint('  '+bold(label),side,p.sidebar,p.muted);};
+  sidebarRow(4,s.paneOpen?'←  Вернуться в чат':'＋  Новый чат',actions.newChat,{primary:true});
+  sidebarRow(6,'▦  Проекты',actions.history);
+  if(actions.web)sidebarRow(7,'↗  Веб-интерфейс',actions.web);
+  section(10,'ПРОЕКТ');
+  if(11<height)left[11]=paint('  '+truncate(s.projectName?clean(s.projectName):'Не выбран',side-4,''),side,p.sidebar,s.projectName?p.text:p.muted);
+  const exitY=height-1;
+  const balanceY=height-6;
+  sidebarRow(exitY,'⏻  Выйти',actions.exit,{danger:true,disabled:!ctx.isIdle()});
   const quota=(s.statuses??[]).find(v=>/осталось|quota|remaining/i.test(clean(v)));
-  if(quota)left[footerY+1]=paint('  '+clean(quota),side,p.sidebar,p.muted);
+  if(quota&&height>=25)left[height-8]=paint('  '+truncate(clean(quota),side-4,''),side,p.sidebar,p.muted);
   if(actions.balance){
-   const amount=s.billing?.account?.available;
-   left[footerY-2]=paint(centered(amount==null?'Баланс уточняется':Intl.NumberFormat('ru-RU',{notation:'compact',maximumFractionDigits:1}).format(Math.max(0,amount))+' токенов',side,truncate,measure),side,p.sidebar,p.muted);
-   left[footerY-1]=paint('',side,p.sidebar);
-   button(footerY,'Пополнить баланс',actions.balance,true);
+   if(balanceY>=3){
+    const amount=s.billing?.account?.available;
+    const value=amount==null?'уточняется':Intl.NumberFormat('ru-RU',{notation:'compact',maximumFractionDigits:1}).format(Math.max(0,amount));
+    left[balanceY]=paint('  БАЛАНС',side,p.sidebar,p.muted);
+    left[balanceY+1]=paint('  '+value+' токенов',side,p.sidebar,p.text);
+   }
+   sidebarRow(height-3,'＋  Пополнить',actions.balance,{accent:true});
   }
-
-  put(1,s.needsProject?'Ваши проекты':s.projectName?'Проект: '+clean(s.projectName):chatMessages(ctx,s.live).length?'Разговор':'Новый разговор',p.canvas,p.muted);
-  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?'Выполнить':'Отправить ↑'):'Остановить';
+  put(1,s.needsProject?'  Ваши проекты':s.projectName?'  '+bold(clean(s.projectName)):chatMessages(ctx,s.live).length?'  Разговор':'  Новый разговор',p.canvas,s.projectName?p.text:p.muted);
+  const compactSend=cw<34;
+  const send=ctx.isIdle()?(delegate.getText().startsWith('/')?(compactSend?'▸':'Выполнить'):(compactSend?'↑':'Отправить ↑')):(compactSend?'■':'Остановить');
   const voice=s.voice,voiceHint=(s.voiceHintUntil??0)>Date.now(),voiceBusy=['starting','recording','transcribing'].includes(voice?.phase);
   const sendW=measure(send)+4,enabled=!ctx.isIdle()||(!voiceBusy&&Boolean(delegate.getText().trim()));
   const sendHeight=height>=20?3:1,inlineSend=cw>=40;
-  const micLabel=voice?.phase==='recording'?'██':'🎤';
+  const micLabel=voice?.phase==='recording'?'■':'◉';
   const micW=voice?(sendHeight===3?6:4):0;
   const micEnabled=Boolean(voice)&&(['installing','downloading','loading','error'].includes(voice.phase)||(ctx.isIdle()||voice.phase==='recording')&&['ready','recording'].includes(voice.phase));
   const extra=voiceHint&&!voiceBusy?2:0;
@@ -147,8 +148,9 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
   const modelY=editorTop+innerHeight+2,modelX=side+pad;
   right[modelY]=paint('',pad)+paint(centered(modelLabel,modelW,truncate,measure),modelW,ctx.isIdle()&&hovering(modelX,modelY,modelW,1)?p.button:p.canvas,ctx.isIdle()?p.accent:p.muted)+paint('',main-pad-modelW);
   if(ctx.isIdle())targets.push({x:modelX,y:modelY,w:modelW,h:1,run:actions.model});
-  if(!delegate.getText())put(editorTop-1,'Сообщение',p.canvas,p.muted);
-  let info=s.running?'◌ Готовлю ответ…':s.notice||s.activity||'';
+  const elapsed=s.started?Math.max(0,Math.floor((Date.now()-s.started)/1000)):0;
+  const clock=Math.floor(elapsed/60)+':'+String(elapsed%60).padStart(2,'0');
+  let info=s.running?spin+'  '+clock+'  ·  '+(s.activity||'Помощник работает…'):s.notice||s.activity||'';
   const widgetLines=[];
   for(const widget of s.widgets??[]) {try {widgetLines.push(...(Array.isArray(widget)?widget:widget.render(cw)));}catch{}}
   if(widgetLines.length && (s.running || !s.notice))info=clean(widgetLines.at(-1));
@@ -203,23 +205,25 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
    if(!text.trim() && !tools.length && !message.errorMessage)continue;
    const user=message.role==='user',blockWidth=user?Math.max(12,Math.floor(cw*.8)):cw;
    const inset=user?cw-blockWidth:0;
-   if(user||previousRole!==message.role)content.push({text:user?'Вы':'Помощник',muted:true,inset,blockWidth});
+   if(user||previousRole!==message.role)content.push({text:user?'Вы':'  π  Помощник',muted:true,header:true,user,inset,blockWidth});
    previousRole=message.role;
    const lines=rendering.markdown?rendering.markdown(safeText(text),blockWidth-4,p):safeText(text).split('\n').flatMap(l=>wrapText(l,blockWidth-4));
    if(text){
-    for(const line of lines)content.push({text:'  '+line,user,inset,blockWidth,card:true});
+    if(user)content.push({text:'',user,inset,blockWidth,card:true});
+    for(const line of lines)content.push({text:'  '+line,user,inset,blockWidth,card:user});
+    if(user)content.push({text:'',user,inset,blockWidth,card:true});
    }
    for(const call of tools){
     const result=results.get(call.id),step=(s.steps??[]).find(step=>step.id===call.id);
     const status=result?(result.isError?'error':'done'):step?.status;
-    const marker=status==='done'?'✓':status==='error'?'!':status==='running'?'◌':'·';
+    const marker=status==='done'?'✓':status==='error'?'!':status==='running'?spin:'·';
     const args=call.arguments??{};
     let label=activityLabel(call.name,args);
     if(status==='done')label=label.replace('Создаю файл','Файл записан').replace('Обновляю файл','Файл изменён').replace('Читаю файл','Файл прочитан');
     const file=clean(args.path||args.file_path||'');
     if(file)label=label.replace(file.split(/[\\/]/).at(-1),file);
     if(call.name==='write'&&typeof args.content==='string')label+=' · строк: '+args.content.replace(/\n$/,'').split('\n').length;
-    for(const row of wrapText(marker+' '+label,cw-4))content.push({text:'  '+row,card:true,tool:true,error:status==='error'});
+    for(const row of wrapText(marker+' '+label,cw-4))content.push({text:'  '+row,card:false,tool:true,error:status==='error'});
    }
    // Provider failures are shown once, after the run settles, in the inline error block.
    content.push({text:''});
@@ -234,7 +238,7 @@ export function createSurface({tui,delegate,rendering,ctx,actions,state}) {
     if(y+9<editorTop)put(y+8,centered('Более удобный и наглядный интерфейс в браузере',cw,truncate,measure),p.canvas,p.muted);
     targets.push({x:side+bx,y:by,w:bw,h:3,run:actions.web});
    }}
-  content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?(line.user?p.bubble:p.sidebar):p.canvas,line.error?p.error:line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
+  content.slice(start,start+capacity).forEach((line,n)=>{const inset=line.inset??0,w=line.blockWidth??cw;right[3+n]=paint('',pad+inset)+paint(line.text,w,line.error?p.errorBg:line.card?p.bubble:p.canvas,line.error?p.error:line.header?(line.user?p.muted:p.accent):line.tool?p.accent:line.muted?p.muted:p.text)+paint('',main-pad-inset-w);});
   if(scroll>0)put(2,'↑ История · прокрутите вниз к новым сообщениям',p.canvas,p.muted);
   const frame=left.map((line,i)=>line+right[i]);contextTargets=[];
   if(contextMenu){

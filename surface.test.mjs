@@ -25,7 +25,7 @@ test('all rendered rows fit viewport, sidebar targets do not overlap at short he
 });
 test('dark theme, tool progress and errors remain readable',()=>{
  const h=fixture();h.data.scheme='dark';h.data.widgets=[['Генерация · 12 с']];h.data.live.errorMessage='Connection failed';
- const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Не удалось получить ответ'));assert.ok(!text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;26;29;33/);
+ const text=h.surface.render(100).map(strip).join('\n');assert.ok(text.includes('Генерация · 12 с'));assert.ok(text.includes('Не удалось получить ответ'));assert.ok(!text.includes('Connection failed'));assert.match(h.surface.render(100)[0],/48;2;17;20;24/);
 });
 test('live assistant replaces matching saved message instead of duplicating it',()=>{
  const old={role:'assistant',timestamp:1,content:[{type:'text',text:'old'}]};const live={...old,content:[{type:'text',text:'new'}]};
@@ -71,7 +71,7 @@ test('red exit button stays clickable at the bottom without a details button',()
   const h=fixture(100,height);h.data.scheme=scheme;
   const raw=h.surface.render(100),rows=raw.map(strip),y=rows.findIndex(r=>r.includes('Выйти')),x=rows[y].indexOf('Выйти');
   assert.ok(y>=height/2);assert.ok(!rows.join('').includes('Подробности'));
-  assert.ok(raw[y].includes(scheme==='dark'?'255;186;186':'157;35;42'));
+  assert.ok(raw[y].includes(scheme==='dark'?'255;166;172':'176;35;44'));
   h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['exit']);
  }
 });
@@ -86,7 +86,7 @@ test('voice control fits narrow and wide windows and microphone toggles from its
   const h=fixture(width,height);h.data.voice={phase,percent:42,seconds:65,level:.7};h.delegate.getText=()=> 'черновик';
   const rows=h.surface.render(width).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(row=>row.length===width),`${width} ${height} ${phase}`);
   if(width>=100&&phase==='ready'){
-   const y=rows.findIndex(row=>row.includes('🎤')),x=rows[y].indexOf('🎤');assert.ok(x<rows[y].indexOf('Отправить'));assert.ok(x>width/2);h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
+   const y=rows.findIndex(row=>row.includes('◉')),x=rows[y].indexOf('◉');assert.ok(x<rows[y].indexOf('Отправить'));assert.ok(x>width/2);h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
   }
  }
 });
@@ -103,11 +103,11 @@ test('recognition stays inside composer, installation stays only in sidebar',()=
 });
 
 test('microphone remains clickable during download and highlights only the setup area for its hint',()=>{
- const h=fixture(120,36);h.data.voice={phase:'downloading',percent:42};let rows=h.surface.render(120).map(strip),y=rows.findIndex(row=>row.includes('🎤')),x=rows[y].indexOf('🎤');
+ const h=fixture(120,36);h.data.voice={phase:'downloading',percent:42};let rows=h.surface.render(120).map(strip),y=rows.findIndex(row=>row.includes('◉')),x=rows[y].indexOf('◉');
  assert.ok(y>=0);h.surface.onMouse(`\x1b[<0;${x+1};${y+1}M`);assert.deepEqual(h.calls,['voice']);
  h.data.voiceHintUntil=Date.now()+3000;const raw=h.surface.render(120);rows=raw.map(strip);
  assert.ok(rows.join('\n').includes('← Для голосового ввода'));assert.ok(rows.join('\n').includes('дождитесь загрузки голосовой модели'));
- const loading=raw.find(row=>row.includes('Модель 42%'));assert.ok(loading.includes('48;2;215;232;250'));
+ const loading=raw.find(row=>row.includes('Модель 42%'));assert.ok(loading.includes('48;2;226;243;239'));
  h.data.voiceHintUntil=0;assert.ok(!h.surface.render(120).map(strip).join('').includes('← Для голосового ввода'));
 });
 
@@ -134,7 +134,7 @@ test('voice replaces draft without growing composer and stop icon is centered',(
   for(const phase of ['recording','transcribing']){
    h.data.voice={phase,levels:[.2,.5,1],percent:42};const rows=h.surface.render(width).map(strip);
    assert.equal(top(rows),top(before));assert.ok(!rows.join('').includes('Сохранённый черновик'));assert.equal(h.delegate.getText(),'Сохранённый черновик');
-   if(phase==='recording'&&height>=20)assert.ok(rows.some(r=>r.includes('  ██  ')));
+   if(phase==='recording'&&height>=20)assert.ok(rows.some(r=>r.includes('■')));
   }
   h.data.voice={phase:'ready'};assert.ok(h.surface.render(width).map(strip).join('').includes('Сохранённый черновик'));
  }
@@ -165,22 +165,21 @@ test('left drag selects draft without Shift and compact context menu offers copy
 });
 
 
-test('sidebar dividers sit at the bottom cell edge and rows remain contiguous',()=>{
+test('sidebar uses compact rows, project context and no divider slabs',()=>{
  const h=fixture(120,36),rows=h.surface.render(120).map(strip);
- for(const y of [4,7,10]){
-  assert.equal(rows[y].slice(0,26).trim(),'');
-  assert.ok(rows[y+1].slice(0,26).trim().length>0);
-  assert.equal(rows[y+2].slice(0,26),'▁'.repeat(26));
- }
- assert.equal(rows[35].slice(0,26),'▁'.repeat(26));
+ assert.ok(rows[1].slice(0,28).includes('Просто pi'));
+ assert.ok(rows[4].slice(0,28).includes('Новый чат'));
+ assert.equal(rows[4].slice(0,28).includes('▁'),false);
+ assert.ok(rows[6].slice(0,28).includes('Проекты'));
+ assert.ok(rows[7].slice(0,28).includes('Веб-интерфейс'));
+ assert.ok(rows[10].slice(0,28).includes('ПРОЕКТ'));
 });
-
 test('web entry is visible at compact heights, exit is last and hover does not activate',()=>{
  for(const height of [21,24,27,36]){
-  const h=fixture(100,height),rows=h.surface.render(100).map(strip),side=rows.map(r=>r.slice(0,26));
+  const h=fixture(100,height),rows=h.surface.render(100).map(strip),side=rows.map(r=>r.slice(0,24));
   assert.ok(side.some(r=>/Веб-интерфейс|Открыть в браузере/.test(r)));
   const exit=side.findIndex(r=>r.includes('Выйти')),model=side.findIndex(r=>r.includes('Kimi'));
-  assert.equal(exit,height-2);assert.ok(model<exit);
+  assert.equal(exit,height-1);assert.equal(model,-1);
   const before=h.surface.render(100)[exit];h.surface.onMouse(`\x1b[<35;10;${exit+1}M`);
   assert.notEqual(h.surface.render(100)[exit],before);assert.deepEqual(h.calls,[]);
  }
@@ -200,7 +199,7 @@ test('provider errors remain hidden while pi is still running retries',()=>{
 test('balance action keeps terminal rows within narrow and wide viewports',()=>{
  for(const w of [44,60,100,140])for(const height of [16,24,35]){
   const h=fixture(w,height);h.actions.balance=()=>{};h.data.billing={account:{available:1234567}};
-  const rows=h.surface.render(w).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(r=>r.length===w));assert.ok(rows.join('\n').includes('Пополнить баланс'));
+  const rows=h.surface.render(w).map(strip);assert.equal(rows.length,height);assert.ok(rows.every(r=>r.length===w));assert.ok(rows.join('\n').includes('Пополнить'));
  }
 });
 
@@ -209,15 +208,15 @@ test('running chat keeps router preview, elapsed time and consumed quota visible
  const text=h.surface.render(140).map(strip).join('\n');assert.match(text,/0:17.*Проверяю файл.*1.25к квоты/);assert.ok(!text.includes('Готовлю ответ'));
 });
 
-test('balance stays green across navigation, has spacing, model and theme leave sidebar',()=>{
+test('balance stays stable across navigation and model stays in the chat composer',()=>{
  for(const width of [80,120])for(const height of [21,27,36]){
   const h=fixture(width,height);h.actions.balance=()=>h.calls.push('balance');h.data.billing={account:{available:123456}};
-  const side=width>=100?26:18;
-  const first=h.surface.render(width),rows=first.map(strip),y=rows.findIndex(r=>r.includes('Пополнить баланс'));
-  assert.equal(rows[y-2].slice(0,side).trim(),'');assert.match(rows[y-3].slice(0,side),/токенов/);
-  h.data.paneOpen=true;const next=h.surface.render(width);assert.equal(first[y].split('\x1b[0m')[0],next[y].split('\x1b[0m')[0]);
+  const side=width>=110?28:24;
+  const first=h.surface.render(width),rows=first.map(strip),y=rows.findIndex(r=>r.includes('Пополнить'));
+  assert.ok(y>0);assert.ok(rows.join('\n').includes('токенов'));
+  h.data.paneOpen=true;const next=h.surface.render(width);assert.equal(first[y].split('[0m')[0],next[y].split('[0m')[0]);
   assert.ok(!rows.some(r=>r.slice(0,side).includes('Модель')||r.slice(0,side).includes('тема')));
   const modelRow=rows.findIndex(r=>r.includes('Kimi K3'));assert.ok(modelRow>=height-3);
-  h.surface.onMouse(`\x1b[<0;${side+4};${modelRow+1}M`);assert.ok(h.calls.includes('model'));
+  h.surface.onMouse(`[<0;${side+4};${modelRow+1}M`);assert.ok(h.calls.includes('model'));
  }
 });

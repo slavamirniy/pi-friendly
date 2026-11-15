@@ -31,6 +31,10 @@ export function installFriendly(pi, rendering) {
   const hasProject=ctx=>!projects||(projects.isProject?.(currentFolder(ctx))??!projects.isHub(currentFolder(ctx)));
   let restoreUI = () => {}, noticeTimer;
   let opened = false, footerData, activeMenu, startupTimer, stopped = false, workspace, footerRows = 1;
+  let spinnerTimer, spinnerFrame = 0;
+  const spinnerFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+  const startSpinner = () => { if (spinnerTimer) return; spinnerTimer = setInterval(() => { spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length; workspace?.redraw(); }, 110); spinnerTimer.unref?.(); };
+  const stopSpinner = () => { clearInterval(spinnerTimer); spinnerTimer = undefined; spinnerFrame = 0; };
   pi.registerFlag("friendly-no-welcome", { description: "Не открывать стартовое меню Просто pi", type: "boolean", default: false });
   pi.registerFlag("friendly-keep-footer", { description: "Сохранить footer другого расширения (без кликабельных slash-подсказок)", type: "boolean", default: false });
   const statuses = () => [...(footerData?.getExtensionStatuses().values() ?? [])].filter(Boolean);
@@ -298,7 +302,7 @@ export function installFriendly(pi, rendering) {
         workspace?.dispose();
         const delegate = previousFactory ? previousFactory(tui, editorTheme, keys) : rendering.makeEditor(tui, editorTheme, keys);
         workspace = createWorkspace({ delegate, tui, theme: ctx.ui.theme, rendering, ctx,
-          cleanView: true, viewState: () => ({...view, billing:rendering.billing?.snapshot(), webActive:rendering.isWebActive?.(), paneOpen:opened, projectName:hasProject(ctx)?projects?.name(currentFolder(ctx)):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
+          cleanView: true, viewState: () => ({...view, spinnerFrame, billing:rendering.billing?.snapshot(), webActive:rendering.isWebActive?.(), paneOpen:opened, projectName:hasProject(ctx)?projects?.name(currentFolder(ctx)):undefined, needsProject:!hasProject(ctx), widgets:[...widgets.values()], statuses:statuses()}),
           footerHeight: () => footerRows, slashEnabled: !pi.getFlag("friendly-keep-footer"),
           actions: {
             balance:safe(ctx,()=>balance(ctx)),
@@ -330,12 +334,13 @@ export function installFriendly(pi, rendering) {
     if(event.message?.role === "assistant" || event.message?.role === "user") view.live=event.message;
     workspace?.redraw();
   });
-  pi.on("agent_start",()=>{view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";workspace?.redraw();});
+  pi.on("agent_start",()=>{startSpinner();view.error=undefined;view.live=undefined;view.notice="";view.steps=[];view.running=true;view.started=Date.now();view.activity="Помощник готовит ответ…";workspace?.redraw();});
   pi.on("agent_end",()=>{view.activity="";workspace?.redraw();});
-  pi.on('agent_settled',(_event,ctx)=>{view.running=false;const last=ctx.sessionManager?.getBranch?.().filter(e=>e.type==='message'&&e.message.role==='assistant').at(-1)?.message||view.live;view.error=last?.errorMessage?{raw:clean(last.errorMessage)}:undefined;workspace?.redraw();});
+  pi.on('agent_settled',(_event,ctx)=>{stopSpinner();view.running=false;const last=ctx.sessionManager?.getBranch?.().filter(e=>e.type==='message'&&e.message.role==='assistant').at(-1)?.message||view.live;view.error=last?.errorMessage?{raw:clean(last.errorMessage)}:undefined;workspace?.redraw();});
   pi.on("tool_execution_start",event=>{view.steps=startActivity(view.steps??[],event);view.activity="Выполняю задачу…";workspace?.redraw();});
   pi.on("tool_execution_end",event=>{view.steps=finishActivity(view.steps??[],event);if(event.isError)view.error={kind:"tool",raw:clean(event.result?.content?.filter(c=>c.type==="text").map(c=>c.text).join("\n")||"Инструмент завершился с ошибкой")};workspace?.redraw();});
   pi.on("session_shutdown", event => {
+    stopSpinner();
     if(["resume","new","fork"].includes(event?.reason))workspace?.freezeForTransition();
     stopped = true; clearTimeout(voiceHintTimer);voice?.dispose();voice=undefined;voiceContext=undefined; clearTimeout(startupTimer); clearTimeout(noticeTimer); restoreUI(); widgets.clear(); activeMenu?.dispose(); workspace?.dispose(); workspace = undefined;
   });
