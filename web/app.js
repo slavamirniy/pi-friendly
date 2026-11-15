@@ -1913,7 +1913,6 @@ function renderMessages() {
   let assistantText = "";
   let assistantStreaming = false;
   let assistantRunningTools = false;
-  let assistantAnswer = null;
   let assistantImageLoaders = 0;
 
   const finishAssistant = (final = false) => {
@@ -1921,9 +1920,6 @@ function renderMessages() {
     if (assistantImageLoaders) {
       assistantContent.append(imageToolLoader(assistantImageLoaders));
       assistantImageLoaders = 0;
-    }
-    if (assistantStreaming && assistantAnswer) {
-      assistantAnswer.append(el("span", "▍", "typing-caret"));
     }
     const active = assistantStreaming || (state.busy && (assistantRunningTools || final));
     if (active) {
@@ -1953,7 +1949,6 @@ function renderMessages() {
     assistantText = "";
     assistantStreaming = false;
     assistantRunningTools = false;
-    assistantAnswer = null;
     assistantImageLoaders = 0;
   };
 
@@ -2049,7 +2044,6 @@ function renderMessages() {
       }
       const answer = el("div", null, "answer");
       markdown(answer, message.text || "");
-      if (message.text) assistantAnswer = answer;
       content.append(answer);
       if (message.status === "streaming" && !message.text && !message.thinking && !message.tools?.length) {
         const skeleton = el("div", null, "stream-skeleton");
