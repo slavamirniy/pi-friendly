@@ -2262,11 +2262,7 @@ function renderBrowser({ path, parent, entries, shortcuts = [] }) {
               : shortcut.kind === "projects"
                 ? "projects"
                 : "home";
-      card.append(
-        icon(kind === "projects" ? "folder" : kind),
-        el("span", shortcut.name, "shortcut-name"),
-        el("span", shortcut.path, "shortcut-path"),
-      );
+      card.append(icon(kind === "projects" ? "folder" : kind), el("span", shortcut.name, "shortcut-name"));
       card.title = shortcut.path;
       card.onclick = () => browseFolders(shortcut.path);
       grid.append(card);
