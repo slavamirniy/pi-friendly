@@ -84,6 +84,10 @@ let pending = 0;
 let operationLabel = "";
 let uploading = false;
 let editingIndex = null;
+let openTimer;
+let openToken = 0;
+let pendingOpenId = null;
+let openPrevious = null;
 let queueCollapsed = false;
 let recentExpanded = false;
 let projectPage = 1;
@@ -670,42 +674,77 @@ function openProject(project) {
 }
 
 function openBranch(chat) {
-  if (!canSwitch()) return;
-  recentExpanded = false;
-  const previous = { page, state };
-  if (state.active) {
-    page = "chat";
-    state = { ...state, loading: true, messages: [] };
-  } else {
-    // No active chat yet: keep the chats list visible until pi returns the session.
-    page = "chats";
+  if (state.busy) {
+    showHint("Остановите ответ, чтобы переключить чат.", true);
+    return;
   }
-  renderRoute();
-  beginTask("Открываю чат…");
-  let finished = false;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    endTask();
+  recentExpanded = false;
+  if (!pendingOpenId) openPrevious = { page, state };
+  const previous = openPrevious;
+  const token = ++openToken;
+  pendingOpenId = chat.id;
+  clearTimeout(openTimer);
+  store(state.active?.id, $("draft").value);
+
+  const project = projectOf(activeProjectId());
+  page = "chat";
+  editingIndex = null;
+  renderedSignature = "";
+  state = {
+    ...state,
+    active: {
+      id: chat.id,
+      projectId: project?.id || activeProjectId(),
+      projectName: project?.name || state.active?.projectName || "",
+      name: chat.name || "Чат",
+      host: false,
+      readOnly: false,
+      named: Boolean(chat.named),
+      ready: false,
+    },
+    loading: true,
+    messages: [],
+    error: null,
   };
-  api("open", { id: chat.id }, 45000)
-    .then(async (next) => {
-      applyState(next);
-      page = "chat";
-      editingIndex = null;
-      finish();
-      await loadCatalog();
-      renderRoute();
-      $("draft").focus();
+  $("draft").value = saved(chat.id);
+  autoGrow();
+  renderRoute();
+
+  // Fast path: file history is returned without starting pi.
+  api("history", { chat: chat.id }, 15000)
+    .then((result) => {
+      if (token !== openToken) return;
+      state = { ...state, loading: false, messages: result.messages || [], ready: false };
+      renderChat();
     })
-    .catch((error) => {
-      state = previous.state;
-      page = previous.page;
-      finish();
-      renderRoute();
-      showHint(error.message, true);
-    })
-    .finally(finish);
+    .catch(() => {});
+
+  openTimer = setTimeout(() => {
+    if (token !== openToken) return;
+    api("open", { id: chat.id, fast: true }, 45000)
+      .then((next) => {
+        if (token !== openToken) return;
+        applyState(next);
+        pendingOpenId = null;
+        openPrevious = null;
+        page = "chat";
+        editingIndex = null;
+        loadCatalog().catch(() => {});
+        renderRoute();
+        $("draft").focus();
+      })
+      .catch((error) => {
+        if (token !== openToken) return;
+        pendingOpenId = null;
+        openPrevious = null;
+        if (previous) {
+          state = previous.state;
+          page = previous.page;
+        }
+        renderRoute();
+        showHint(error.message, true);
+      });
+  }, 150);
 }
 
 function newBranch() {
@@ -2645,6 +2684,7 @@ function uploadFiles() {
 /* ============================== apply server state ============================== */
 
 function applyState(next) {
+  if (pendingOpenId && next.active?.id !== pendingOpenId) return;
   const now = performance.now();
   const request = next.routerProgress?.requestId;
   if (

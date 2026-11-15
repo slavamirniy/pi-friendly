@@ -390,6 +390,12 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      const projects=await catalog();changed();
      reply(200,{ok:true,projects});return;
     }
+    if(action==='history'){
+     if(!allProjects.length||!allSessions.length)await catalog();
+     const session=allSessions.find(s=>key(s.path)===data.chat);
+     if(!session)throw new Error('Чат не найден. Обновите список.');
+     reply(200,{chat:key(session.path),messages:publicMessages(readSession(session.path))});return;
+    }
     if(action==='delete-chat'||action==='archive-chat'){
      const session=allSessions.find(s=>key(s.path)===data.chat);
      if(!session)throw new Error('Чат не найден. Обновите список.');

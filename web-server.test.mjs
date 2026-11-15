@@ -414,3 +414,12 @@ test('drop-attach stores dropped files outside the project and returns paths',as
  assert.equal(await readFile(file.path,'utf8'),'hello drop');
  assert.equal(file.path.startsWith(dropDir),true);
 });
+
+test('history returns session messages without starting pi',async t=>{
+ const h=await fixture(t);
+ const p=(await h.request('catalog')).data.projects[0];
+ const result=await h.request('history',{chat:p.chats[0].id});
+ assert.equal(result.status,200);
+ assert.equal(result.data.messages[0].text,'Привет');
+ assert.equal(h.calls.length,0);
+});

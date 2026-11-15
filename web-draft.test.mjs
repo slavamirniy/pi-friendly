@@ -62,7 +62,7 @@ test('reload does not replay already consumed dictation',()=>{
     performance:{now:()=>0},clockBase:0,clockAt:0,clockRequest:undefined,
     billingUI:{update(){}},$:id=>nodes[id],
     state:{active:{id:'chat'},messages:[]},
-    page:'projects',lastChat:'chat',dictationId:undefined,
+    page:'projects',lastChat:'chat',dictationId:undefined,pendingOpenId:null,
     store:(id,text)=>storage.set(id,text),saved:id=>storage.get(id)||'',
     autoGrow(){},showError(){},renderStatus(){},renderMessages(){},renderRoute(){},renderBranches(){},
     projectOf:()=>undefined,
