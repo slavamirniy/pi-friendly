@@ -5025,3 +5025,21 @@ button.image-job-visual { cursor: pointer; }
   .onboarding-projects .onboarding-recent { width: 100%; height: auto; }
   .onboarding-projects .onboarding-recent-row { min-height: 34px; flex: none; }
 }
+
+.onboarding-projects .onboarding-choice {
+  background: transparent;
+  box-shadow: none;
+}
+.onboarding-projects .onboarding-choice:hover {
+  background: var(--surface);
+}
+.onboarding-projects .onboarding-recent {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.onboarding-projects .onboarding-choice-icon {
+  background: transparent;
+  box-shadow: none;
+}
