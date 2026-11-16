@@ -511,7 +511,7 @@ function renderOnboardingRecent() {
   const box = $("onboarding-recent");
   const list = $("onboarding-recent-list");
   if (!box || !list) return;
-  const projects = catalog.slice(0, 3);
+  const projects = catalog.slice(0, 4);
   box.hidden = !projects.length;
   list.replaceChildren();
   for (const project of projects) {
