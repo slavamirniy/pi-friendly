@@ -472,8 +472,8 @@ test('reload survives a slow bootstrap, closing only the final tab exits Pi once
  const b = await connect(second);
  await h.request('tab-left',{tab:first}); await a.cancel(); await delay(100);
  assert.equal(exits,0);
- await h.request('tab-left',{tab:second}); await b.cancel();
  await fetch(h.web.origin+'/',{headers:{cookie:h.cookie,'Sec-Fetch-Dest':'document'}});
+ await h.request('tab-left',{tab:second}); await b.cancel();
  await delay(120); assert.equal(exits,0);
  const c = await connect(reloaded);
  await h.request('tab-left',{tab:second}); await delay(110);
