@@ -2344,7 +2344,7 @@ function renderMessages() {
   if (signature === renderedSignature) return;
   renderedSignature = signature;
   const area = $("messages");
-  const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 120;
+  const nearBottom = area.scrollHeight - area.scrollTop - area.clientHeight < 48;
   const oldTop = area.scrollTop;
   const frag = document.createDocumentFragment();
   const messages = state.messages || [];
@@ -2573,7 +2573,7 @@ function renderMessages() {
     area.replaceChildren(frag);
   }
   syncGenerationClock();
-  if (nearBottom && !area.querySelector("details[open]")) area.scrollTop = area.scrollHeight;
+  if (nearBottom) area.scrollTop = area.scrollHeight;
   else area.scrollTop = oldTop;
   if (editingIndex != null) {
     const textarea = area.querySelector(".edit-box textarea");
