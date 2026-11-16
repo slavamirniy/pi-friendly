@@ -483,6 +483,12 @@ function showOnboardingStep(step) {
   updateOnboarding();
 }
 
+function refreshOnboardingChoices() {
+  const hasProjects = catalog.length > 0;
+  $("onboarding-open-projects").hidden = !hasProjects;
+  document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
+}
+
 function showOnboarding() {
   onboardingModel = null;
   onboardingBusy = false;
@@ -493,11 +499,9 @@ function showOnboarding() {
   $("onboarding-name-error").textContent = "";
   $("onboarding-prompt-input").value = "";
   $("onboarding-prompt-error").textContent = "";
-  const hasProjects = catalog.length > 0;
-  $("onboarding-open-projects").hidden = !hasProjects;
+  refreshOnboardingChoices();
   $("onboarding-open-projects").classList.remove("primary");
   $("onboarding-new-project").classList.remove("primary");
-  document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
   $("onboarding-model").disabled = true;
   $("onboarding-mic").disabled = true;
@@ -795,6 +799,7 @@ function renderConnection() {
 async function boot() {
   hydrateIcons();
   wireChrome();
+  showOnboarding();
   renderRoute();
   renderProgress();
   beginTask("Подключаюсь к pi…");
@@ -814,7 +819,7 @@ async function boot() {
     endTask();
   }
   connectEvents();
-  showOnboarding();
+  refreshOnboardingChoices();
 }
 
 /* ============================== chrome ============================== */
@@ -2119,6 +2124,7 @@ function renderCreatePage() {
     cancel.disabled = true;
     input.disabled = true;
     submit.setAttribute("aria-busy", "true");
+    submit.classList.add("is-loading");
     const spinner = el("span", null, "project-create-spinner");
     spinner.setAttribute("aria-hidden", "true");
     submit.replaceChildren(spinner, el("span", "Создать проект"));
@@ -2146,6 +2152,7 @@ function renderCreatePage() {
       cancel.disabled = false;
       input.disabled = false;
       submit.removeAttribute("aria-busy");
+      submit.classList.remove("is-loading");
       submit.textContent = "Создать проект";
       onboarding.projectLoading(false);
     });

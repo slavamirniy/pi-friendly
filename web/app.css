@@ -4807,6 +4807,10 @@ button.image-job-visual { cursor: pointer; }
 .coachmark-symbol{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin-right:7px;border:1px solid var(--text);border-radius:7px;vertical-align:middle}
 .coachmark-symbol svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .coachmark-symbol svg path[d="M7 7h10v10H7z"]{fill:currentColor}
+.coachmark{text-align:left}
+.coachmark-copy{display:flex;align-items:flex-start;gap:8px}
+.coachmark-label{display:block;min-width:0;text-align:left}
+.coachmark-symbol{flex:none;margin-right:0}
 .composer-wrap.has-send-coachmark{padding-bottom:104px}
 .create-project-form .create-project-button{min-width:164px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:9px;color:#0c0d0f;background:#fff;border:1px solid #0c0d0f;box-shadow:none;font-weight:600}
 .create-project-form .create-project-button:hover{color:#0c0d0f;background:#f4f4f4;border-color:#0c0d0f}
@@ -4815,5 +4819,9 @@ button.image-job-visual { cursor: pointer; }
 @media(prefers-reduced-motion:reduce){.coachmark{transition:none}.project-create-spinner{animation:none;border-color:#0c0d0f;border-right-color:transparent}}
 #onboarding-create{display:inline-flex;align-items:center;justify-content:center;gap:9px;color:#0c0d0f;background:#fff;border:1px solid #0c0d0f;box-shadow:none}
 #onboarding-create:hover:not(:disabled){color:#0c0d0f;background:#f4f4f4}
-#onboarding-create.is-loading::before{display:none}
-#onboarding-prompt.has-send-coachmark{padding-bottom:100px}
+#onboarding-create.is-loading::before,.create-project-button.is-loading::before{content:"";display:block;position:absolute;inset:0;width:100%;background:rgba(12,13,15,.12);transform:scaleX(0);transform-origin:left;animation:project-create-fill 5s linear forwards;pointer-events:none;z-index:0}
+#onboarding-create.is-loading{opacity:1}
+.create-project-button{position:relative;overflow:hidden;isolation:isolate}
+.create-project-button>*{position:relative;z-index:1}
+@keyframes project-create-fill{to{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){#onboarding-create.is-loading::before,.create-project-button.is-loading::before{animation:none;transform:scaleX(.5)}}

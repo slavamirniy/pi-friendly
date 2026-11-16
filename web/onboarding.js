@@ -14,6 +14,7 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
     if (!item) {
       const node = document.createElement("aside");
       node.className = "coachmark";
+      node.dataset.kind = id;
       node.setAttribute("role", "note");
       const copy = document.createElement("span");
       copy.className = "coachmark-copy";
@@ -25,7 +26,7 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
       arrow.append(path);
       node.append(arrow, copy);
       document.body.append(node);
-      item = { node, copy, target, side, key: "" };
+      item = { id, node, copy, target, side, key: "" };
       hints.set(id, item);
     }
     item.target = target;
@@ -40,7 +41,10 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
         keycap.append(icon(symbol));
         item.copy.append(keycap);
       }
-      item.copy.append(document.createTextNode(text));
+      const label = document.createElement("span");
+      label.className = "coachmark-label";
+      label.textContent = text;
+      item.copy.append(label);
     }
     item.node.classList.add("is-visible");
     item.node.setAttribute("aria-hidden", "false");
@@ -62,13 +66,25 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
         if (!item.node.classList.contains("is-visible")) continue;
         if (!item.target?.isConnected) { item.node.classList.remove("is-visible"); continue; }
         const r = item.target.getBoundingClientRect();
+        const symbol = item.id === "voice" ? item.target.querySelector?.("svg") : null;
+        const anchor = symbol?.getBoundingClientRect() || r;
+        const frame = context.wizard && item.id === "voice" ? item.target.closest(".onboarding-prompt-wrap") : null;
+        const edge = Math.max(r.right, frame?.getBoundingClientRect().right || r.right);
         const node = item.node;
-        const gap = 42;
+        const gap = 78;
         let side = item.side;
+        node.style.width = item.id === "draft" ? "180px" : "224px";
+        if (side === "right") {
+          const available = window.innerWidth - 16 - edge - gap;
+          if (available >= 164 && available < 224) node.style.width = `${available}px`;
+        }
         const width = node.offsetWidth;
         const height = node.offsetHeight;
-        if (side === "right" && r.right + gap + width > window.innerWidth - 16) side = "above";
-        let left = r.right + gap, top = r.top + r.height / 2 - height / 2;
+        if (side === "right" && edge + gap + width > window.innerWidth - 16) side = "above";
+        if (side === "left" && r.left - gap - width < 16) side = "above";
+        const anchorY = item.id === "draft" ? r.top + Math.min(28, r.height / 2) : anchor.top + anchor.height / 2;
+        let left = edge + gap, top = anchorY - (item.id === "voice" ? 14 : 11);
+        if (side === "left") left = r.left - gap - width;
         if (side === "above") {
           left = r.left;
           top = r.top - height - gap;
@@ -89,14 +105,28 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
         node.style.setProperty("--coach-anchor", `${Math.max(16, Math.min(width - 16, r.left + r.width / 2 - left))}px`);
         const arrow = node.firstChild;
         const path = arrow.firstChild;
-        if (side === "above" || side === "voice") {
+        if (side === "right" || side === "left") {
+          const length = side === "right" ? left - edge - 26 : r.left - left - width - 26;
+          arrow.setAttribute("viewBox", `0 0 ${length} 32`);
+          arrow.style.width = `${length}px`;
+          arrow.style.height = "32px";
+          arrow.style.left = side === "right" ? `${-length - 12}px` : `${width + 12}px`;
+          arrow.style.top = `${anchorY - top - 16}px`;
+          path.setAttribute("d", side === "right" ? `M${length - 2} 16H2m7-7-7 7 7 7` : `M2 16H${length - 2}m-7-7 7 7-7 7`);
+        } else if (side === "above" || side === "voice") {
           const length = Math.max(24, r.top - top - height - 18);
           arrow.setAttribute("viewBox", `0 0 32 ${length}`);
+          arrow.style.width = "32px";
           arrow.style.height = `${length}px`;
+          arrow.style.left = "calc(var(--coach-anchor) - 16px)";
+          arrow.style.top = "calc(100% + 10px)";
           path.setAttribute("d", `M16 2V${length - 3}m-6-6 6 6 6-6`);
         } else {
           arrow.setAttribute("viewBox", "0 0 32 32");
+          arrow.style.width = "32px";
           arrow.style.height = "32px";
+          arrow.style.left = "calc(var(--coach-anchor) - 16px)";
+          arrow.style.top = "-38px";
           path.setAttribute("d", side === "below" ? "M16 30V3m-6 6 6-6 6 6" : "M29 16H4m7-7-7 7 7 7");
         }
       }
@@ -129,12 +159,13 @@ export function createOnboarding({ document, window, icon, setTimer = setTimeout
     const voiceBusy = ["starting", "recording", "transcribing"].includes(phase) && context.voiceTarget !== "panel";
     const send = Boolean(active && current.ready && text && !voiceBusy && !$("send").disabled);
     const wrap = $("composer")?.closest(".composer-wrap") || $("composer");
-    wrap?.classList.toggle("has-send-coachmark", send);
+    // Reserve chat footer space on entry, never when the send hint appears.
+    wrap?.classList.toggle("has-send-coachmark", !context.wizard && context.page === "chat" && !context.hasMessages);
     if (!active) {
       hide("draft"); hide("voice"); hide("send");
       return;
     }
-    if (!text && !voiceBusy) hint("draft", $("draft"), "Здесь опиши задачу", context.wizard ? "right" : "above");
+    if (!text && !voiceBusy) hint("draft", $("draft"), "Здесь опиши задачу", context.wizard ? "left" : "above");
     else hide("draft");
     if (voiceIsAvailable(phase) && !send && context.voiceTarget !== "panel") {
       if (phase === "recording") hint("voice", $("mic"), "Нажми эту кнопку, чтобы закончить говорить", context.wizard ? "right" : "voice", "stop");
