@@ -488,8 +488,8 @@ function showOnboarding() {
   $("onboarding-prompt-error").textContent = "";
   const hasProjects = catalog.length > 0;
   $("onboarding-open-projects").hidden = !hasProjects;
-  $("onboarding-open-projects").classList.toggle("primary", hasProjects);
-  $("onboarding-new-project").classList.toggle("primary", !hasProjects);
+  $("onboarding-open-projects").classList.remove("primary");
+  $("onboarding-new-project").classList.add("primary");
   document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
   $("onboarding-model").disabled = true;
