@@ -496,6 +496,39 @@ function showOnboardingName(first = false) {
   showOnboardingStep("name");
 }
 
+function openOnboardingProject(project) {
+  const chat = [...(project.chats || [])].sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0))[0];
+  hideOnboarding();
+  if (chat) {
+    projectId = project.id;
+    openBranch(chat);
+  } else {
+    openProject(project);
+  }
+}
+
+function renderOnboardingRecent() {
+  const box = $("onboarding-recent");
+  const list = $("onboarding-recent-list");
+  if (!box || !list) return;
+  const projects = catalog.slice(0, 3);
+  box.hidden = !projects.length;
+  list.replaceChildren();
+  for (const project of projects) {
+    const chat = [...(project.chats || [])].sort((a, b) => Number(b.modified || 0) - Number(a.modified || 0))[0];
+    const row = el("button", null, "onboarding-recent-row");
+    row.type = "button";
+    row.title = chat ? `${project.name} · ${chat.name || "Чат"}` : project.name;
+    row.append(icon("folder"));
+    const copy = el("span", null, "onboarding-recent-copy");
+    copy.append(el("strong", project.name));
+    copy.append(el("small", chat ? `${chat.name || "Чат"} · ${dateLabel(chat.modified)}` : "Пока нет чатов"));
+    row.append(copy, icon("arrow"));
+    row.onclick = () => openOnboardingProject(project);
+    list.append(row);
+  }
+}
+
 function refreshOnboardingChoices() {
   const loading = $("onboarding-loading");
   const choices = document.querySelector(".onboarding-choices");
@@ -504,14 +537,14 @@ function refreshOnboardingChoices() {
   if ($("onboarding-start").hidden) return;
   if (catalog.length) {
     choices.hidden = false;
-    choices.classList.remove("single");
-    $("onboarding-open-projects").hidden = false;
+    choices.classList.add("single");
     $("onboarding-new-project").hidden = false;
     $("onboarding-new-project").disabled = false;
-    $("onboarding-open-projects").classList.remove("primary");
     $("onboarding-new-project").classList.remove("primary");
+    renderOnboardingRecent();
   } else {
     choices.hidden = true;
+    $("onboarding-recent").hidden = true;
     $("onboarding-new-project").disabled = false;
     showOnboardingName(true);
   }
@@ -534,9 +567,8 @@ function showOnboarding() {
   if (loading) loading.hidden = false;
   const choices = document.querySelector(".onboarding-choices");
   if (choices) choices.hidden = true;
-  $("onboarding-open-projects").hidden = true;
+  $("onboarding-recent").hidden = true;
   $("onboarding-new-project").disabled = true;
-  $("onboarding-open-projects").classList.remove("primary");
   $("onboarding-new-project").classList.remove("primary");
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
   $("onboarding-model").disabled = true;
