@@ -489,7 +489,7 @@ function showOnboarding() {
   const hasProjects = catalog.length > 0;
   $("onboarding-open-projects").hidden = !hasProjects;
   $("onboarding-open-projects").classList.remove("primary");
-  $("onboarding-new-project").classList.add("primary");
+  $("onboarding-new-project").classList.remove("primary");
   document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
   $("onboarding-model").disabled = true;
