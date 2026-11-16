@@ -4797,3 +4797,23 @@ button.image-job-visual { cursor: pointer; }
   .onboarding-choice { min-height: 132px; }
   .onboarding-choice strong { margin-top: 8px; }
 }
+
+/* Instructions stay still; only opacity changes between actions. */
+.coachmark{position:fixed;z-index:120;width:224px;color:var(--text);font:500 14px/1.5 var(--font);pointer-events:none;opacity:0;visibility:hidden;transition:opacity 180ms ease,visibility 0s 180ms}
+.coachmark.is-visible{opacity:1;visibility:visible;transition:opacity 180ms ease}
+.coachmark>svg{position:absolute;width:32px;height:32px;left:-40px;top:calc(50% - 16px);fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.coachmark[data-side="above"]>svg,.coachmark[data-side="voice"]>svg{left:calc(var(--coach-anchor) - 16px);top:calc(100% + 10px)}
+.coachmark[data-side="below"]>svg{left:calc(var(--coach-anchor) - 16px);top:-38px}
+.coachmark-symbol{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin-right:7px;border:1px solid var(--text);border-radius:7px;vertical-align:middle}
+.coachmark-symbol svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.coachmark-symbol svg path[d="M7 7h10v10H7z"]{fill:currentColor}
+.composer-wrap.has-send-coachmark{padding-bottom:104px}
+.create-project-form .create-project-button{min-width:164px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:9px;color:#0c0d0f;background:#fff;border:1px solid #0c0d0f;box-shadow:none;font-weight:600}
+.create-project-form .create-project-button:hover{color:#0c0d0f;background:#f4f4f4;border-color:#0c0d0f}
+.project-create-spinner{width:15px;height:15px;flex:none;border:1.5px solid #d4d4d4;border-top-color:#0c0d0f;border-radius:50%;animation:project-create-spin 5s linear infinite}
+@keyframes project-create-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.coachmark{transition:none}.project-create-spinner{animation:none;border-color:#0c0d0f;border-right-color:transparent}}
+#onboarding-create{display:inline-flex;align-items:center;justify-content:center;gap:9px;color:#0c0d0f;background:#fff;border:1px solid #0c0d0f;box-shadow:none}
+#onboarding-create:hover:not(:disabled){color:#0c0d0f;background:#f4f4f4}
+#onboarding-create.is-loading::before{display:none}
+#onboarding-prompt.has-send-coachmark{padding-bottom:100px}

@@ -634,7 +634,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
     }
     reply(404,{error:'Неизвестное действие.'});return;
    }
-   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript'],'/attachments.js':['web/attachments.js','text/javascript'],'/fonts/geist-cyrillic.woff2':['web/fonts/geist-cyrillic.woff2','font/woff2'],'/fonts/geist-latin.woff2':['web/fonts/geist-latin.woff2','font/woff2'],'/fonts/geist-mono-cyrillic.woff2':['web/fonts/geist-mono-cyrillic.woff2','font/woff2'],'/fonts/geist-mono-latin.woff2':['web/fonts/geist-mono-latin.woff2','font/woff2'],'/fonts/OFL-Geist.txt':['web/fonts/OFL-Geist.txt','text/plain'],'/fonts/OFL-Geist-Mono.txt':['web/fonts/OFL-Geist-Mono.txt','text/plain']},asset=assets[url.pathname];
+   const assets={'/':['web/index.html','text/html'],'/app.js':['web/app.js','text/javascript'],'/onboarding.js':['web/onboarding.js','text/javascript'],'/app.css':['web/app.css','text/css'],'/billing-ui.js':['web/billing-ui.js','text/javascript'],'/message-versions.js':['web/message-versions.js','text/javascript'],'/attachments.js':['web/attachments.js','text/javascript'],'/fonts/geist-cyrillic.woff2':['web/fonts/geist-cyrillic.woff2','font/woff2'],'/fonts/geist-latin.woff2':['web/fonts/geist-latin.woff2','font/woff2'],'/fonts/geist-mono-cyrillic.woff2':['web/fonts/geist-mono-cyrillic.woff2','font/woff2'],'/fonts/geist-mono-latin.woff2':['web/fonts/geist-mono-latin.woff2','font/woff2'],'/fonts/OFL-Geist.txt':['web/fonts/OFL-Geist.txt','text/plain'],'/fonts/OFL-Geist-Mono.txt':['web/fonts/OFL-Geist-Mono.txt','text/plain']},asset=assets[url.pathname];
    if(req.method!=='GET'||!asset){reply(404,{error:'Страница не найдена.'});return;}
    res.writeHead(200,{'Content-Type':asset[1]+'; charset=utf-8','Cache-Control':asset[1]==='font/woff2'?'public, max-age=86400':'no-store'});res.end(await readFile(fileURLToPath(new URL(asset[0],import.meta.url))));
   }catch(error){if(!res.headersSent)reply(400,{error:error.message});else res.end();}
@@ -644,3 +644,4 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});origin=`http://127.0.0.1:${server.address().port}`;
  return {url:origin+'/#'+token,origin,browserReady,async close(){confirmBrowser(false);await close();},get closed(){return disposed;}};
 }
+

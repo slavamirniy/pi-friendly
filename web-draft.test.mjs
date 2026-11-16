@@ -11,6 +11,7 @@ function sendFixture(api){
   const storage=new Map();
   const hints=[];
   const context={
+    onboarding:{submitted(){},dictated(){}},
     $:id=>nodes[id],
     state:{active:{id:'chat'},busy:false},
     store:(id,text)=>storage.set(id,text),
@@ -59,6 +60,7 @@ test('rejected send restores draft in its original chat',async()=>{
 test('reload does not replay already consumed dictation',()=>{
   const nodes={draft:{value:''}},storage=new Map();
   const context={
+    onboarding:{submitted(){},dictated(){}},projectCreationInFlight:false,
     performance:{now:()=>0},clockBase:0,clockAt:0,clockRequest:undefined,
     billingUI:{update(){}},$:id=>nodes[id],
     state:{active:{id:'chat'},messages:[]},
