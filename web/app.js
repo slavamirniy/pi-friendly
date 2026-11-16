@@ -123,6 +123,10 @@ let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
 let voiceTarget = "chat";
+let onboardingModel = null;
+let onboardingBusy = false;
+let onboardingToken = null;
+let onboardingProject = null;
 let imageRefreshPending = false;
 let imageRefreshQueued = false;
 try {
@@ -449,6 +453,236 @@ function markdown(parent, text) {
   if (code) parent.append(code);
 }
 
+/* ============================== onboarding ============================== */
+
+function onboardingNode() {
+  return $("onboarding");
+}
+
+function onboardingVisible() {
+  const node = onboardingNode();
+  return Boolean(node && !node.hidden && !node.classList.contains("closing"));
+}
+
+function showOnboardingStep(step) {
+  for (const name of ["start", "name", "prompt"]) {
+    const node = $("onboarding-" + name);
+    if (node) node.hidden = name !== step;
+  }
+  if (step === "name") {
+    setTimeout(() => $("onboarding-name-input").focus(), 0);
+  } else if (step === "prompt") {
+    setTimeout(() => $("onboarding-prompt-input").focus(), 0);
+  }
+}
+
+function showOnboarding() {
+  onboardingModel = null;
+  onboardingBusy = false;
+  onboardingToken = null;
+  onboardingProject = null;
+  voiceTarget = "chat";
+  $("onboarding-name-input").value = "";
+  $("onboarding-name-error").textContent = "";
+  $("onboarding-prompt-input").value = "";
+  $("onboarding-prompt-error").textContent = "";
+  const hasProjects = catalog.length > 0;
+  $("onboarding-open-projects").hidden = !hasProjects;
+  $("onboarding-open-projects").classList.toggle("primary", hasProjects);
+  $("onboarding-new-project").classList.toggle("primary", !hasProjects);
+  $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
+  $("onboarding-model").disabled = true;
+  $("onboarding-mic").disabled = true;
+  onboardingNode().hidden = false;
+  onboardingNode().classList.remove("closing");
+  showOnboardingStep("start");
+  renderOnboardingModel();
+}
+
+function hideOnboarding() {
+  const node = onboardingNode();
+  if (!node || node.hidden) return;
+  if (voiceTarget === "onboarding") voiceTarget = "chat";
+  node.classList.add("closing");
+  setTimeout(() => {
+    node.hidden = true;
+    node.classList.remove("closing");
+  }, 190);
+}
+
+async function loadOnboardingModels() {
+  const button = $("onboarding-model");
+  if (!button || modelsLoading) return;
+  if (!modelsLoaded) await loadModels();
+  const models = modelList;
+  if (!models.length) return;
+  document.querySelectorAll(".onboarding-model-menu").forEach((node) => node.remove());
+  const menu = el("div", null, "onboarding-model-menu");
+  const rect = button.getBoundingClientRect();
+  for (const model of models) {
+    const option = el("button", null, "onboarding-model-option");
+    option.type = "button";
+    option.append(el("span", model.name || model.id), el("small", model.provider || ""));
+    option.onclick = () => {
+      onboardingModel = model;
+      button.textContent = model.name || model.id;
+      menu.remove();
+    };
+    menu.append(option);
+  }
+  document.body.append(menu);
+  menu.style.left = Math.min(rect.left, innerWidth - 268) + "px";
+  menu.style.top = rect.bottom + 8 + "px";
+  const close = (event) => {
+    if (menu.contains(event.target)) return;
+    menu.remove();
+    document.removeEventListener("click", close, true);
+  };
+  setTimeout(() => document.addEventListener("click", close, true), 0);
+}
+
+async function onboardingEnterProject(projectName, prompt) {
+  const name = String(projectName || "").trim();
+  if (!name) {
+    $("onboarding-name-error").textContent = "Введите название проекта.";
+    $("onboarding-name-input").focus();
+    return;
+  }
+  onboardingBusy = true;
+  $("onboarding-create").disabled = true;
+  $("onboarding-create").textContent = "Создаю…";
+  $("onboarding-name-error").textContent = "";
+  try {
+    const created = await api("create-project", { name }, 60000);
+    applyState(created);
+    projectId = created.active?.projectId || null;
+    page = "chat";
+    renderRoute();
+    await loadCatalog().catch(() => {});
+    onboardingProject = created.active?.projectId || null;
+    if (prompt && String(prompt).trim()) {
+      await sendOnboardingPrompt(prompt);
+    } else {
+      showOnboardingStep("prompt");
+      renderOnboardingModel();
+      loadModels();
+    }
+  } catch (error) {
+    $("onboarding-name-error").textContent = error.message || "Не удалось создать проект.";
+  } finally {
+    onboardingBusy = false;
+    $("onboarding-create").disabled = false;
+    $("onboarding-create").textContent = "Создать проект";
+  }
+}
+
+async function sendOnboardingPrompt(text) {
+  const value = String(text || "").trim();
+  const error = $("onboarding-prompt-error");
+  if (!value) {
+    error.textContent = "Опишите задачу или наговорите голосом.";
+    $("onboarding-prompt-input").focus();
+    return;
+  }
+  if (!state.active) {
+    error.textContent = "Чат ещё открывается. Подождите секунду.";
+    return;
+  }
+  if (onboardingModel && onboardingModel.id) {
+    const current = state.active.model;
+    if (!current || current.id !== onboardingModel.id || current.provider !== onboardingModel.provider) {
+      try {
+        await api("model", { chat: state.active.id, id: onboardingModel.id, provider: onboardingModel.provider }, 30000);
+        state.active = { ...state.active, model: onboardingModel };
+      } catch (failure) {
+        $("onboarding-prompt-error").textContent = failure.message || "Не удалось выбрать модель.";
+        return;
+      }
+    }
+  }
+  error.textContent = "";
+  onboardingBusy = true;
+  $("onboarding-send").disabled = true;
+  $("onboarding-prompt-input").value = "";
+  hideOnboarding();
+  sendMessage(value);
+  onboardingBusy = false;
+  $("onboarding-send").disabled = false;
+}
+
+function renderOnboardingModel() {
+  const button = $("onboarding-model");
+  if (!button) return;
+  const model = state.active?.model;
+  button.replaceChildren(el("span", model?.name || model?.id || "Модель"), icon("chevron-down"));
+  button.disabled = !connected || !state.active || state.ready === false || modelSwitching;
+  const mic = $("onboarding-mic");
+  if (mic) {
+    const recording = state.voice?.phase === "recording";
+    mic.disabled = !connected || !state.active || state.active.readOnly || state.voice?.phase === "transcribing";
+    mic.replaceChildren(icon(recording ? "stop" : "mic"));
+    mic.title = recording ? "Закончить запись" : "Наговорить";
+    mic.setAttribute("aria-label", mic.title);
+  }
+  const send = $("onboarding-send");
+  if (send) send.disabled = !$("onboarding-prompt-input").value.trim() || onboardingBusy || ["starting", "recording", "transcribing"].includes(state.voice?.phase);
+}
+
+
+function wireOnboarding() {
+  const node = onboardingNode();
+  if (!node) return;
+  $("onboarding-open-projects").onclick = () => {
+    hideOnboarding();
+    navigate("projects");
+  };
+  $("onboarding-new-project").onclick = () => {
+    $("onboarding-name-input").value = "";
+    $("onboarding-name-error").textContent = "";
+    showOnboardingStep("name");
+  };
+  $("onboarding-name-back").onclick = () => showOnboardingStep("start");
+  $("onboarding-create").onclick = () => onboardingEnterProject($("onboarding-name-input").value, "");
+  $("onboarding-name-input").onkeydown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onboardingEnterProject($("onboarding-name-input").value, "");
+    } else if (event.key === "Escape") {
+      showOnboardingStep("start");
+    }
+  };
+  $("onboarding-prompt-input").oninput = () => {
+    const area = $("onboarding-prompt-input");
+    area.style.height = "auto";
+    area.style.height = `${Math.min(area.scrollHeight, 240)}px`;
+    $("onboarding-send").disabled = !area.value.trim() || onboardingBusy;
+  };
+  $("onboarding-prompt-input").onkeydown = (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      if (state.voice?.phase === "recording") {
+        run("Завершаю запись…", () => api("voice", { chat: state.active?.id }, 20000));
+        return;
+      }
+      if (!$("onboarding-send").disabled) sendOnboardingPrompt($("onboarding-prompt-input").value);
+    }
+  };
+  $("onboarding-send").onclick = () => sendOnboardingPrompt($("onboarding-prompt-input").value);
+  $("onboarding-model").onclick = () => loadOnboardingModels();
+  $("onboarding-mic").onclick = () => {
+    voiceTarget = "onboarding";
+    run("Переключаю микрофон…", async () => {
+      if (["installing", "downloading", "loading"].includes(state.voice?.phase)) {
+        $("voice-setup").classList.add("highlight");
+        setTimeout(() => $("voice-setup").classList.remove("highlight"), 2500);
+        throw new Error("Дождитесь загрузки голосовой модели.");
+      }
+      await api("voice", { chat: state.active?.id }, 20000);
+    });
+  };
+  $("onboarding-send").disabled = true;
+}
+
 /* ============================== boot / events ============================== */
 
 async function loadCatalog() {
@@ -548,6 +782,7 @@ async function boot() {
     endTask();
   }
   connectEvents();
+  showOnboarding();
 }
 
 /* ============================== chrome ============================== */
@@ -947,6 +1182,7 @@ function wireChrome() {
   }
   renderAttachments();
   wireDropZone();
+  wireOnboarding();
 }
 
 function setTheme(value, persist = true) {
@@ -3623,25 +3859,40 @@ function renderStatus() {
   renderConnection();
   updateImageBadge();
   if (imagePanelOpen) renderPanelSkeletons();
+  if (onboardingVisible()) renderOnboardingModel();
 }
 
 
 function renderVoice(voice, recording) {
   const panelRecording = Boolean(recording && voiceTarget === "panel" && imagePanelOpen);
-  $("voice-view").hidden = !recording || panelRecording;
+  const onboardRecording = Boolean(recording && voiceTarget === "onboarding" && onboardingVisible());
+  const chatRecording = Boolean(recording && !panelRecording && !onboardRecording);
+  $("voice-view").hidden = !chatRecording;
   $("panel-voice-view").hidden = !panelRecording;
-  $("draft").style.visibility = recording && !panelRecording ? "hidden" : "visible";
+  $("onboarding-voice-view").hidden = !onboardRecording;
+  $("draft").style.visibility = chatRecording ? "hidden" : "visible";
   $("panel-prompt").style.visibility = panelRecording ? "hidden" : "visible";
+  $("onboarding-prompt-input").style.visibility = onboardRecording ? "hidden" : "visible";
   if (recording) {
     const seconds = voice.seconds || 0;
-    const label = panelRecording ? $("panel-voice-label") : $("voice-label");
-    label.textContent =
-      voice.phase === "recording"
-        ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} · Enter — закончить`
+    const label = panelRecording
+      ? $("panel-voice-label")
+      : onboardRecording
+        ? $("onboarding-voice-label")
+        : $("voice-label");
+    const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    label.textContent = onboardRecording
+      ? voice.phase === "recording"
+        ? `Нажмите, чтобы закончить · ${time}`
+        : voice.phase === "transcribing"
+          ? `Распознаю · ${Math.round(voice.percent || 0)}%`
+          : "Включаю микрофон…"
+      : voice.phase === "recording"
+        ? `${time} · Enter — закончить`
         : voice.phase === "transcribing"
           ? `Распознаю · ${Math.round(voice.percent || 0)}%`
           : "Включаю микрофон…";
-    drawWave(voice.levels || [], panelRecording ? "panel-wave" : "wave");
+    drawWave(voice.levels || [], panelRecording ? "panel-wave" : onboardRecording ? "onboarding-wave" : "wave");
   }
   const setup = $("voice-setup");
   setup.replaceChildren();
@@ -3766,7 +4017,7 @@ function loadModels() {
   modelsLoading = true;
   modelsError = "";
   renderModelMenu();
-  api("models", undefined, 20000)
+  return api("models", undefined, 20000)
     .then((result) => {
       modelList = result.models || [];
       modelsLoaded = true;
@@ -4066,7 +4317,22 @@ function applyState(next) {
       typeof imagePanelOpen !== "undefined" &&
       imagePanelOpen &&
       dictation.chat === state.active?.id;
-    if (toPanel) {
+    const toOnboarding =
+      typeof voiceTarget !== "undefined" &&
+      voiceTarget === "onboarding" &&
+      typeof onboardingVisible === "function" &&
+      onboardingVisible() &&
+      dictation.chat === state.active?.id;
+    if (toOnboarding) {
+      const area = $("onboarding-prompt-input");
+      const old = area.value;
+      const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;
+      area.value = text;
+      area.style.height = "auto";
+      area.style.height = `${Math.min(area.scrollHeight, 240)}px`;
+      $("onboarding-send").disabled = !text.trim();
+      area.focus();
+    } else if (toPanel) {
       const area = $("panel-prompt");
       const old = area.value;
       const text = dictation.replace ? dictation.text : old + (old ? " " : "") + dictation.text;

@@ -330,6 +330,55 @@
     </aside>
   </div>
 
+  <div id="onboarding" class="onboarding">
+    <div class="onboarding-card">
+      <div id="onboarding-start" class="onboarding-step">
+        <div class="onboarding-mark" aria-hidden="true">π</div>
+        <h1>С чего начнём?</h1>
+        <p>Продолжите работу или создайте новый проект.</p>
+        <div class="onboarding-actions">
+          <button type="button" id="onboarding-open-projects" class="onboarding-button">Открыть проекты</button>
+          <button type="button" id="onboarding-new-project" class="onboarding-button">Новый проект</button>
+        </div>
+      </div>
+
+      <div id="onboarding-name" class="onboarding-step" hidden>
+        <h1>Как назовем ваш проект?</h1>
+        <p>Название можно будет изменить позже.</p>
+        <label class="sr-only" for="onboarding-name-input">Название проекта</label>
+        <input id="onboarding-name-input" class="onboarding-input" maxlength="60" autocomplete="off" placeholder="Например, сайт пекарни">
+        <div id="onboarding-name-error" class="onboarding-error" role="alert"></div>
+        <div class="onboarding-actions">
+          <button type="button" id="onboarding-create" class="onboarding-button primary">Создать проект</button>
+          <button type="button" id="onboarding-name-back" class="onboarding-button ghost">Назад</button>
+        </div>
+      </div>
+
+      <div id="onboarding-prompt" class="onboarding-step" hidden>
+        <h1>Что будем создавать?</h1>
+        <p>Напишите текстом или наговорите голосом.</p>
+        <div class="onboarding-prompt-wrap">
+          <label class="sr-only" for="onboarding-prompt-input">Описание задачи</label>
+          <textarea id="onboarding-prompt-input" rows="4" placeholder="Опишите задачу или идею…"></textarea>
+          <div id="onboarding-voice-view" hidden>
+            <span id="onboarding-voice-label"></span>
+            <canvas id="onboarding-wave" aria-label="Уровень звука"></canvas>
+          </div>
+          <button type="button" id="onboarding-mic" class="onboarding-mic" title="Наговорить" aria-label="Наговорить">
+            <span data-icon="mic" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div id="onboarding-prompt-error" class="onboarding-error" role="alert"></div>
+        <div class="onboarding-prompt-foot">
+          <button type="button" id="onboarding-model" class="onboarding-model" aria-haspopup="dialog">Модель</button>
+          <button type="button" id="onboarding-send" class="onboarding-send">
+            <span>Отправить</span><span data-icon="arrow-up" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="ui-hint" role="status" hidden></div>
   <div id="drop-overlay" class="drop-overlay" hidden>
     <div class="drop-card">
