@@ -523,7 +523,7 @@ function renderOnboardingRecent() {
     const copy = el("span", null, "onboarding-recent-copy");
     copy.append(el("strong", project.name));
     copy.append(el("small", chat ? `${chat.name || "Чат"} · ${dateLabel(chat.modified)}` : "Пока нет чатов"));
-    row.append(copy, icon("arrow"));
+    row.append(copy);
     row.onclick = () => openOnboardingProject(project);
     list.append(row);
   }
@@ -536,6 +536,7 @@ function refreshOnboardingChoices() {
   if (!onboardingVisible()) return;
   if ($("onboarding-start").hidden) return;
   if (catalog.length) {
+    $("onboarding-projects").hidden = false;
     choices.hidden = false;
     choices.classList.add("single");
     $("onboarding-new-project").hidden = false;
@@ -543,6 +544,7 @@ function refreshOnboardingChoices() {
     $("onboarding-new-project").classList.remove("primary");
     renderOnboardingRecent();
   } else {
+    $("onboarding-projects").hidden = true;
     choices.hidden = true;
     $("onboarding-recent").hidden = true;
     $("onboarding-new-project").disabled = false;
@@ -567,6 +569,7 @@ function showOnboarding() {
   if (loading) loading.hidden = false;
   const choices = document.querySelector(".onboarding-choices");
   if (choices) choices.hidden = true;
+  $("onboarding-projects").hidden = true;
   $("onboarding-recent").hidden = true;
   $("onboarding-new-project").disabled = true;
   $("onboarding-new-project").classList.remove("primary");

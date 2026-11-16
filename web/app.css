@@ -4954,3 +4954,74 @@ button.image-job-visual { cursor: pointer; }
 @media (max-width: 520px) {
   .onboarding-choices.single .onboarding-choice { width: 148px; min-height: 148px; }
 }
+
+.onboarding-projects {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+.onboarding-projects .onboarding-choices {
+  flex: none;
+  width: 168px;
+}
+.onboarding-projects .onboarding-choices.single .onboarding-choice {
+  width: 168px;
+  min-height: 168px;
+}
+.onboarding-projects .onboarding-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: none;
+  width: 216px;
+  height: 168px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--ring);
+}
+.onboarding-projects .onboarding-recent-title {
+  flex: none;
+  padding: 0 2px;
+  font-size: 9.5px;
+  line-height: 1.3;
+}
+.onboarding-projects .onboarding-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
+}
+.onboarding-projects .onboarding-recent-row {
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: var(--bg);
+}
+.onboarding-projects .onboarding-recent-row > svg:first-child { width: 13px; height: 13px; }
+.onboarding-projects .onboarding-recent-copy { gap: 0; }
+.onboarding-projects .onboarding-recent-copy strong { font-size: 11px; line-height: 1.25; }
+.onboarding-projects .onboarding-recent-copy small { font-size: 8.5px; line-height: 1.2; }
+.onboarding-projects .onboarding-recent-all {
+  flex: none;
+  min-height: 20px;
+  padding: 0 2px;
+  color: var(--text);
+  font-size: 10.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.onboarding-projects .onboarding-recent-all:hover { color: var(--text); }
+.onboarding-projects .onboarding-recent-all svg { width: 12px; height: 12px; color: var(--text); }
+@media (max-width: 520px) {
+  .onboarding-projects { flex-direction: column; align-items: center; }
+  .onboarding-projects .onboarding-recent { width: 100%; height: auto; }
+  .onboarding-projects .onboarding-recent-row { min-height: 34px; flex: none; }
+}

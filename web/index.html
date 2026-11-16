@@ -340,20 +340,22 @@
           <span class="onboarding-loading-spinner" aria-hidden="true"></span>
           <span>Загружаем проекты…</span>
         </div>
-        <div class="onboarding-actions onboarding-choices" hidden>
-          <button type="button" id="onboarding-new-project" class="onboarding-choice">
-            <span class="onboarding-choice-icon" data-icon="plus" aria-hidden="true"></span>
-            <strong>Создать проект</strong>
-            <small>Начать с нуля</small>
-          </button>
+        <div id="onboarding-projects" class="onboarding-projects" hidden>
+          <section id="onboarding-recent" class="onboarding-recent" hidden aria-label="Последние проекты">
+            <div class="onboarding-recent-title">Последние проекты</div>
+            <div id="onboarding-recent-list" class="onboarding-recent-list"></div>
+            <button type="button" id="onboarding-open-projects" class="onboarding-recent-all">
+              <span>Все проекты</span><span data-icon="arrow" aria-hidden="true"></span>
+            </button>
+          </section>
+          <div class="onboarding-actions onboarding-choices" hidden>
+            <button type="button" id="onboarding-new-project" class="onboarding-choice">
+              <span class="onboarding-choice-icon" data-icon="plus" aria-hidden="true"></span>
+              <strong>Создать проект</strong>
+              <small>Начать с нуля</small>
+            </button>
+          </div>
         </div>
-        <section id="onboarding-recent" class="onboarding-recent" hidden aria-label="Последние проекты">
-          <div class="onboarding-recent-title">Последние проекты</div>
-          <div id="onboarding-recent-list" class="onboarding-recent-list"></div>
-          <button type="button" id="onboarding-open-projects" class="onboarding-recent-all">
-            <span>Все проекты</span><span data-icon="arrow" aria-hidden="true"></span>
-          </button>
-        </section>
       </div>
 
       <div id="onboarding-name" class="onboarding-step" hidden>
