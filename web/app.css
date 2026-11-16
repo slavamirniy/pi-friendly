@@ -5043,3 +5043,19 @@ button.image-job-visual { cursor: pointer; }
   background: transparent;
   box-shadow: none;
 }
+
+.onboarding-projects .onboarding-choice {
+  background: var(--surface);
+  box-shadow: var(--ring);
+}
+.onboarding-projects .onboarding-choice:hover {
+  background: var(--surface-raised);
+}
+.onboarding-projects .onboarding-recent-list { flex: none; }
+.onboarding-projects .onboarding-recent-row {
+  flex: none;
+  min-height: 31px;
+  padding: 3px 7px 3px 11px;
+}
+.onboarding-projects .onboarding-recent-copy small { display: none; }
+.onboarding-projects .onboarding-recent-all { margin-top: auto; }

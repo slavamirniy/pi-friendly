@@ -522,7 +522,6 @@ function renderOnboardingRecent() {
     row.append(icon("folder"));
     const copy = el("span", null, "onboarding-recent-copy");
     copy.append(el("strong", project.name));
-    copy.append(el("small", chat ? `${chat.name || "Чат"} · ${dateLabel(chat.modified)}` : "Пока нет чатов"));
     row.append(copy);
     row.onclick = () => openOnboardingProject(project);
     list.append(row);
