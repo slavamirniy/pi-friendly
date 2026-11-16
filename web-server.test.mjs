@@ -15,7 +15,7 @@ async function fixture(t,{host=false,options={}}={}){
  const request=async(path,data,headers={})=>{const res=await fetch(web.origin+'/api/'+path,{method:data===undefined?'GET':'POST',headers:{...(cookie?{cookie}:{}),...headers},body:data===undefined?undefined:JSON.stringify(data)});return{status:res.status,data:await res.json()};};
  const res=await fetch(web.origin+'/api/auth',{method:'POST',body:JSON.stringify({token:web.url.split('#')[1]})});cookie=res.headers.get('set-cookie').split(';')[0];
  const state=async()=>{const res=await fetch(web.origin+'/api/events',{headers:{cookie}});const reader=res.body.getReader();const {value}=await reader.read();await reader.cancel();return JSON.parse(new TextDecoder().decode(value).split('data: ')[1].split('\n')[0]);};
- return{web,request,calls,state,emit:e=>emit(e)};
+ return{web,request,calls,state,cookie,emit:e=>emit(e)};
 }
 test('local server requires authentication and rejects foreign origins',async t=>{
  const h=await fixture(t);assert.equal(await h.web.browserReady,true);assert.equal((await fetch(h.web.origin+'/api/catalog')).status,401);
@@ -457,4 +457,40 @@ test('image endpoints list, serve, generate and delete project images',async t=>
  const alias=await request('image/generate',{prompt:'алиас',size:'1024x1024',sources:['generated/_sources/ref.png']});assert.equal(alias.status,200);assert.equal(generated[1].sessionId,'chat-1');assert.deepEqual(generated[1].sources,['generated/_sources/ref.png']);
  const removed=await request('image-delete',{project:project.id,path:record.path});assert.equal(removed.status,200);
  const after=await request('images',{project:project.id});assert.equal(after.data.images.length,0);
+});
+
+test('reload survives a slow bootstrap, closing only the final tab exits Pi once', async t => {
+ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+ const first = crypto.randomUUID(), second = crypto.randomUUID(), reloaded = crypto.randomUUID();
+ let exits = 0;
+ const h = await fixture(t,{options:{tabCloseGraceMs:60,disconnectGraceMs:1500,onExit:()=>{exits++;}}});
+ const connect = async id => {
+  const res = await fetch(h.web.origin+'/api/events?tab='+id,{headers:{cookie:h.cookie}});
+  const reader = res.body.getReader(); await reader.read(); return reader;
+ };
+ const a = await connect(first);
+ const b = await connect(second);
+ await h.request('tab-left',{tab:first}); await a.cancel(); await delay(100);
+ assert.equal(exits,0);
+ await h.request('tab-left',{tab:second}); await b.cancel();
+ await fetch(h.web.origin+'/',{headers:{cookie:h.cookie,'Sec-Fetch-Dest':'document'}});
+ await delay(120); assert.equal(exits,0);
+ const c = await connect(reloaded);
+ await h.request('tab-left',{tab:second}); await delay(110);
+ assert.equal(h.web.closed,false);
+ const unauthorized=await fetch(h.web.origin+'/api/tab-left',{method:'POST',body:JSON.stringify({tab:reloaded})});
+ assert.equal(unauthorized.status,401);
+ await h.request('tab-left',{tab:reloaded}); await c.cancel(); await delay(120);
+ assert.equal(exits,1); assert.equal(h.web.closed,true);
+});
+
+test('lost browser transport can reconnect, and abrupt last-tab disconnect eventually exits', async t => {
+ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+ let exits = 0;
+ const h = await fixture(t,{options:{tabCloseGraceMs:30,disconnectGraceMs:160,onExit:()=>{exits++;}}});
+ const url=h.web.origin+'/api/events?tab='+crypto.randomUUID();
+ const stream=async()=>{const r=await fetch(url,{headers:{cookie:h.cookie}});const reader=r.body.getReader();await reader.read();return reader;};
+ const first=await stream();await first.cancel();await delay(45);
+ const next=await stream();await delay(220);assert.equal(exits,0);
+ await next.cancel();await delay(230);assert.equal(exits,1);
 });

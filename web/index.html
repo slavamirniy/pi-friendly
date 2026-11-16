@@ -55,6 +55,9 @@
             <span class="nav-icon" data-icon="wallet" aria-hidden="true"></span>
             <span class="nav-text">Пополнить</span>
           </button>
+          <button type="button" id="reload-page" class="icon-button" title="Перезагрузить страницу" aria-label="Перезагрузить страницу">
+            <span data-icon="refresh" aria-hidden="true"></span>
+          </button>
           <button type="button" id="theme" class="icon-button" title="Тёмная тема" aria-label="Тёмная тема">
             <span data-icon="moon" aria-hidden="true"></span>
           </button>
@@ -401,6 +404,15 @@
       <small>Прикрепим их к сообщению</small>
     </div>
   </div>
+
+  <dialog id="reload-dialog" aria-labelledby="reload-heading">
+    <h2 id="reload-heading">Перезагрузить страницу?</h2>
+    <p>Pi продолжит работу. Вы вернётесь в текущий сеанс.</p>
+    <div class="dialog-actions">
+      <button type="button" id="cancel-reload" autofocus>Отмена</button>
+      <button type="button" id="confirm-reload">Перезагрузить</button>
+    </div>
+  </dialog>
 
   <dialog id="exit-dialog">
     <h2>Выйти из Просто pi?</h2>

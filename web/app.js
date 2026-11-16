@@ -81,6 +81,8 @@ let catalog = [];
 let catalogLoading = true;
 let catalogError = "";
 let state = {};
+let tabId = crypto.randomUUID();
+let allowUnload = false;
 let source;
 let connected = false;
 let booting = true;
@@ -585,6 +587,7 @@ function hideOnboarding() {
   const node = onboardingNode();
   if (!node || node.hidden) return;
   if (voiceTarget === "onboarding") voiceTarget = "chat";
+  history.replaceState({ ...history.state, workspaceOpen: true }, "");
   node.classList.add("closing");
   updateOnboarding();
   setTimeout(() => {
@@ -814,7 +817,7 @@ async function loadCatalog() {
 function connectEvents() {
   clearTimeout(reconnectTimer);
   if (source) source.close();
-  source = new EventSource("/api/events");
+  source = new EventSource("/api/events?tab=" + tabId);
   source.onopen = () => {
     connected = true;
     reconnectAttempts = 0;
@@ -865,16 +868,18 @@ function renderConnection() {
 async function boot() {
   hydrateIcons();
   wireChrome();
-  showOnboarding();
+  if (history.state?.workspaceOpen) onboardingNode().hidden = true;
+  else showOnboarding();
   renderRoute();
   renderProgress();
   beginTask("Подключаюсь к pi…");
   try {
     const token = location.hash.slice(1);
     if (token) {
-      await api("auth", { token }, 15000);
+      await api("auth", { token, tab: tabId }, 15000);
       history.replaceState(null, "", location.pathname);
     }
+    connectEvents();
     await loadCatalog();
   } catch (error) {
     catalogError = error.message;
@@ -884,7 +889,6 @@ async function boot() {
     booting = false;
     endTask();
   }
-  connectEvents();
   refreshOnboardingChoices();
 }
 
@@ -917,6 +921,8 @@ function wireChrome() {
   $("confirm-exit").onclick = () =>
     run("Завершаю работу…", async () => {
       await api("close", {}, 15000);
+      allowUnload = true;
+      clearTimeout(reconnectTimer);
       source?.close();
       connected = false;
       $("exit-dialog").close();
@@ -1251,7 +1257,41 @@ function wireChrome() {
   window.addEventListener("resize", () => {
     if (modelMenu.matches(":popover-open")) positionModels();
   });
-  window.addEventListener("beforeunload", () => store(state.active?.id, $("draft").value));
+  const reloadDialog = $("reload-dialog");
+  function askReload() {
+    if (!allowUnload && !reloadDialog.open) reloadDialog.showModal();
+  }
+  $("reload-page").onclick = askReload;
+  $("cancel-reload").onclick = () => reloadDialog.close();
+  $("confirm-reload").onclick = () => {
+    allowUnload = true;
+    location.reload();
+  };
+  window.addEventListener("keydown", (event) => {
+    if (!event.cancelable || event.altKey) return;
+    if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.code === "KeyR")) {
+      event.preventDefault();
+      askReload();
+    }
+  }, true);
+  window.addEventListener("beforeunload", (event) => {
+    store(state.active?.id, $("draft").value);
+    if (allowUnload) return;
+    event.preventDefault();
+    event.returnValue = true;
+  });
+  window.addEventListener("pagehide", () => {
+    clearTimeout(reconnectTimer);
+    source?.close();
+    navigator.sendBeacon("/api/tab-left", JSON.stringify({ tab: tabId }));
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      tabId = crypto.randomUUID();
+      allowUnload = false;
+      connectEvents();
+    }
+  });
 
   $("folder-path-form").onsubmit = (event) => {
     event.preventDefault();
