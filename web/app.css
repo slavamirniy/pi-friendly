@@ -5097,3 +5097,12 @@ button.image-job-visual { cursor: pointer; }
 }
 
 .onboarding-projects .onboarding-recent-list { padding-top: 6px; }
+
+.onboarding-projects .onboarding-recent-all svg {
+  opacity: 0;
+  transition: opacity 80ms linear;
+}
+.onboarding-projects .onboarding-recent-all:hover svg,
+.onboarding-projects .onboarding-recent-all:focus-visible svg {
+  opacity: 1;
+}
