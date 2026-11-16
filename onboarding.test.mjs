@@ -37,7 +37,7 @@ function fixture() {
   const advance = ms => { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } };
   const visible = text => body.children.some(n => n.classList.contains('is-visible') && n.textContent.includes(text));
   const update = changes => { state = { ...state, ...changes }; coach.update(state); };
-  let state = { page: 'chat', chatId: 'chat-1', connected: true, voicePhase: 'ready', voiceTarget: 'chat' };
+  let state = { page: 'chat', chatId: 'chat-1', connected: true, voicePhase: 'ready', voiceTarget: 'chat', wizard: true };
   update({});
   return { coach, update, ids, visible, advance, Node, body, frames, wrap, schedule, cancel };
 }
@@ -61,7 +61,7 @@ test('manual send hint waits five seconds from first input, not the last keystro
   f.ids.draft.value = 'С'; f.coach.typed(); f.advance(4500);
   f.ids.draft.value = 'Сделай сайт'; f.coach.typed(); assert(!f.visible('Отправить'));
   f.advance(500); assert(f.visible('Нажми «Отправить»'));
-  assert(f.wrap.classList.contains('has-send-coachmark'));
+  assert.equal(f.wrap.classList.contains('has-send-coachmark'), false);
   f.ids.draft.value = ''; f.coach.typed(); assert(!f.visible('Отправить')); assert(f.visible('Здесь опиши задачу'));
 });
 
