@@ -4844,3 +4844,46 @@ button.image-job-visual { cursor: pointer; }
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+/* Soft rise-in for every onboarding screen. */
+.onboarding {
+  background:
+    radial-gradient(90% 70% at 50% 108%, var(--surface) 0%, transparent 72%),
+    var(--bg);
+}
+.onboarding-step:not([hidden]) {
+  animation: onboarding-step-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.onboarding-choices:not([hidden]),
+.onboarding-loading:not([hidden]) {
+  animation: onboarding-content-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes onboarding-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes onboarding-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-step:not([hidden]),
+  .onboarding-choices:not([hidden]),
+  .onboarding-loading:not([hidden]) {
+    animation: none;
+  }
+}
