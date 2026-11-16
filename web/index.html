@@ -336,7 +336,11 @@
         <div class="onboarding-mark" aria-hidden="true">π</div>
         <h1>С чего начнём?</h1>
         <p>Продолжите работу или создайте новый проект.</p>
-        <div class="onboarding-actions onboarding-choices">
+        <div id="onboarding-loading" class="onboarding-loading" role="status">
+          <span class="onboarding-loading-spinner" aria-hidden="true"></span>
+          <span>Загружаем проекты…</span>
+        </div>
+        <div class="onboarding-actions onboarding-choices" hidden>
           <button type="button" id="onboarding-open-projects" class="onboarding-choice">
             <span class="onboarding-choice-icon" data-icon="folder" aria-hidden="true"></span>
             <strong>Открыть проекты</strong>
@@ -351,8 +355,8 @@
       </div>
 
       <div id="onboarding-name" class="onboarding-step" hidden>
-        <h1>Как назовем ваш проект?</h1>
-        <p>Название можно будет изменить позже.</p>
+        <h1 id="onboarding-name-title">Как назовем ваш проект?</h1>
+        <p id="onboarding-name-subtitle">Название можно будет изменить позже.</p>
         <label class="sr-only" for="onboarding-name-input">Название проекта</label>
         <input id="onboarding-name-input" class="onboarding-input" maxlength="60" autocomplete="off" placeholder="Например, сайт пекарни">
         <div id="onboarding-name-error" class="onboarding-error" role="alert"></div>

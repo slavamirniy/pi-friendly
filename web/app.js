@@ -483,10 +483,38 @@ function showOnboardingStep(step) {
   updateOnboarding();
 }
 
+function showOnboardingName(first = false) {
+  $("onboarding-name-title").textContent = first
+    ? "Давайте создадим ваш первый проект"
+    : "Как назовем ваш проект?";
+  $("onboarding-name-subtitle").textContent = first
+    ? "Введите название — сразу перейдём к первому запросу."
+    : "Название можно будет изменить позже.";
+  $("onboarding-name-back").hidden = first;
+  $("onboarding-name-input").value = "";
+  $("onboarding-name-error").textContent = "";
+  showOnboardingStep("name");
+}
+
 function refreshOnboardingChoices() {
-  const hasProjects = catalog.length > 0;
-  $("onboarding-open-projects").hidden = !hasProjects;
-  document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
+  const loading = $("onboarding-loading");
+  const choices = document.querySelector(".onboarding-choices");
+  if (loading) loading.hidden = true;
+  if (!onboardingVisible()) return;
+  if ($("onboarding-start").hidden) return;
+  if (catalog.length) {
+    choices.hidden = false;
+    choices.classList.remove("single");
+    $("onboarding-open-projects").hidden = false;
+    $("onboarding-new-project").hidden = false;
+    $("onboarding-new-project").disabled = false;
+    $("onboarding-open-projects").classList.remove("primary");
+    $("onboarding-new-project").classList.remove("primary");
+  } else {
+    choices.hidden = true;
+    $("onboarding-new-project").disabled = false;
+    showOnboardingName(true);
+  }
 }
 
 function showOnboarding() {
@@ -497,9 +525,17 @@ function showOnboarding() {
   voiceTarget = "chat";
   $("onboarding-name-input").value = "";
   $("onboarding-name-error").textContent = "";
+  $("onboarding-name-title").textContent = "Как назовем ваш проект?";
+  $("onboarding-name-subtitle").textContent = "Название можно будет изменить позже.";
+  $("onboarding-name-back").hidden = false;
   $("onboarding-prompt-input").value = "";
   $("onboarding-prompt-error").textContent = "";
-  refreshOnboardingChoices();
+  const loading = $("onboarding-loading");
+  if (loading) loading.hidden = false;
+  const choices = document.querySelector(".onboarding-choices");
+  if (choices) choices.hidden = true;
+  $("onboarding-open-projects").hidden = true;
+  $("onboarding-new-project").disabled = true;
   $("onboarding-open-projects").classList.remove("primary");
   $("onboarding-new-project").classList.remove("primary");
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
@@ -670,11 +706,7 @@ function wireOnboarding() {
     hideOnboarding();
     navigate("projects");
   };
-  $("onboarding-new-project").onclick = () => {
-    $("onboarding-name-input").value = "";
-    $("onboarding-name-error").textContent = "";
-    showOnboardingStep("name");
-  };
+  $("onboarding-new-project").onclick = () => showOnboardingName(false);
   $("onboarding-name-back").onclick = () => showOnboardingStep("start");
   $("onboarding-create").onclick = () => onboardingEnterProject($("onboarding-name-input").value, "");
   $("onboarding-name-input").onkeydown = (event) => {
