@@ -18,7 +18,7 @@ async function fixture(t,{host=false,options={}}={}){
  return{web,request,calls,state,emit:e=>emit(e)};
 }
 test('local server requires authentication and rejects foreign origins',async t=>{
- const h=await fixture(t);assert.equal((await fetch(h.web.origin+'/api/catalog')).status,401);
+ const h=await fixture(t);assert.equal(await h.web.browserReady,true);assert.equal((await fetch(h.web.origin+'/api/catalog')).status,401);
  assert.equal((await h.request('catalog',undefined,{Origin:'https://example.com'})).status,403);
  assert.equal((await h.request('auth',{token:'wrong'})).status,403);
  assert.equal((await fetch(h.web.origin+'/../package.json')).status,404);
