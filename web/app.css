@@ -4723,3 +4723,77 @@ button.image-job-visual { cursor: pointer; }
 }
 .onboarding-model-option:hover { background: var(--surface); }
 .onboarding-model-option small { color: var(--muted); font-size: 10px; }
+
+.onboarding-choices {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.onboarding-choices.single { grid-template-columns: 1fr; }
+.onboarding-choice {
+  display: grid;
+  grid-template-rows: 38px auto auto;
+  align-content: start;
+  gap: 7px;
+  min-height: 168px;
+  padding: 18px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--ring);
+  color: var(--text);
+  text-align: left;
+}
+.onboarding-choice:hover { background: var(--surface-raised); }
+.onboarding-choice-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--bg);
+  box-shadow: var(--ring);
+  color: var(--text-2);
+}
+.onboarding-choice-icon svg { width: 18px; height: 18px; }
+.onboarding-choice strong {
+  margin-top: 18px;
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.25px;
+}
+.onboarding-choice small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.onboarding-choice.primary {
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: none;
+}
+.onboarding-choice.primary:hover { background: #333333; }
+:root[data-theme="dark"] .onboarding-choice.primary:hover { background: #ffffff; color: #171717; }
+.onboarding-choice.primary .onboarding-choice-icon {
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--bg);
+  box-shadow: none;
+}
+.onboarding-choice.primary small { color: var(--bg); opacity: 0.62; }
+.onboarding-button { position: relative; overflow: hidden; }
+.onboarding-button.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: rgba(255, 255, 255, 0.18);
+  animation: onboarding-fill 24s linear forwards;
+}
+.onboarding-button.is-loading { opacity: 0.82; }
+.onboarding-button > * { position: relative; z-index: 1; }
+@keyframes onboarding-fill { to { width: 100%; } }
+@media (max-width: 520px) {
+  .onboarding-choices { grid-template-columns: 1fr; }
+  .onboarding-choice { min-height: 132px; }
+  .onboarding-choice strong { margin-top: 8px; }
+}

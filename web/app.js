@@ -490,6 +490,7 @@ function showOnboarding() {
   $("onboarding-open-projects").hidden = !hasProjects;
   $("onboarding-open-projects").classList.toggle("primary", hasProjects);
   $("onboarding-new-project").classList.toggle("primary", !hasProjects);
+  document.querySelector(".onboarding-choices").classList.toggle("single", !hasProjects);
   $("onboarding-model").replaceChildren(el("span", "Модель"), icon("chevron-down"));
   $("onboarding-model").disabled = true;
   $("onboarding-mic").disabled = true;
@@ -542,6 +543,7 @@ async function loadOnboardingModels() {
 }
 
 async function onboardingEnterProject(projectName, prompt) {
+  if (onboardingBusy) return;
   const name = String(projectName || "").trim();
   if (!name) {
     $("onboarding-name-error").textContent = "Введите название проекта.";
@@ -550,7 +552,10 @@ async function onboardingEnterProject(projectName, prompt) {
   }
   onboardingBusy = true;
   $("onboarding-create").disabled = true;
-  $("onboarding-create").textContent = "Создаю…";
+  $("onboarding-name-back").disabled = true;
+  $("onboarding-create").textContent = "Создаю";
+  $("onboarding-create").classList.add("is-loading");
+  $("onboarding-create").setAttribute("aria-busy", "true");
   $("onboarding-name-error").textContent = "";
   try {
     const created = await api("create-project", { name }, 60000);
@@ -572,7 +577,10 @@ async function onboardingEnterProject(projectName, prompt) {
   } finally {
     onboardingBusy = false;
     $("onboarding-create").disabled = false;
+    $("onboarding-name-back").disabled = false;
     $("onboarding-create").textContent = "Создать проект";
+    $("onboarding-create").classList.remove("is-loading");
+    $("onboarding-create").removeAttribute("aria-busy");
   }
 }
 
