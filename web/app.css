@@ -5095,3 +5095,5 @@ button.image-job-visual { cursor: pointer; }
 .onboarding-projects .onboarding-choice small {
   text-align: center;
 }
+
+.onboarding-projects .onboarding-recent-list { padding-top: 6px; }
