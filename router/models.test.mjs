@@ -21,7 +21,7 @@ test('every valid catalogue replaces old IDs without a special router header, in
 });
 function harness(fetcher){
  const handlers=new Map(),commands=new Map(),calls=[],registrations=[];let all=[{...template,provider:'first'},{...template,provider:'second',baseUrl:'https://second.example/v1'},{...template,provider:'unconfigured'}];
- const ctx={hasUI:false,model:all[0],isIdle:()=>true,modelRegistry:{getAll:()=>all,hasConfiguredAuth:m=>m.provider!=='unconfigured',getApiKeyAndHeaders:async m=>({ok:true,apiKey:'synthetic-'+m.provider}),getRegisteredProviderConfig:()=>({authHeader:true}),find:(p,id)=>all.find(m=>m.provider===p&&m.id===id)}};
+ const ctx={mode:'tui',hasUI:false,model:all[0],isIdle:()=>true,modelRegistry:{getAll:()=>all,hasConfiguredAuth:m=>m.provider!=='unconfigured',getApiKeyAndHeaders:async m=>({ok:true,apiKey:'synthetic-'+m.provider}),getRegisteredProviderConfig:()=>({authHeader:true}),find:(p,id)=>all.find(m=>m.provider===p&&m.id===id)}};
  const pi={on:(name,cb)=>handlers.set(name,cb),registerCommand:(name,command)=>commands.set(name,command),registerProvider:(provider,config)=>{registrations.push({provider,config});all=[...all.filter(m=>m.provider!==provider),...config.models.map(m=>({...m,provider}))]},setModel:async m=>ctx.model=m};
  const instance=installModelRefresh(pi,{fetch:async(url,init)=>{calls.push({url,init});return fetcher(url,init)},timeout:100});return{handlers,commands,calls,registrations,ctx,instance};
 }
@@ -29,6 +29,13 @@ test('all configured bases refreshed once; auth/config preserved, unavailable pr
  const h=harness(async url=>url.includes('second')?new Response('',{status:503}):new Response(JSON.stringify({data:[{id:'old',context_window:200000},{id:'new'}]})));
  await h.handlers.get('session_start')({},h.ctx);assert.equal(h.calls.length,2);assert.ok(h.calls.every(c=>c.init.redirect==='error'));
  assert.equal(h.registrations.length,1);assert.equal(h.registrations[0].provider,'first');assert.equal(h.registrations[0].config.authHeader,true);assert.equal(h.ctx.model.contextWindow,200000);assert.equal(h.registrations[0].config.models.length,2);
+});
+test('RPC catalog refresh never substitutes the first listed model when a requested one disappears',async()=>{
+ const h=harness(async()=>new Response(JSON.stringify({data:[{id:'other'}]})));
+ h.ctx.mode='rpc';h.ctx.hasUI=true;
+ await h.instance.refresh(h.ctx);
+ assert.equal(h.ctx.model.id,'old');
+ assert.equal(h.ctx.modelRegistry.find('first','other').id,'other');
 });
 test('malformed, paginated, oversized catalogue cannot prune any models',async()=>{
  for(const data of [{has_more:true,data:[{id:'new'}]},{data:[null]},{invalid:true}]){
