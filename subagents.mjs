@@ -185,6 +185,15 @@ function extractText(message) {
     .trim();
 }
 
+function extractThinking(message) {
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content
+    .filter((part) => part?.type === 'thinking')
+    .map((part) => part.thinking)
+    .join('\n\n')
+    .trim();
+}
+
 function addUsage(usage, reported) {
   if (!reported) return usage;
   usage.input += Number(reported.input) || 0;
@@ -418,6 +427,7 @@ export function createSubagentService({
     let buffer = '';
     let stderr = '';
     let streamText = '';
+    let streamThinking = '';
     let stopReason;
     let errorMessage;
     let lastText = '';
@@ -432,6 +442,7 @@ export function createSubagentService({
       }
       if (event.type === 'message_start' && event.message?.role === 'assistant') {
         streamText = '';
+        streamThinking = '';
         entry.current = 'Думает…';
       }
       if (event.type === 'message_update') {
@@ -440,7 +451,8 @@ export function createSubagentService({
           streamText += delta.delta;
           entry.current = tail(streamText.replace(/\s+/g, ' ').trim(), 140);
         } else if (delta?.type === 'thinking_delta') {
-          entry.current = `Размышляет: ${tail(String(delta.delta || '').replace(/\s+/g, ' ').trim(), 120)}`;
+          streamThinking += delta.delta || '';
+          entry.current = 'Размышляет…';
         }
       }
       if (event.type === 'tool_execution_start') {
@@ -462,6 +474,9 @@ export function createSubagentService({
           if (!entry.model && message.model) entry.model = message.model;
           if (message.stopReason) stopReason = message.stopReason;
           if (message.errorMessage) errorMessage = message.errorMessage;
+          const thinking = extractThinking(message) || streamThinking.trim();
+          if (thinking) pushItem(entry, { type: 'thinking', text: capBytes(thinking, 8000) });
+          streamThinking = '';
           const text = extractText(message) || streamText.trim();
           if (text) {
             lastText = text;

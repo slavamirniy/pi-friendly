@@ -4525,6 +4525,7 @@ function subagentUsage(entry) {
   if (usage.input) parts.push(`↑${subagentTokens(usage.input)}`);
   if (usage.output) parts.push(`↓${subagentTokens(usage.output)}`);
   if (usage.cost) parts.push(`$${Number(usage.cost).toFixed(4)}`);
+  if (usage.contextTokens) parts.push(`ctx:${subagentTokens(usage.contextTokens)}`);
   if (entry.model) parts.push(entry.model);
   return parts.join(" · ");
 }
@@ -4661,10 +4662,53 @@ function subagentStatusLine(entry) {
   return line;
 }
 
+function subagentShort(value, limit = 180) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= limit) return text;
+  return text.slice(0, limit - 1).trimEnd() + "…";
+}
+
+function subagentThinkingNode(entry) {
+  const thinking = (Array.isArray(entry.items) ? entry.items : [])
+    .filter((item) => item.type === "thinking" && item.text)
+    .map((item) => item.text)
+    .join("\n\n")
+    .trim();
+  if (!thinking) return null;
+  const body = el("div", null, "reasoning-text");
+  markdown(body, thinking);
+  return disclosure(
+    entry.status === "running" ? "Размышляет…" : "Размышления",
+    body,
+    "reasoning",
+    entry.status === "running" ? { label: "идёт", cls: "warn" } : null,
+    `${entry.id}:thinking`,
+  );
+}
+
+function subagentWorkNode(entry) {
+  const items = (Array.isArray(entry.items) ? entry.items : []).filter((item) => item.type !== "thinking");
+  if (!items.length) return null;
+  const box = el("div", null, "subagent-work");
+  box.append(el("div", "Ход работы", "subagent-work-title"));
+  for (const item of items) {
+    const tool = item.type === "tool";
+    const row = el("div", null, "subagent-work-row " + (tool ? item.status || "done" : "text"));
+    const text = subagentShort(item.text, tool ? 140 : 200);
+    const line = el("span", text, "subagent-work-text");
+    line.title = String(item.text || "");
+    row.append(el("span", null, "tool-dot"), line);
+    box.append(row);
+  }
+  return box;
+}
+
 function subagentAnswer(entry) {
   const answer = el("div", null, "answer subagent-answer");
   if (entry.status === "running") {
-    answer.textContent = entry.current || "Работает…";
+    answer.textContent = subagentShort(entry.current || "Работает…", 200);
     answer.append(el("span", null, "typing-caret"));
     return answer;
   }
@@ -4677,29 +4721,8 @@ function subagentAnswer(entry) {
     answer.textContent = "Остановлен пользователем.";
     return answer;
   }
-  const output = String(entry.output || "").trim();
-  if (!output) {
-    answer.textContent = "Готово.";
-    return answer;
-  }
-  markdown(answer, output);
+  answer.textContent = "Готово. Результат — в основном чате.";
   return answer;
-}
-
-function subagentTimeline(entry) {
-  const items = Array.isArray(entry.items) ? entry.items : [];
-  if (!items.length) return null;
-  const details = document.createElement("details");
-  details.className = "subagent-timeline-box";
-  details.append(el("summary", `Как шла работа · ${items.length}`));
-  const list = el("ol", null, "subagent-timeline");
-  for (const item of items) {
-    const row = el("li", null, "subagent-timeline-item " + (item.type === "tool" ? "tool" : "text"));
-    row.append(el("span", null, "subagent-timeline-dot"), el("span", item.text || "", "subagent-timeline-text"));
-    list.append(row);
-  }
-  details.append(list);
-  return details;
 }
 
 function renderSubagentPage() {
@@ -4747,9 +4770,12 @@ function renderSubagentPage() {
   const mark = el("div", null, "assistant-mark");
   mark.textContent = "π";
   const body = el("div", null, "assistant-body");
-  body.append(subagentStatusLine(entry), subagentAnswer(entry));
-  const timeline = subagentTimeline(entry);
-  if (timeline) body.append(timeline);
+  body.append(subagentStatusLine(entry));
+  const thinking = subagentThinkingNode(entry);
+  if (thinking) body.append(thinking);
+  body.append(subagentAnswer(entry));
+  const work = subagentWorkNode(entry);
+  if (work) body.append(work);
   const meta = el("div", null, "subagent-view-meta");
   const usage = subagentUsage(entry);
   if (usage) meta.append(el("span", usage));

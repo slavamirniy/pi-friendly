@@ -295,3 +295,32 @@ test('an already aborted signal resolves without hanging', async (t) => {
   );
   assert.equal(result.details.subagents[0].status, 'stopped');
 });
+
+test('thinking and intermediate text are kept as timeline items', async (t) => {
+  const {builtin, user} = await workspace(t);
+  const service = createSubagentService({
+    cli: '/pi/cli.js',
+    emit: () => {},
+    spawnProcess: () => fakeChild({
+      lines: [
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [
+              {type: 'thinking', thinking: 'Сначала проверю структуру проекта.'},
+              {type: 'text', text: 'Проверил структуру.'},
+            ],
+            usage: {input: 4, output: 5},
+            stopReason: 'stop',
+          },
+        },
+      ],
+    }),
+  });
+  t.after(() => service.dispose());
+  const result = await service.run({agent: 'scout', task: 'Разведка'}, {cwd: builtin, userDir: user, builtinDir: builtin});
+  const items = result.details.subagents[0].items;
+  assert.ok(items.some((item) => item.type === 'thinking' && item.text.includes('структуру')));
+  assert.ok(items.some((item) => item.type === 'text' && item.text === 'Проверил структуру.'));
+});
