@@ -109,16 +109,15 @@ test('bundled router preview crosses RPC independently of model text and resets 
 });
 
 
-test('subagent snapshots reach the web state; clearing keeps running agents',async t=>{
+test('subagent snapshots reach the web state',async t=>{
  const h=await fixture(t),p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
  const base={id:'a',agent:'scout',task:'Разведка',status:'running',items:[],usage:{},startedAt:1};
  h.emit({type:'friendly_subagents',subagents:[base,{...base,id:'b',status:'done',output:'Готово'}]});
- let live=await h.state();assert.equal(live.subagents.length,2);assert.equal(live.subagents[1].output,'Готово');
- const cleared=await h.request('subagents-clear',{});assert.equal(cleared.status,200);assert.deepEqual(cleared.data.subagents.map(item=>item.id),['a']);
- live=await h.state();assert.equal(live.subagents.length,1);assert.equal(live.subagents[0].status,'running');
+ const live=await h.state();assert.equal(live.subagents.length,2);assert.equal(live.subagents[1].output,'Готово');
  h.emit({type:'process_error',message:'Процесс упал'});
- live=await h.state();assert.equal(live.subagents[0].status,'stopped');assert.equal(live.subagents[0].current,'');
+ const stopped=await h.state();assert.equal(stopped.subagents[0].status,'stopped');assert.equal(stopped.subagents[0].current,'');
 });
+
 test('web entry and its local module dependencies are served as JavaScript',async t=>{
  const h=await fixture(t),queue=['/app.js'],seen=new Set();
  while(queue.length){

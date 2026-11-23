@@ -952,12 +952,6 @@ function wireChrome() {
     subagentsSignature = "";
     renderSubagents();
   };
-  $("subagents-clear").onclick = () =>
-    run("Очищаю завершённых субагентов…", async () => {
-      const data = await api("subagents-clear", {}, 10000);
-      state = { ...state, subagents: data.subagents || [] };
-      renderSubagents();
-    });
   $("image-compose-back").onclick = () => closeImageCompose();
   $("image-compose-gallery").onclick = () => {
     closeImageCompose();
@@ -4557,28 +4551,6 @@ function subagentNote(entry) {
   return line ? line.replace(/^#+\s*/, "") : "Готово";
 }
 
-function subagentItemNode(item) {
-  const row = el("li", null, "subagent-item " + (item.type === "tool" ? "tool" : "text"));
-  const mark = el("span", item.type === "tool" ? "инструмент" : "текст", "subagent-item-kind");
-  if (item.type === "tool" && item.status) mark.classList.add(item.status);
-  row.append(mark, el("span", item.text || "", "subagent-item-text"));
-  return row;
-}
-
-function subagentItemsNode(entry) {
-  const items = Array.isArray(entry.items) ? entry.items : [];
-  if (!items.length) return null;
-  const list = el("ol", null, "subagent-items");
-  for (const item of items) list.append(subagentItemNode(item));
-  return list;
-}
-
-function subagentOutputNode(entry) {
-  const output = entry.output || "";
-  if (!output || entry.status === "running") return null;
-  return el("pre", output, "subagent-output-text");
-}
-
 function subagentCard(entry) {
   const card = el("button", null, "subagent-card " + (entry.status || "running"));
   card.type = "button";
@@ -4605,17 +4577,12 @@ function updateSubagentsSection(entries) {
   panel.hidden = !entries.length || !state.active;
   panel.classList.toggle("collapsed", subagentsCollapsed);
   const count = $("subagents-count");
-  const running = entries.filter((entry) => entry.status === "running").length;
   if (count) {
     count.textContent = String(entries.length);
-    count.title = running
-      ? `${running} работает · всего ${entries.length}`
-      : `${entries.length} ${plural(entries.length, "агент", "агента", "агентов")}`;
+    count.title = `${entries.length} ${plural(entries.length, "агент", "агента", "агентов")} работает`;
   }
   const summary = $("subagents-summary");
   if (summary) summary.textContent = subagentsSummary(entries);
-  const clear = $("subagents-clear");
-  if (clear) clear.hidden = !entries.some((entry) => entry.status !== "running");
   const toggle = $("subagents-toggle");
   if (toggle) toggle.setAttribute("aria-expanded", subagentsCollapsed ? "false" : "true");
 }
@@ -4623,7 +4590,7 @@ function updateSubagentsSection(entries) {
 function renderSubagents() {
   const panel = $("subagents-panel");
   if (!panel) return;
-  const entries = subagentList();
+  const entries = subagentList().filter((entry) => entry.status === "running");
   updateSubagentsSection(entries);
   if (panel.hidden || subagentsCollapsed) {
     stopSubagentsTimer();
@@ -4631,17 +4598,7 @@ function renderSubagents() {
   }
   const area = $("subagents-list");
   const signature = JSON.stringify(
-    entries.map((entry) => [
-      entry.id,
-      entry.status,
-      entry.current,
-      entry.task,
-      entry.output,
-      entry.error,
-      entry.finishedAt,
-      (entry.items || []).length,
-      (entry.items || []).at(-1)?.status,
-    ]),
+    entries.map((entry) => [entry.id, entry.status, entry.current, entry.task, entry.finishedAt]),
   );
   if (signature !== subagentsSignature) {
     subagentsSignature = signature;
@@ -4655,13 +4612,12 @@ function renderSubagents() {
     }
   }
   stopSubagentsTimer();
-  if (entries.some((entry) => entry.status === "running")) {
+  if (entries.length) {
     subagentsTimer = setInterval(() => {
-      if (!subagentsCollapsed) {
-        for (const entry of subagentList()) {
-          const clock = $("subagents-list")?.querySelector(`[data-subagent-clock="${entry.id}"]`);
-          if (clock) clock.textContent = subagentElapsed(entry);
-        }
+      if (subagentsCollapsed) return;
+      for (const entry of subagentList()) {
+        const clock = $("subagents-list")?.querySelector(`[data-subagent-clock="${entry.id}"]`);
+        if (clock) clock.textContent = subagentElapsed(entry);
       }
     }, 1000);
   }
@@ -4680,14 +4636,70 @@ function openSubagent(id) {
   $("page").scrollTop = 0;
 }
 
-function subagentViewStateNode(entry) {
-  const node = el("div", null, "subagent-view-state " + (entry.status || "running"));
-  node.append(el("span", null, "subagent-dot"), el("span", subagentStatus(entry).label));
-  if (entry.step) node.append(el("span", `шаг ${entry.step}`, "subagent-view-step"));
-  const clock = el("span", subagentElapsed(entry), "subagent-view-clock");
+function leaveSubagent() {
+  subagentViewId = null;
+  subagentViewSignature = "";
+  page = state.active ? "chat" : "chats";
+  renderRoute();
+}
+
+function subagentBackButton() {
+  const button = el("button", null, "subagent-back");
+  button.type = "button";
+  button.append(icon("back"), el("span", "Назад в чат"));
+  button.onclick = leaveSubagent;
+  return button;
+}
+
+function subagentStatusLine(entry) {
+  const status = subagentStatus(entry);
+  const line = el("div", null, "subagent-status-line " + (entry.status || "running"));
+  line.append(el("span", null, "subagent-dot"), el("span", status.label, "subagent-status-word"));
+  const clock = el("span", subagentElapsed(entry), "subagent-status-clock");
   clock.dataset.subagentViewClock = "1";
-  node.append(clock);
-  return node;
+  line.append(clock);
+  return line;
+}
+
+function subagentAnswer(entry) {
+  const answer = el("div", null, "answer subagent-answer");
+  if (entry.status === "running") {
+    answer.textContent = entry.current || "Работает…";
+    answer.append(el("span", null, "typing-caret"));
+    return answer;
+  }
+  if (entry.status === "error") {
+    answer.classList.add("error");
+    answer.textContent = entry.error || "Не удалось выполнить задачу.";
+    return answer;
+  }
+  if (entry.status === "stopped") {
+    answer.textContent = "Остановлен пользователем.";
+    return answer;
+  }
+  const output = String(entry.output || "").trim();
+  if (!output) {
+    answer.textContent = "Готово.";
+    return answer;
+  }
+  markdown(answer, output);
+  return answer;
+}
+
+function subagentTimeline(entry) {
+  const items = Array.isArray(entry.items) ? entry.items : [];
+  if (!items.length) return null;
+  const details = document.createElement("details");
+  details.className = "subagent-timeline-box";
+  details.append(el("summary", `Как шла работа · ${items.length}`));
+  const list = el("ol", null, "subagent-timeline");
+  for (const item of items) {
+    const row = el("li", null, "subagent-timeline-item " + (item.type === "tool" ? "tool" : "text"));
+    row.append(el("span", null, "subagent-timeline-dot"), el("span", item.text || "", "subagent-timeline-text"));
+    list.append(row);
+  }
+  details.append(list);
+  return details;
 }
 
 function renderSubagentPage() {
@@ -4704,10 +4716,8 @@ function renderSubagentPage() {
     entry.id,
     entry.status,
     entry.current,
-    entry.task,
     entry.output,
     entry.error,
-    entry.finishedAt,
     (entry.items || []).length,
     (entry.items || []).at(-1)?.status,
   ]);
@@ -4717,57 +4727,40 @@ function renderSubagentPage() {
     if (clock) clock.textContent = subagentElapsed(entry);
     return;
   }
+  const nearBottom = pageNode.scrollHeight - pageNode.scrollTop - pageNode.clientHeight < 120;
+  const scroll = pageNode.scrollTop;
   subagentViewSignature = signature;
 
   const root = el("div", null, "page-inner subagent-view");
-  const back = el("button", null, "back");
-  back.type = "button";
-  back.append(icon("back"), el("span", "Назад в чат"));
-  back.onclick = () => {
-    subagentViewId = null;
-    subagentViewSignature = "";
-    page = state.active ? "chat" : "chats";
-    renderRoute();
-  };
-  root.append(back);
+  root.append(subagentBackButton());
 
-  const head = el("div", null, "page-head subagent-view-head");
-  const copy = el("div", null, "subagent-view-copy");
-  copy.append(el("h1", entry.agent));
-  copy.append(el("p", entry.task || "", "page-sub subagent-view-task"));
-  head.append(copy, subagentViewStateNode(entry));
-  root.append(head);
+  const chat = el("div", null, "subagent-chat");
+  const user = el("div", null, "message user");
+  const wrapper = el("div", null, "user-message-wrapper");
+  const bubble = el("div", null, "user-bubble");
+  bubble.append(el("p", entry.task || ""));
+  wrapper.append(bubble);
+  user.append(wrapper);
+  chat.append(user);
 
-  const now = el("p", subagentNote(entry), "subagent-view-now");
-  root.append(now);
-
-  const items = Array.isArray(entry.items) ? entry.items : [];
-  if (items.length) {
-    const section = el("section", null, "subagent-view-section");
-    const title = el("div", null, "section-head");
-    title.append(el("h2", "Ход работы"), el("span", String(items.length), "pill"));
-    section.append(title, subagentItemsNode(entry));
-    root.append(section);
-  }
-
-  const output = subagentOutputNode(entry);
-  if (output) {
-    const section = el("section", null, "subagent-view-section");
-    const title = el("div", null, "section-head");
-    title.append(el("h2", entry.status === "done" ? "Результат" : "Что удалось сделать"));
-    section.append(title, output);
-    root.append(section);
-  }
-
+  const assistant = el("div", null, "message assistant");
+  const mark = el("div", null, "assistant-mark");
+  mark.textContent = "π";
+  const body = el("div", null, "assistant-body");
+  body.append(subagentStatusLine(entry), subagentAnswer(entry));
+  const timeline = subagentTimeline(entry);
+  if (timeline) body.append(timeline);
   const meta = el("div", null, "subagent-view-meta");
   const usage = subagentUsage(entry);
   if (usage) meta.append(el("span", usage));
-  if (entry.error) meta.append(el("span", entry.error, "subagent-view-error"));
-  if (meta.childNodes.length) root.append(meta);
+  if (meta.childNodes.length) body.append(meta);
+  assistant.append(mark, body);
+  chat.append(assistant);
+  root.append(chat);
 
-  const scroll = pageNode.scrollTop;
   pageNode.replaceChildren(root);
-  pageNode.scrollTop = scroll;
+  if (entry.status === "running" && (nearBottom || scroll === 0)) pageNode.scrollTop = pageNode.scrollHeight;
+  else pageNode.scrollTop = scroll;
 }
 
 /* ============================== apply server state ============================== */

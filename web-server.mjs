@@ -483,10 +483,6 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      else if(voice.state.phase==='error'){await voice.start();}else throw new Error('Для голосового ввода дождитесь загрузки модели или завершения записи.');
      reply(200,{ok:true});return;
     }
-    if(action==='subagents-clear'){
-     state={...state,subagents:(state.subagents||[]).filter(item=>item.status==='running')};
-     changed();reply(200,{subagents:state.subagents});return;
-    }
     if(action==='close'){ensureIdle();if(!canExit())throw new Error('Сначала остановите текущую работу.');navigating=true;reply(200,{ok:true});setTimeout(()=>void exitApplication().catch(error=>console.error('Pi shutdown:',error.message)),50);return;}
     if(action==='pick-attach'){
      if(!pickChatFiles)throw new Error('Выбор файлов доступен только в локальном интерфейсе.');
