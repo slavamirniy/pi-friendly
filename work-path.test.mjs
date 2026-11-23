@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { finalAnswerIndex, partitionAssistantParts, workPathTitle } from "./web/work-path.js";
+import { finalAnswerIndex, partitionAssistantParts, shouldOpenWorkPath, workPathTitle } from "./web/work-path.js";
 
 const answer = (text) => ({ kind: "answer", text });
 const thinking = (text = "думаю") => ({ kind: "thinking", text });
@@ -32,4 +32,13 @@ test("work path title counts steps with Russian plurals", () => {
   assert.equal(workPathTitle(5), "Ход работы · 5 шагов");
   assert.equal(workPathTitle(11), "Ход работы · 11 шагов");
   assert.equal(workPathTitle(21), "Ход работы · 21 шаг");
+});
+
+test("a finished work path stays closed unless the reader opened it or one of its steps", () => {
+  assert.equal(shouldOpenWorkPath({ answer: 0 }), false);
+  assert.equal(shouldOpenWorkPath({ answer: 0, nestedOpen: true }), true);
+  assert.equal(shouldOpenWorkPath({ answer: 0, explicit: true }), true);
+  assert.equal(shouldOpenWorkPath({ answer: 0, explicit: false, nestedOpen: true }), false);
+  // A turn that has no final text must show something.
+  assert.equal(shouldOpenWorkPath({ answer: -1 }), true);
 });
