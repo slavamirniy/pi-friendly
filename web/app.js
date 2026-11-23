@@ -36,6 +36,7 @@ const paths = {
   mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0Zm-3 6v1a6 6 0 0 0 12 0v-1m-6 7v4m-3 0h6",
   stop: "M7 7h10v10H7z",
   refresh: "M20 7v-4l-4 1 M20 7a8 8 0 1 0 1 9",
+  compress: "M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
   file: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6",
   home: "M3 11 12 3l9 8M5 10v11h14V10",
@@ -1220,6 +1221,9 @@ function wireChrome() {
   });
   $("attach").onclick = () => {
     if (!$("attach").disabled) pickAttachments();
+  };
+  $("compact").onclick = () => {
+    if (!$("compact").disabled) compactConversation();
   };
   const toggleVoice = (target) => {
     voiceTarget = target;
@@ -2425,6 +2429,12 @@ function renderMessages() {
       message.status !== "streaming"
     )
       return;
+    if (message.role === "summary") {
+      finishAssistant();
+      previousAssistant = false;
+      frag.append(summaryCard(message, (state.active?.id || "") + ":" + index));
+      return;
+    }
     const user = message.role === "user";
     if (user) {
       finishAssistant();
@@ -2606,6 +2616,28 @@ function renderMessages() {
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
   }
+}
+
+function summaryCard(message, key) {
+  const card = el("article", null, "chat-summary");
+  const head = el("div", null, "chat-summary-head");
+  head.append(icon("compress"));
+  head.append(
+    el(
+      "span",
+      message.kind === "branch" ? "Ветка разговора сжата" : "История разговора сжата",
+      "chat-summary-title",
+    ),
+  );
+  if (Number.isFinite(message.tokensBefore) && message.tokensBefore > 0)
+    head.append(el("span", `${message.tokensBefore.toLocaleString("ru-RU")} токенов до сжатия`, "pill-badge"));
+  card.append(head);
+  if (message.text) {
+    const body = el("div", null, "chat-summary-body");
+    markdown(body, message.text);
+    card.append(disclosure("Краткий пересказ", body, "chat-summary-details", null, key + ":summary"));
+  }
+  return card;
 }
 
 function disclosure(label, body, cls = "", badge = null, key = null) {
@@ -3983,6 +4015,18 @@ function abortGeneration() {
   });
 }
 
+function compactConversation() {
+  if (!state.active || state.busy || state.compacting) return;
+  if (!state.messages?.some((message) => message.role === "user")) {
+    showHint("История пока пуста — сжимать нечего.", true);
+    return;
+  }
+  run("Сжимаю историю разговора…", async () => {
+    const result = await api("compact", { chat: state.active.id }, 300000);
+    if (result?.notice) showHint(result.notice);
+  });
+}
+
 function forkMessage(index, text) {
   if (!state.active) return;
   if (!canSwitch()) return;
@@ -4038,6 +4082,19 @@ function renderStatus() {
   $("draft").disabled = Boolean(readOnly || !connected);
   $("attach").hidden = !(page === "chat" && state.active && !readOnly);
   $("attach").disabled = !connected || readOnly;
+  const compact = $("compact");
+  if (compact) {
+    const hasHistory = Boolean(state.messages?.some((message) => message.role === "user"));
+    const compacting = Boolean(state.compacting);
+    compact.hidden = !(page === "chat" && state.active && !readOnly);
+    compact.disabled = !connected || readOnly || busy || navigating || recording || !ready || !hasHistory || compacting;
+    compact.title = compacting
+      ? "Сжимаю историю разговора…"
+      : busy
+        ? "Сжать историю можно после завершения ответа"
+        : "Сжать историю разговора: старые сообщения заменятся кратким пересказом";
+    compact.setAttribute("aria-busy", String(compacting));
+  }
   $("mic").disabled = !connected || !state.active || readOnly || voice?.phase === "transcribing";
   $("mic").hidden = !voiceIsAvailable(voice?.phase);
   $("mic").replaceChildren(icon(voice?.phase === "recording" ? "stop" : "mic"));
@@ -4072,6 +4129,7 @@ function renderStatus() {
   renderQuestions();
   renderVoice(voice, recording);
   renderQuota();
+  renderContextUsage();
   showError(state.error && !state.messages?.some((message) => message.error === state.error) ? state.error : "");
   $("notice").textContent = state.notice || "";
   $("notice").hidden = !state.notice;
@@ -4126,6 +4184,28 @@ function renderVoice(voice, recording) {
       setup.append(progress);
     }
   }
+}
+
+function renderContextUsage() {
+  const node = $("context-usage");
+  if (!node) return;
+  const usage = state.contextUsage;
+  const percent = usage?.percent;
+  const tokens = usage?.tokens;
+  const windowSize = usage?.contextWindow;
+  if (typeof percent !== "number" || !Number.isFinite(percent) || percent < 0) {
+    node.hidden = true;
+    node.textContent = "";
+    node.classList.remove("high");
+    return;
+  }
+  node.hidden = false;
+  node.textContent = `Контекст ${Math.min(100, Math.round(percent))}%`;
+  node.title =
+    typeof tokens === "number" && typeof windowSize === "number" && Number.isFinite(tokens) && Number.isFinite(windowSize)
+      ? `${tokens.toLocaleString("ru-RU")} из ${windowSize.toLocaleString("ru-RU")} токенов`
+      : "Заполнение контекстного окна модели";
+  node.classList.toggle("high", percent >= 80);
 }
 
 function renderQuota() {

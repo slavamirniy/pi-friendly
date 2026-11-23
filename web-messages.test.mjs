@@ -19,3 +19,36 @@ test('tool progress, output and errors survive message snapshots and session his
  const history=publicMessages([{role:'assistant',content:[{type:'toolCall',id:'x',name:'edit',arguments:{path:'style.css'}}]},{role:'toolResult',toolCallId:'x',isError:false,content:[{type:'text',text:'Changed'}]}]);
  assert.equal(history[0].tools[0].status,'done');assert.equal(history[0].tools[0].path,'style.css');
 });
+
+test('compaction summaries survive session history and stay separate from answers',()=>{
+ const messages=publicMessages([
+  {role:'compactionSummary',summary:'## Goal\nСделать сайт',tokensBefore:120000,timestamp:7},
+  {role:'branchSummary',summary:'Ветка про дизайн',timestamp:8},
+  {role:'user',content:'Продолжай'},
+  {role:'assistant',content:[{type:'text',text:'Хорошо'}]},
+ ]);
+ assert.equal(messages.length,4);
+ assert.equal(messages[0].role,'summary');assert.equal(messages[0].kind,'compaction');
+ assert.equal(messages[0].text,'## Goal\nСделать сайт');assert.equal(messages[0].tokensBefore,120000);
+ assert.equal(messages[1].kind,'branch');assert.equal(messages[1].text,'Ветка про дизайн');
+ assert.equal(messages[2].role,'user');assert.equal(messages[3].role,'assistant');
+ assert.equal(publicMessage({role:'compactionSummary',summary:'',timestamp:1}).text,'');
+});
+
+test('replaceMessages drops history that compaction removed while keeping matching entries',async()=>{
+ const {replaceMessages}=await import('./web-messages.mjs');
+ const previous=[
+  {role:'user',text:'Старое',timestamp:1},
+  {role:'assistant',text:'Старый ответ',timestamp:2},
+  {role:'assistant',text:'Достроенный',timestamp:3,status:'streaming',tools:[{id:'t'}]},
+ ];
+ const next=[
+  {role:'summary',text:'Кратко',timestamp:10},
+  {role:'assistant',text:'Достроенный',timestamp:3,tools:[{id:'t',status:'done'}]},
+ ];
+ const merged=replaceMessages(previous,next);
+ assert.equal(merged.length,2);
+ assert.equal(merged[0].role,'summary');
+ assert.equal(merged[1].tools[0].status,'done');
+ assert.ok(!merged.some((message)=>message.text==='Старый ответ'));
+});

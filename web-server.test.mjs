@@ -503,3 +503,81 @@ test('lost browser transport can reconnect, and abrupt last-tab disconnect event
  const next=await stream();await delay(220);assert.equal(exits,0);
  await next.cancel();await delay(230);assert.equal(exits,1);
 });
+
+test('automatic compaction is shown, refreshes history and does not resurrect old messages',async t=>{
+ const h=await fixture(t,{options:{messages:[{role:'user',content:'Старое сообщение'},{role:'assistant',content:'Старый ответ'}]}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ h.emit({type:'agent_start'});
+ h.emit({type:'compaction_start',reason:'threshold'});
+ let live=await h.state();
+ assert.equal(live.compacting.reason,'threshold');
+ assert.match(live.notice,/сжимаю историю/i);
+ h.emit({type:'compaction_end',reason:'threshold',result:{tokensBefore:120000,estimatedTokensAfter:25000}});
+ await new Promise(resolve=>setTimeout(resolve,20));
+ live=await h.state();
+ assert.equal(live.compacting,null);
+ assert.match(live.notice,/120\s000/);
+ assert.match(live.notice,/25\s000/);
+ assert.ok(h.calls.some(call=>call.type==='get_messages'));
+});
+
+test('failed compaction explains itself without reporting a model error',async t=>{
+ const h=await fixture(t);const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ h.emit({type:'compaction_start',reason:'overflow'});
+ assert.match((await h.state()).notice,/переполнился/i);
+ h.emit({type:'compaction_end',reason:'overflow',aborted:false,errorMessage:'quota exceeded'});
+ const live=await h.state();
+ assert.equal(live.compacting,null);
+ assert.match(live.notice,/Не удалось сжать историю/);
+ assert.equal(live.error,null);
+});
+
+test('manual compact action goes through pi and reports the saved tokens',async t=>{
+ const h=await fixture(t,{options:{messages:[{role:'user',content:'Привет'},{role:'assistant',content:'Здравствуйте'}]}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ const live=await h.state();
+ const result=await h.request('compact',{chat:live.active.id});
+ assert.equal(result.status,200);
+ assert.ok(h.calls.some(call=>call.type==='compact'));
+});
+
+test('compaction refreshes history at the end of the run and never resurrects old messages',async t=>{
+ let emit,compacted=false;
+ const h=await fixture(t,{options:{
+  messages:[{role:'user',content:'Старое'},{role:'assistant',content:'Старый ответ'}],
+  makeRpc:customRpc(({type,emit:onEvent})=>{
+   emit=onEvent;
+   if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false};
+   if(type==='get_messages')return{messages:compacted
+    ?[{role:'compactionSummary',summary:'## Итог',tokensBefore:1000,timestamp:3},{role:'user',content:'Новое'}]
+    :[{role:'user',content:'Старое'},{role:'assistant',content:'Старый ответ'}]};
+   return{};
+  }),
+ }});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ emit({type:'agent_start'});emit({type:'compaction_start',reason:'threshold'});
+ compacted=true;
+ emit({type:'compaction_end',reason:'threshold',result:{tokensBefore:1000,estimatedTokensAfter:100}});
+ let live=await h.state();
+ assert.ok(live.messages.some((message)=>message.text==='Старое'));
+ emit({type:'agent_end'});
+ await new Promise(resolve=>setTimeout(resolve,30));
+ live=await h.state();
+ assert.equal(live.messages[0].role,'summary');
+ assert.equal(live.messages[0].text,'## Итог');
+ assert.equal(live.messages[0].tokensBefore,1000);
+ assert.ok(!live.messages.some((message)=>message.text==='Старый ответ'));
+});
+
+test('context window usage is exposed to the sidebar',async t=>{
+ const h=await fixture(t,{options:{makeRpc:customRpc(({type})=>{
+  if(type==='get_state')return{model:{id:'test',provider:'local'},isStreaming:false};
+  if(type==='get_messages')return{messages:[{role:'user',content:'Привет'}]};
+  if(type==='get_session_stats')return{contextUsage:{tokens:25000,contextWindow:100000,percent:25}};
+  return{};
+ })}});
+ const p=(await h.request('catalog')).data.projects[0];await h.request('open',{id:p.chats[0].id});
+ await new Promise(resolve=>setTimeout(resolve,20));
+ const live=await h.state();
+ assert.deepEqual(live.contextUsage,{tokens:25000,contextWindow:100000,percent:25});
+});
