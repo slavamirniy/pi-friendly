@@ -52,3 +52,14 @@ test('replaceMessages drops history that compaction removed while keeping matchi
  assert.equal(merged[1].tools[0].status,'done');
  assert.ok(!merged.some((message)=>message.text==='Старый ответ'));
 });
+
+test('subagent receipts keep ids and custom completion messages stay visible',()=>{
+ const tool=toolView({id:'s',name:'subagent',arguments:{agent:'scout',task:'Разведка'}});
+ assert.equal(tool.subagent.agent,'scout');
+ const receipt=updateTool(tool,{type:'tool_execution_end',result:{content:[{type:'text',text:'в фоне'}],details:{subagents:[{id:'a',agent:'scout',status:'running',task:'Разведка'}]}}});
+ assert.equal(receipt.subagents[0].id,'a');assert.equal(receipt.status,'done');
+ const done=publicMessage({role:'custom',customType:'friendly-subagent',content:'Готово: нашёл точку входа',details:{subagents:[{id:'a',status:'done'}]},timestamp:9});
+ assert.equal(done.role,'custom');assert.match(done.text,/точку входа/);
+ const history=publicMessages([{role:'custom',customType:'friendly-subagent',content:'Итог',details:{},timestamp:1}]);
+ assert.equal(history.length,1);assert.equal(history[0].customType,'friendly-subagent');
+});

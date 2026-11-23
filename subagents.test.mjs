@@ -324,3 +324,54 @@ test('thinking and intermediate text are kept as timeline items', async (t) => {
   assert.ok(items.some((item) => item.type === 'thinking' && item.text.includes('структуру')));
   assert.ok(items.some((item) => item.type === 'text' && item.text === 'Проверил структуру.'));
 });
+
+test('background mode returns a receipt and reports completion later', async (t) => {
+  const {builtin, user} = await workspace(t);
+  const completions = [];
+  const service = createSubagentService({
+    cli: '/pi/cli.js',
+    emit: () => {},
+    onComplete: (payload) => completions.push(payload),
+    spawnProcess: () => fakeChild({lines: [assistant('Фоновый итог')]}),
+  });
+  t.after(() => service.dispose());
+  const receipt = await service.run(
+    {agent: 'scout', task: 'Фоновая разведка', background: true},
+    {cwd: builtin, userDir: user, builtinDir: builtin},
+  );
+  assert.match(receipt.content[0].text, /в фоне/);
+  assert.equal(receipt.details.background, true);
+  const ids = receipt.details.subagents.map((entry) => entry.id);
+  assert.equal(ids.length, 1);
+  const list = await service.waitFor({ids, timeoutMs: 3000});
+  assert.equal(list[0].status, 'done');
+  assert.equal(list[0].output, 'Фоновый итог');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(completions.length, 1);
+  assert.match(completions[0].result.content[0].text, /Фоновый итог/);
+});
+
+test('cancel stops a running background subagent', async (t) => {
+  const {builtin, user} = await workspace(t);
+  const service = createSubagentService({
+    cli: '/pi/cli.js',
+    emit: () => {},
+    spawnProcess: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = () => child.emit('close', 143);
+      return child;
+    },
+  });
+  t.after(() => service.dispose());
+  const receipt = await service.run(
+    {agent: 'scout', task: 'Долгая фоновая задача', background: true},
+    {cwd: builtin, userDir: user, builtinDir: builtin},
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(service.cancel({}), 1);
+  const list = await service.waitFor({timeoutMs: 3000});
+  assert.equal(list[0].status, 'stopped');
+  assert.ok(receipt.details.subagents.length);
+});

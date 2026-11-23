@@ -2400,7 +2400,71 @@ function messageSignature() {
     state.active?.readOnly,
     state.active?.id,
     state.ready,
+    (state.subagents || []).map((entry) => `${entry.id}:${entry.status}:${(entry.items || []).length}`).join("|"),
   ]);
+}
+
+function subagentToolCard(tool) {
+  const ids = new Set((tool.subagents || []).map((entry) => entry.id));
+  let entries = (state.subagents || []).filter((entry) => ids.has(entry.id));
+  if (!entries.length) entries = tool.subagents || [];
+  const live = entries.some((entry) => entry.status === "running")
+    ? "running"
+    : entries.length && entries.every((entry) => entry.status === "error" || entry.status === "stopped")
+      ? "error"
+      : tool.status || "running";
+  const card = el("div", null, "subagent-tool " + live);
+  const head = el("div", null, "subagent-tool-head");
+  head.append(el("span", null, "tool-dot"));
+  const title =
+    entries.length > 1
+      ? `Субагенты · ${entries.length}`
+      : entries[0]?.agent || tool.subagent?.agent || "Субагент";
+  head.append(el("strong", title, "subagent-tool-name"));
+  const labels = { pending: "ожидает", running: "работает", done: "готово", error: "ошибка", stopped: "остановлен" };
+  head.append(el("span", labels[live] || live || "", "subagent-tool-state"));
+  const openEntry = [...entries].reverse().find((entry) => entry.status === "running") || entries.at(-1);
+  if (openEntry?.id) {
+    const open = el("button", "Открыть", "subagent-open");
+    open.type = "button";
+    open.onclick = () => openSubagent(openEntry.id);
+    head.append(open);
+  }
+  card.append(head);
+  if (tool.subagent?.task && entries.length <= 1) {
+    const task = el("p", tool.subagent.task, "subagent-tool-task");
+    task.title = tool.subagent.task;
+    card.append(task);
+  }
+  if (entries.length > 1) {
+    for (const entry of entries.slice(0, 4)) {
+      const row = el("div", null, "subagent-tool-row " + (entry.status || "running"));
+      row.append(el("span", null, "tool-dot"), el("span", entry.agent, "subagent-tool-row-name"));
+      const note = subagentShort(entry.current || (entry.status === "done" ? "готово" : entry.error || ""), 80);
+      if (note) row.append(el("span", note, "subagent-tool-row-note"));
+      card.append(row);
+    }
+  } else if (entries[0]) {
+    const note = entries[0].current || (entries[0].status === "done" ? "Результат готов" : entries[0].error || "");
+    if (note) card.append(el("p", subagentShort(note, 160), "subagent-tool-now"));
+  } else if (tool.output) {
+    card.append(el("p", subagentShort(tool.output, 160), "subagent-tool-now"));
+  }
+  return card;
+}
+
+function subagentResultHead(message) {
+  const head = el("div", null, "subagent-result-head");
+  head.append(el("span", null, "subagent-dot done"), el("span", "Результат субагента", "subagent-result-title"));
+  const entries = message.details?.subagents || [];
+  const last = [...entries].reverse().find((entry) => entry.status === "done") || entries.at(-1);
+  if (last?.id) {
+    const open = el("button", "Открыть", "subagent-open");
+    open.type = "button";
+    open.onclick = () => openSubagent(last.id);
+    head.append(open);
+  }
+  return head;
 }
 
 function renderMessages() {
@@ -2540,6 +2604,13 @@ function renderMessages() {
       }
       assistantText += (assistantText && message.text ? "\n\n" : "") + (message.text || "");
       assistantStreaming = message.status === "streaming";
+      if (message.role === "custom" && message.customType === "friendly-subagent") {
+        content.append(subagentResultHead(message));
+        const answer = el("div", null, "answer");
+        markdown(answer, message.text || "");
+        content.append(answer);
+        return;
+      }
       if (message.thinking) {
         const body = el("div", null, "reasoning-text");
         markdown(body, message.thinking);
@@ -2564,6 +2635,10 @@ function renderMessages() {
       for (const tool of message.tools || []) {
         const status = tool.status || "pending";
         if (status === "running" || status === "pending") assistantRunningTools = true;
+        if (tool.name === "subagent" && tool.subagent) {
+          content.append(subagentToolCard(tool));
+          continue;
+        }
         const labels = { pending: "ожидает", running: "выполняется", done: "готово", error: "ошибка", stopped: "остановлено" };
         const body = el("div", null, "tool-detail");
         if (tool.path) body.append(el("p", tool.path, "file-path"));
