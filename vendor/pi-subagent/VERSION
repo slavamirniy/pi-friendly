@@ -1,0 +1,6 @@
+pi-coding-agent 0.84.4
+source: node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent
+repository: https://github.com/earendil-works/pi
+directory: packages/coding-agent/examples/extensions/subagent
+license: MIT
+snapshotted: 2026-02-14

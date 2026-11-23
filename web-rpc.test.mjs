@@ -14,3 +14,16 @@ test('RPC receives framed router progress from stderr across UTF-8 chunks',async
   child.stderr.write('PI_FRIENDLY_PROGRESS {"type":"friendly_router_progress","progress":null}\n');assert.equal(received[1].progress,null);
  }finally{await rpc.dispose();}
 });
+test('RPC forwards subagent snapshots from stderr and drops malformed frames',async()=>{
+ const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>queueMicrotask(()=>child.emit('close',0));const received=[];
+ const rpc=createRpc({cli:'test',cwd:'.',path:'test',spawnProcess:()=>child,onEvent:e=>received.push(e)});
+ try{
+  const snapshot=[{id:'a',agent:'scout',status:'running',task:'Разведка',items:[],usage:{input:1}}];
+  child.stderr.write('PI_FRIENDLY_SUBAGENTS '+JSON.stringify({type:'friendly_subagents',subagents:snapshot})+'\n');
+  assert.equal(received.length,1);assert.equal(received[0].type,'friendly_subagents');assert.equal(received[0].subagents[0].agent,'scout');
+  child.stderr.write('PI_FRIENDLY_SUBAGENTS invalid\nPI_FRIENDLY_SUBAGENTS {"type":"other","subagents":[]}\nPI_FRIENDLY_SUBAGENTS {"type":"friendly_subagents","subagents":"no"}\n');
+  assert.equal(received.length,1);
+  child.stderr.write('PI_FRIENDLY_SUBAGENTS {"type":"friendly_subagents","subagents":'+JSON.stringify(Array.from({length:30},(_,i)=>({id:String(i),agent:'scout',status:'running'})))+'}\n');
+  assert.equal(received[1].subagents.length,24);
+ }finally{await rpc.dispose();}
+});

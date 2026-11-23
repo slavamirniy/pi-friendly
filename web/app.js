@@ -45,6 +45,8 @@ const paths = {
   archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
   back: "M19 12H5m6-6-6 6 6 6",
   image: "M3 5h18v14H3zM8.5 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3M21 15l-5-5L5 19",
+  agents:
+    "M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6M6 21v-1a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1M5.5 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M18.5 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5",
   warning: "M12 3 2 21h20L12 3Zm0 6v5m0 4h.01",
 };
 
@@ -128,6 +130,11 @@ const GALLERY_BATCH = 12;
 let draggingImageCard = null;
 let imageJobs = [];
 let imageProgressTimer = null;
+let subagentsSignature = "";
+let subagentsTimer = null;
+let subagentsCollapsed = true;
+let subagentViewId = null;
+let subagentViewSignature = "";
 let voiceTarget = "chat";
 let onboardingModel = null;
 let onboardingBusy = false;
@@ -940,6 +947,17 @@ function wireChrome() {
   };
   $("image-open").onclick = () => openImagePanel();
   $("image-gallery-open").onclick = () => openImagePanel();
+  $("subagents-toggle").onclick = () => {
+    subagentsCollapsed = !subagentsCollapsed;
+    subagentsSignature = "";
+    renderSubagents();
+  };
+  $("subagents-clear").onclick = () =>
+    run("Очищаю завершённых субагентов…", async () => {
+      const data = await api("subagents-clear", {}, 10000);
+      state = { ...state, subagents: data.subagents || [] };
+      renderSubagents();
+    });
   $("image-compose-back").onclick = () => closeImageCompose();
   $("image-compose-gallery").onclick = () => {
     closeImageCompose();
@@ -1376,6 +1394,10 @@ function openProject(project) {
 }
 
 function openBranch(chat) {
+  if (page === "subagent") {
+    showHint("Сначала вернитесь в чат кнопкой «Назад».", true);
+    return;
+  }
   if (state.busy) {
     showHint("Остановите ответ, чтобы переключить чат.", true);
     return;
@@ -1453,6 +1475,10 @@ function openBranch(chat) {
 }
 
 function newBranch() {
+  if (page === "subagent") {
+    showHint("Сначала вернитесь в чат кнопкой «Назад».", true);
+    return;
+  }
   const target = activeProjectId();
   if (!target) {
     showHint("Сначала выберите проект.");
@@ -1853,6 +1879,10 @@ function renderRoute() {
     const project = projectOf(state.active.projectId || projectId);
     setBreadcrumb(state.active.name || "Чат");
     renderChat();
+    return;
+  }
+  if (page === "subagent") {
+    renderSubagentPage();
     return;
   }
   if (page === "create") {
@@ -4459,6 +4489,287 @@ function uploadFiles() {
   })();
 }
 
+/* ============================== subagents ============================== */
+
+function subagentList() {
+  return Array.isArray(state.subagents) ? state.subagents : [];
+}
+
+function subagentStatus(entry) {
+  if (entry.status === "running") return { label: "работает", cls: "warn" };
+  if (entry.status === "done") return { label: "готово", cls: "ok" };
+  if (entry.status === "stopped") return { label: "остановлен", cls: "" };
+  return { label: "ошибка", cls: "err" };
+}
+
+function subagentStarted(entry) {
+  return entry.startedAt || entry.finishedAt || Date.now();
+}
+
+function subagentElapsed(entry) {
+  const start = subagentStarted(entry);
+  const end = entry.status === "running" ? Date.now() : entry.finishedAt || Date.now();
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  if (seconds < 60) return `${seconds} с`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} мин ${seconds % 60} с`;
+  return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}
+
+function subagentTokens(value) {
+  const number = Number(value) || 0;
+  if (number < 1000) return String(number);
+  if (number < 10000) return `${(number / 1000).toFixed(1)}k`;
+  if (number < 1000000) return `${Math.round(number / 1000)}k`;
+  return `${(number / 1000000).toFixed(1)}M`;
+}
+
+function subagentUsage(entry) {
+  const usage = entry.usage || {};
+  const parts = [];
+  if (usage.turns) parts.push(`${usage.turns} ${plural(usage.turns, "шаг", "шага", "шагов")}`);
+  if (usage.input) parts.push(`↑${subagentTokens(usage.input)}`);
+  if (usage.output) parts.push(`↓${subagentTokens(usage.output)}`);
+  if (usage.cost) parts.push(`$${Number(usage.cost).toFixed(4)}`);
+  if (entry.model) parts.push(entry.model);
+  return parts.join(" · ");
+}
+
+function subagentsSummary(entries) {
+  if (!entries.length) return "";
+  const running = entries.filter((entry) => entry.status === "running").length;
+  if (running) return `${running} из ${entries.length} работает`;
+  const failed = entries.filter((entry) => entry.status === "error").length;
+  return [
+    `${entries.length} ${plural(entries.length, "агент", "агента", "агентов")}`,
+    failed ? `${failed} с ошибкой` : "все завершены",
+  ].join(" · ");
+}
+
+function subagentNote(entry) {
+  if (entry.status === "running") return entry.current || "Работает…";
+  if (entry.status === "stopped") return "Остановлен";
+  if (entry.status === "error") return entry.error || "Не удалось выполнить задачу";
+  const line = String(entry.output || "")
+    .split("\n")
+    .map((value) => value.trim())
+    .find(Boolean);
+  return line ? line.replace(/^#+\s*/, "") : "Готово";
+}
+
+function subagentItemNode(item) {
+  const row = el("li", null, "subagent-item " + (item.type === "tool" ? "tool" : "text"));
+  const mark = el("span", item.type === "tool" ? "инструмент" : "текст", "subagent-item-kind");
+  if (item.type === "tool" && item.status) mark.classList.add(item.status);
+  row.append(mark, el("span", item.text || "", "subagent-item-text"));
+  return row;
+}
+
+function subagentItemsNode(entry) {
+  const items = Array.isArray(entry.items) ? entry.items : [];
+  if (!items.length) return null;
+  const list = el("ol", null, "subagent-items");
+  for (const item of items) list.append(subagentItemNode(item));
+  return list;
+}
+
+function subagentOutputNode(entry) {
+  const output = entry.output || "";
+  if (!output || entry.status === "running") return null;
+  return el("pre", output, "subagent-output-text");
+}
+
+function subagentCard(entry) {
+  const card = el("button", null, "subagent-card " + (entry.status || "running"));
+  card.type = "button";
+  card.title = entry.task || entry.agent;
+  const head = el("span", null, "subagent-head");
+  const name = el("span", entry.agent, "subagent-name");
+  if (entry.step) name.textContent = `${entry.agent} · шаг ${entry.step}`;
+  const clock = el("span", subagentElapsed(entry), "subagent-time");
+  clock.dataset.subagentClock = entry.id;
+  head.append(el("span", null, "subagent-dot"), name, clock);
+  card.append(head, el("span", subagentNote(entry), "subagent-note"));
+  card.onclick = () => openSubagent(entry.id);
+  return card;
+}
+
+function stopSubagentsTimer() {
+  clearInterval(subagentsTimer);
+  subagentsTimer = null;
+}
+
+function updateSubagentsSection(entries) {
+  const panel = $("subagents-panel");
+  if (!panel) return;
+  panel.hidden = !entries.length || !state.active;
+  panel.classList.toggle("collapsed", subagentsCollapsed);
+  const count = $("subagents-count");
+  const running = entries.filter((entry) => entry.status === "running").length;
+  if (count) {
+    count.textContent = String(entries.length);
+    count.title = running
+      ? `${running} работает · всего ${entries.length}`
+      : `${entries.length} ${plural(entries.length, "агент", "агента", "агентов")}`;
+  }
+  const summary = $("subagents-summary");
+  if (summary) summary.textContent = subagentsSummary(entries);
+  const clear = $("subagents-clear");
+  if (clear) clear.hidden = !entries.some((entry) => entry.status !== "running");
+  const toggle = $("subagents-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", subagentsCollapsed ? "false" : "true");
+}
+
+function renderSubagents() {
+  const panel = $("subagents-panel");
+  if (!panel) return;
+  const entries = subagentList();
+  updateSubagentsSection(entries);
+  if (panel.hidden || subagentsCollapsed) {
+    stopSubagentsTimer();
+    return;
+  }
+  const area = $("subagents-list");
+  const signature = JSON.stringify(
+    entries.map((entry) => [
+      entry.id,
+      entry.status,
+      entry.current,
+      entry.task,
+      entry.output,
+      entry.error,
+      entry.finishedAt,
+      (entry.items || []).length,
+      (entry.items || []).at(-1)?.status,
+    ]),
+  );
+  if (signature !== subagentsSignature) {
+    subagentsSignature = signature;
+    const scroll = area.scrollTop;
+    area.replaceChildren(...entries.map(subagentCard));
+    area.scrollTop = scroll;
+  } else {
+    for (const entry of entries) {
+      const clock = area.querySelector(`[data-subagent-clock="${entry.id}"]`);
+      if (clock) clock.textContent = subagentElapsed(entry);
+    }
+  }
+  stopSubagentsTimer();
+  if (entries.some((entry) => entry.status === "running")) {
+    subagentsTimer = setInterval(() => {
+      if (!subagentsCollapsed) {
+        for (const entry of subagentList()) {
+          const clock = $("subagents-list")?.querySelector(`[data-subagent-clock="${entry.id}"]`);
+          if (clock) clock.textContent = subagentElapsed(entry);
+        }
+      }
+    }, 1000);
+  }
+}
+
+function subagentViewEntry() {
+  return subagentList().find((entry) => entry.id === subagentViewId);
+}
+
+function openSubagent(id) {
+  if (!id) return;
+  subagentViewId = id;
+  subagentViewSignature = "";
+  page = "subagent";
+  renderRoute();
+  $("page").scrollTop = 0;
+}
+
+function subagentViewStateNode(entry) {
+  const node = el("div", null, "subagent-view-state " + (entry.status || "running"));
+  node.append(el("span", null, "subagent-dot"), el("span", subagentStatus(entry).label));
+  if (entry.step) node.append(el("span", `шаг ${entry.step}`, "subagent-view-step"));
+  const clock = el("span", subagentElapsed(entry), "subagent-view-clock");
+  clock.dataset.subagentViewClock = "1";
+  node.append(clock);
+  return node;
+}
+
+function renderSubagentPage() {
+  const entry = subagentViewEntry();
+  if (!entry) {
+    subagentViewId = null;
+    subagentViewSignature = "";
+    page = state.active ? "chat" : "chats";
+    renderRoute();
+    return;
+  }
+  setBreadcrumb(`Субагент · ${entry.agent}`);
+  const signature = JSON.stringify([
+    entry.id,
+    entry.status,
+    entry.current,
+    entry.task,
+    entry.output,
+    entry.error,
+    entry.finishedAt,
+    (entry.items || []).length,
+    (entry.items || []).at(-1)?.status,
+  ]);
+  const pageNode = $("page");
+  if (signature === subagentViewSignature && pageNode.firstChild) {
+    const clock = pageNode.querySelector("[data-subagent-view-clock]");
+    if (clock) clock.textContent = subagentElapsed(entry);
+    return;
+  }
+  subagentViewSignature = signature;
+
+  const root = el("div", null, "page-inner subagent-view");
+  const back = el("button", null, "back");
+  back.type = "button";
+  back.append(icon("back"), el("span", "Назад в чат"));
+  back.onclick = () => {
+    subagentViewId = null;
+    subagentViewSignature = "";
+    page = state.active ? "chat" : "chats";
+    renderRoute();
+  };
+  root.append(back);
+
+  const head = el("div", null, "page-head subagent-view-head");
+  const copy = el("div", null, "subagent-view-copy");
+  copy.append(el("h1", entry.agent));
+  copy.append(el("p", entry.task || "", "page-sub subagent-view-task"));
+  head.append(copy, subagentViewStateNode(entry));
+  root.append(head);
+
+  const now = el("p", subagentNote(entry), "subagent-view-now");
+  root.append(now);
+
+  const items = Array.isArray(entry.items) ? entry.items : [];
+  if (items.length) {
+    const section = el("section", null, "subagent-view-section");
+    const title = el("div", null, "section-head");
+    title.append(el("h2", "Ход работы"), el("span", String(items.length), "pill"));
+    section.append(title, subagentItemsNode(entry));
+    root.append(section);
+  }
+
+  const output = subagentOutputNode(entry);
+  if (output) {
+    const section = el("section", null, "subagent-view-section");
+    const title = el("div", null, "section-head");
+    title.append(el("h2", entry.status === "done" ? "Результат" : "Что удалось сделать"));
+    section.append(title, output);
+    root.append(section);
+  }
+
+  const meta = el("div", null, "subagent-view-meta");
+  const usage = subagentUsage(entry);
+  if (usage) meta.append(el("span", usage));
+  if (entry.error) meta.append(el("span", entry.error, "subagent-view-error"));
+  if (meta.childNodes.length) root.append(meta);
+
+  const scroll = pageNode.scrollTop;
+  pageNode.replaceChildren(root);
+  pageNode.scrollTop = scroll;
+}
+
 /* ============================== apply server state ============================== */
 
 function applyState(next) {
@@ -4482,6 +4793,7 @@ function applyState(next) {
   const previous = state.active?.id;
   const previousName = state.active?.id && state.active.id === next.active?.id ? state.active.name : null;
   state = next;
+  if (typeof renderSubagents === "function") renderSubagents();
   if (previousName && state.active?.name && previousName !== state.active.name) {
     const project = projectOf(state.active.projectId);
     const chat = project?.chats.find((item) => item.id === state.active.id);
@@ -4499,6 +4811,12 @@ function applyState(next) {
     versionManager.reset();
     renderedSignature = "";
     queueSignature = "";
+    if (typeof subagentsSignature !== "undefined") subagentsSignature = "";
+    if (page === "subagent") {
+      page = "chat";
+      subagentViewId = null;
+      subagentViewSignature = "";
+    }
     attachments = [];
     renderAttachments();
     autoGrow();
@@ -4554,15 +4872,20 @@ function applyState(next) {
     updateOnboarding();
     return;
   }
-  if (state.active && !lastChat) {
+  if (state.active && !lastChat && page !== "subagent") {
     lastChat = state.active.id;
     page = "chat";
     renderRoute();
     return;
   }
-  if (!state.active && page === "chat") {
+  if (!state.active && (page === "chat" || page === "subagent")) {
     page = "chats";
+    subagentViewId = null;
     renderRoute();
+    return;
+  }
+  if (page === "subagent") {
+    renderSubagentPage();
     return;
   }
   if (page === "chat") {

@@ -59,7 +59,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  let confirmBrowser;
  const browserReady=new Promise(resolve=>{confirmBrowser=resolve;});
  let rpc,active,loading=false,navigating=false,disposed=false,allProjects=[],allSessions=[],generation=0,publishTimer,voiceOwned=false,dropRoot;
- let state={active:null,messages:[],busy:false,loading:false,ready:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null};
+ let state={active:null,messages:[],busy:false,loading:false,ready:false,error:null,notice:'',statuses:{},widgets:{},questions:[],queue:{steering:[],followUp:[]},voice:voice?.state||null,dictation:null,subagents:[]};
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
  const titleRequests=new Set();
@@ -197,6 +197,8 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   if(epoch!==generation||disposed)return;
   if(event.type==='agent_start'){state.busy=true;state.error=null;state.routerProgress=null;}
   if(event.type==='friendly_router_progress'){state.routerProgress=event.progress||null;}
+  if(event.type==='friendly_subagents'&&Array.isArray(event.subagents))state.subagents=event.subagents.slice(0,24);
+  if(event.type==='process_error')state.subagents=(state.subagents||[]).map(item=>item.status==='running'?{...item,status:'stopped',current:'',finishedAt:Date.now()}:item);
   if(event.type==='agent_end'){rpc?.request('get_messages').then(data=>{if(epoch===generation){state.messages=reconcileMessages(state.messages,publicMessages(data?.messages||[]));changed();}}).catch(()=>{});}
   if(event.type==='queue_update')state.queue={steering:Array.isArray(event.steering)?event.steering:[],followUp:Array.isArray(event.followUp)?event.followUp:[]};
   if(event.type==='message_start'&&['user','assistant'].includes(event.message?.role))state.messages.push({...publicMessage(event.message),status:event.message.role==='assistant'?'streaming':'done'});
@@ -238,7 +240,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
    active={id:key(session.path),sessionId:session.id,projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
-   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},ready:false};
+   state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},ready:false,subagents:[]};
    loading=false;
    if(active.readOnly){
     active={...active,ready:true};state={...state,ready:true};
@@ -320,7 +322,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   const previousFile=active.file;
   active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,parent:previousFile?key(previousFile):null,host:false,readOnly:false,named:true};
   const messages=await rpc.request('get_messages',{},20000);
-  state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{}};
+  state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},subagents:[]};
   await catalog();
   if(text){
    state.busy=true;changed();
@@ -481,6 +483,10 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      else if(voice.state.phase==='error'){await voice.start();}else throw new Error('Для голосового ввода дождитесь загрузки модели или завершения записи.');
      reply(200,{ok:true});return;
     }
+    if(action==='subagents-clear'){
+     state={...state,subagents:(state.subagents||[]).filter(item=>item.status==='running')};
+     changed();reply(200,{subagents:state.subagents});return;
+    }
     if(action==='close'){ensureIdle();if(!canExit())throw new Error('Сначала остановите текущую работу.');navigating=true;reply(200,{ok:true});setTimeout(()=>void exitApplication().catch(error=>console.error('Pi shutdown:',error.message)),50);return;}
     if(action==='pick-attach'){
      if(!pickChatFiles)throw new Error('Выбор файлов доступен только в локальном интерфейсе.');
@@ -556,7 +562,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      if(isActive){
       if(rpc)await rpc.dispose();
       rpc=undefined;generation++;active=null;
-      state={...state,active:null,messages:[],busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},routerProgress:null};
+      state={...state,active:null,messages:[],busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},routerProgress:null,subagents:[]};
      }
      if(action==='delete-chat')await unlink(session.path);
      else{

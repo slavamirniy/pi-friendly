@@ -45,6 +45,19 @@
           </div>
           <div class="branch-list" id="branch-list" role="list"></div>
         </section>
+
+        <section class="subagents" id="subagents-panel" hidden aria-label="Субагенты">
+          <div class="section-title subagents-title">
+            <button type="button" class="subagents-toggle" id="subagents-toggle" aria-expanded="true" aria-controls="subagents-list">
+              <span>Субагенты</span>
+              <span id="subagents-count" class="pill">0</span>
+              <span class="subagents-chevron" data-icon="chevron-down" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="text-button" id="subagents-clear" hidden>Очистить</button>
+          </div>
+          <div id="subagents-summary" class="subagents-summary"></div>
+          <div id="subagents-list" class="subagents-list"></div>
+        </section>
       </div>
 
       <div class="sidebar-bottom">
