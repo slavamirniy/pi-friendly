@@ -581,3 +581,20 @@ test('context window usage is exposed to the sidebar',async t=>{
  const live=await h.state();
  assert.deepEqual(live.contextUsage,{tokens:25000,contextWindow:100000,percent:25});
 });
+
+test('brand icons, chrome helpers and the completion sound are served locally',async t=>{
+ const h=await fixture(t);
+ const assets=[
+  ['/ai-diy.png','image/png'],
+  ['/ai-diy-64.png','image/png'],
+  ['/brand-icon.js','text/javascript'],
+  ['/chrome.js','text/javascript'],
+  ['/sounds/done.mp3','audio/mpeg'],
+ ];
+ for(const [path,type] of assets){
+  const response=await fetch(h.web.origin+path);
+  assert.equal(response.status,200,path);
+  assert.match(response.headers.get('content-type')||'',new RegExp(type.replace('/','\/')),path);
+  assert.ok((await response.arrayBuffer()).byteLength>0,path);
+ }
+});

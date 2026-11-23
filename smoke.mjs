@@ -16,7 +16,7 @@ const { matchesKey, truncateToWidth, visibleWidth } = await import(pathToFileURL
 let result;
 const theme = { fg: (_c, s) => s, bg: (_c, s) => s, bold: s => s };
 const tui = { terminal: { columns: 90, rows: 24, write() {} }, requestRender() {} };
-const menu = createMenu({ tui, theme, done: value => { result = value; }, title: "Просто pi", subtitle: "Проект: ~/Documents/AI DIY Projects",
+const menu = createMenu({ tui, theme, done: value => { result = value; }, title: "AI DIY", subtitle: "Проект: ~/Documents/AI DIY Projects",
   items: ["Новый разговор", "История разговоров", "Продолжить разговор"].map(label => ({ label })),
   statuses: () => ["Kimi K3", "Осталось 998 млн"], matchesKey, truncate: truncateToWidth, measure: visibleWidth });
 const lines = menu.render(90);

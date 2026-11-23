@@ -67,6 +67,7 @@ test('reload does not replay already consumed dictation',()=>{
     page:'projects',lastChat:'chat',dictationId:undefined,pendingOpenId:null,
     store:(id,text)=>storage.set(id,text),saved:id=>storage.get(id)||'',
     autoGrow(){},showError(){},renderStatus(){},renderMessages(){},renderRoute(){},renderBranches(){},
+    renderWindowChrome(){},clearDone(){},playDoneChime(){},markDone(){},
     projectOf:()=>undefined,
   };
   runInNewContext(between('function applyState(','function autoGrow('),context);

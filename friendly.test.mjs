@@ -8,7 +8,7 @@ const theme = { fg: (_c, s) => s, bg: (_c, s) => s, bold: s => s };
 function panel(options = {}) {
   const writes = [], results = [];
   const tui = { terminal: { columns: 90, rows: 24, write: s => writes.push(s) }, requestRender() {} };
-  const menu = createMenu({ ...rendering, tui, theme, title: "Просто pi", items: Array.from({ length: 60 }, (_, i) => ({ label: `Модель ${i}` })), done: v => results.push(v), ...options });
+  const menu = createMenu({ ...rendering, tui, theme, title: "AI DIY", items: Array.from({ length: 60 }, (_, i) => ({ label: `Модель ${i}` })), done: v => results.push(v), ...options });
   return { menu, tui, writes, results };
 }
 test("mouse targets match rendered rows; release, drag, right click and blank space do not activate", () => {
