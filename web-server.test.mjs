@@ -587,6 +587,8 @@ test('brand icons, chrome helpers and the completion sound are served locally',a
  const assets=[
   ['/ai-diy.png','image/png'],
   ['/chrome.js','text/javascript'],
+  ['/work-path.js','text/javascript'],
+  ['/work-path.css','text/css'],
   ['/sounds/done.mp3','audio/mpeg'],
  ];
  for(const [path,type] of assets){
