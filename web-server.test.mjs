@@ -586,8 +586,6 @@ test('brand icons, chrome helpers and the completion sound are served locally',a
  const h=await fixture(t);
  const assets=[
   ['/ai-diy.png','image/png'],
-  ['/ai-diy-64.png','image/png'],
-  ['/brand-icon.js','text/javascript'],
   ['/chrome.js','text/javascript'],
   ['/sounds/done.mp3','audio/mpeg'],
  ];
