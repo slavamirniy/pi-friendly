@@ -63,6 +63,12 @@ test('confirmed interrupted response strips tools and text, only that message re
  const context=h.handlers.get('context')({messages:[m,{...m,timestamp:124},{...m,provider:'ordinary'},{role:'user',content:'question'}]});assert.equal(context.messages.length,3);
  assert.equal(h.widgets.at(-1),undefined);assert.equal(h.instance.getCurrent().snapshot.quota_tokens,0);h.instance.stop();
 });
+test('router completion survives provider/model normalization after fallback',async()=>{
+ const h=harness(async()=>new Response(event({version:99,state:'completed',quota_tokens:65,quota_tokens_estimated:false,input_tokens:10,output_tokens:7})));await h.begin();
+ const m=h.message('stop','normalized-provider');m.model='normalized-model';
+ const result=await h.handlers.get('message_end')({message:m});
+ assert.equal(result,undefined);assert.equal(h.instance.getCurrent().snapshot.state,'completed');assert.equal(h.widgets.at(-1),undefined);assert.equal(h.working.at(-1),true);h.instance.stop();
+});
 test('side-channel failures never retry generation; shutdown aborts listeners',async()=>{
  const h=harness(async()=>new Response('',{status:429}));await h.begin();assert.equal(h.instance.getCurrent().unavailable,true);
  h.handlers.get('session_shutdown')({},h.ctx);assert.ok(h.requests[0].init.signal.aborted);assert.equal(h.widgets.at(-1),undefined);

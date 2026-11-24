@@ -22,6 +22,7 @@ import { installFriendly } from "./friendly.mjs";
 import { installSubagents } from './subagents.mjs';
 import { DEFAULT_IMAGE_HISTORY_LIMIT, imageHistoryLimit, pruneOldImages } from './image-history.mjs';
 import { DEFAULT_TEXT_HEAD_CHARS, DEFAULT_TEXT_HISTORY_LIMIT, pruneOldToolTexts, textHeadChars, textHistoryLimit } from './text-history.mjs';
+import { DEFAULT_REASONING_HEAD_CHARS, DEFAULT_REASONING_HISTORY_LIMIT, pruneOldReasoning, reasoningHeadChars, reasoningHistoryLimit } from './reasoning-history.mjs';
 export default function friendly(pi: ExtensionAPI) {
   let billingContext:any;
   const getConnection=async()=>{
@@ -45,16 +46,17 @@ export default function friendly(pi: ExtensionAPI) {
     }
   });
   let billingTimer:any;
-  let imageLimit=DEFAULT_IMAGE_HISTORY_LIMIT,textLimit=DEFAULT_TEXT_HISTORY_LIMIT,textHead=DEFAULT_TEXT_HEAD_CHARS;
+  let imageLimit=DEFAULT_IMAGE_HISTORY_LIMIT,textLimit=DEFAULT_TEXT_HISTORY_LIMIT,textHead=DEFAULT_TEXT_HEAD_CHARS,reasoningLimit=DEFAULT_REASONING_HISTORY_LIMIT,reasoningHead=DEFAULT_REASONING_HEAD_CHARS;
   function refreshLimits(){
     let prefs={};try{prefs=JSON.parse(readFileSync(preferencePath,'utf8'));}catch{}
-    imageLimit=imageHistoryLimit(prefs);textLimit=textHistoryLimit(prefs);textHead=textHeadChars(prefs);
+    imageLimit=imageHistoryLimit(prefs);textLimit=textHistoryLimit(prefs);textHead=textHeadChars(prefs);reasoningLimit=reasoningHistoryLimit(prefs);reasoningHead=reasoningHeadChars(prefs);
   }
-  // Only the newest images and the newest long tool outputs travel with each request;
-  // old ones stay on disk and in the chat UI, but are shortened in the model context.
+  // The running turn always travels whole; in finished turns only the newest images, long tool
+  // outputs and reasoning stay complete, the rest is shortened in the model context only.
   pi.on('context',(event:any,ctx:any)=>{
     const images=pruneOldImages(event.messages,imageLimit);
-    const messages=pruneOldToolTexts(images,textLimit,textHead,ctx?.cwd||'');
+    const reasoned=pruneOldReasoning(images,reasoningLimit,{headChars:reasoningHead,strictSignatures:ctx?.model?.api==='anthropic-messages'});
+    const messages=pruneOldToolTexts(reasoned,textLimit,textHead,ctx?.cwd||'');
     return messages===event.messages?undefined:{messages};
   });
   pi.on('session_start',async(_event,ctx)=>{billingContext=ctx;refreshLimits();if(ctx.mode!=='tui')return;void billing.refresh();clearInterval(billingTimer);billingTimer=setInterval(()=>void billing.refresh(),30000);billingTimer.unref?.();});

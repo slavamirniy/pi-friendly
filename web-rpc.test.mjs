@@ -27,3 +27,37 @@ test('RPC forwards subagent snapshots from stderr and drops malformed frames',as
   assert.equal(received[1].subagents.length,24);
  }finally{await rpc.dispose();}
 });
+test('a huge RPC frame is dropped without killing the chat process',async()=>{
+ const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();
+ let killed=false;child.kill=()=>{killed=true;queueMicrotask(()=>child.emit('close',0));};
+ let written='';child.stdin.on('data',chunk=>written+=chunk);
+ const rpc=createRpc({cli:'test',cwd:'.',path:'test',spawnProcess:()=>child,maxResponseBytes:1024});
+ try{
+  const huge=rpc.request('get_messages',{});
+  const head='{"type":"response","id":"x","success":true,"data":{"messages":"';
+  child.stdout.write(head);
+  child.stdout.write('a'.repeat(4096));
+  // The frame ends and a small unrelated frame follows in the same chunk.
+  child.stdout.write('"}}\n{"type":"event","type":"keep"}\n');
+  await assert.rejects(huge,/слишком большой/);
+  assert.equal(killed,false);
+  // The connection still works after the dropped frame.
+  const next=rpc.request('get_state',{});
+  const id=JSON.parse(written.trim().split('\n').at(-1)).id;
+  child.stdout.write(JSON.stringify({type:'response',id,success:true,data:{ok:1}})+'\n');
+  assert.deepEqual(await next,{ok:1});
+ }finally{await rpc.dispose();}
+});
+test('RPC accepts frames sized for long chats without a 32 MB cliff',async()=>{
+ const child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>queueMicrotask(()=>child.emit('close',0));
+ let written='';child.stdin.on('data',chunk=>written+=chunk);
+ const rpc=createRpc({cli:'test',cwd:'.',path:'test',spawnProcess:()=>child});
+ try{
+  const request=rpc.request('get_messages',{});
+  const id=JSON.parse(written.trim().split('\n').at(-1)).id;
+  const text='я'.repeat(40*1024*1024/2);
+  child.stdout.write(JSON.stringify({type:'response',id,success:true,data:{messages:[{role:'assistant',content:text}]}})+'\n');
+  const data=await request;
+  assert.equal(data.messages[0].content.length,text.length);
+ }finally{await rpc.dispose();}
+});

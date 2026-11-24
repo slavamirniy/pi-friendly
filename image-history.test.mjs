@@ -29,8 +29,8 @@ function turns(count) {
 test("old images are replaced with a text note while latest ones stay", () => {
   const messages = turns(4);
   const pruned = pruneOldImages(messages, 2);
-  assert.equal(countKeptImages(pruned), 3);
-  // The newest user message keeps its own image, plus two images from history.
+  // Both images of the running turn plus two images from finished turns.
+  assert.equal(countKeptImages(pruned), 4);
   assert.deepEqual(pruned.at(-2).content[1], image("tool-3"));
   assert.deepEqual(pruned.at(-3).content[1], image("user-3"));
   assert.deepEqual(pruned.at(-5).content[1], image("tool-2"));
@@ -46,12 +46,30 @@ test("pruning does not mutate the original messages", () => {
   assert.equal(JSON.stringify(messages), snapshot);
 });
 
-test("a limit of zero keeps only images of the current request", () => {
+test("a limit of zero keeps only images of the running turn", () => {
   const messages = turns(2);
   const pruned = pruneOldImages(messages, 0);
-  assert.equal(countKeptImages(pruned), 1);
+  assert.equal(countKeptImages(pruned), 2);
   assert.deepEqual(pruned.at(-3).content[1], image("user-1"));
-  assert.ok(pruned.filter((message) => message.content?.some?.((block) => block.type === "image")).length === 1);
+  assert.deepEqual(pruned.at(-2).content[1], image("tool-1"));
+  assert.equal(pruned.filter((message) => message.content?.some?.((block) => block.type === "image")).length, 2);
+});
+
+test("screenshots read during the running turn are never dropped", () => {
+  const messages = [
+    { role: "user", content: [text("Посмотри на скриншот")] },
+    { role: "assistant", content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "a.png" } }] },
+    { role: "toolResult", toolCallId: "read-1", toolName: "read", content: [text("Скриншот"), image("shot-1")] },
+    { role: "assistant", content: [{ type: "toolCall", id: "read-2", name: "read", arguments: { path: "b.png" } }] },
+    { role: "toolResult", toolCallId: "read-2", toolName: "read", content: [text("Скриншот"), image("shot-2")] },
+    { role: "assistant", content: [{ type: "toolCall", id: "read-3", name: "read", arguments: { path: "c.png" } }] },
+    { role: "toolResult", toolCallId: "read-3", toolName: "read", content: [text("Скриншот"), image("shot-3")] },
+  ];
+  const pruned = pruneOldImages(messages, 1);
+  assert.equal(countKeptImages(pruned), 3);
+  assert.deepEqual(pruned[2].content[1], image("shot-1"));
+  assert.deepEqual(pruned[4].content[1], image("shot-2"));
+  assert.deepEqual(pruned[6].content[1], image("shot-3"));
 });
 
 test("all images of the newest user message survive even above the limit", () => {

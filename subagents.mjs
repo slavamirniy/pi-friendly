@@ -176,6 +176,21 @@ export function describeTool(name, args = {}) {
   return `Действие · ${name}`;
 }
 
+export function formatSubagentStatus(entry, now = Date.now()) {
+  const started = Number(entry.startedAt) || now;
+  const end = entry.status === 'running' ? now : Number(entry.finishedAt) || now;
+  const seconds = Math.max(0, Math.round((end - started) / 1000));
+  const state =
+    entry.status === 'running'
+      ? `работает · ${tail(String(entry.current || 'запускается').replace(/\s+/g, ' ').trim(), 80)}`
+      : entry.status === 'done'
+        ? 'готово'
+        : entry.status === 'stopped'
+          ? 'остановлен'
+          : `ошибка${entry.error ? ` · ${tail(String(entry.error).replace(/\s+/g, ' ').trim(), 160)}` : ''}`;
+  return `- ${entry.agent} (${entry.id}): ${state} · ${seconds} с`;
+}
+
 function extractText(message) {
   const content = typeof message?.content === 'string' ? [{ type: 'text', text: message.content }] : message?.content || [];
   return content
@@ -501,6 +516,11 @@ export function createSubagentService({
     };
 
     child.stdout?.setEncoding?.('utf8');
+    const safeProcessLine = (line) => {
+      try {
+        processLine(line);
+      } catch {}
+    };
     child.stdout?.on('data', (chunk) => {
       buffer += chunk;
       if (buffer.length > 32 * 1024 * 1024) {
@@ -512,7 +532,7 @@ export function createSubagentService({
       while ((index = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, index);
         buffer = buffer.slice(index + 1);
-        processLine(line);
+        safeProcessLine(line);
       }
       schedule();
     });
@@ -521,10 +541,14 @@ export function createSubagentService({
       stderr = tail(stderr + chunk, 6000);
     });
 
+    let spawnError;
     const exited = new Promise((resolveCode) => {
-      child.on('error', () => resolveCode(1));
+      child.on('error', (error) => {
+        spawnError = error;
+        resolveCode(1);
+      });
       child.on('close', (value) => {
-        if (buffer.trim()) processLine(buffer);
+        if (buffer.trim()) safeProcessLine(buffer);
         resolveCode(value ?? 0);
       });
     });
@@ -535,12 +559,16 @@ export function createSubagentService({
 
     const code = await exited;
     signal?.removeEventListener?.('abort', stop);
-    if (promptFile) await promptFile.cleanup();
+    if (promptFile) {
+      try {
+        await promptFile.cleanup();
+      } catch {}
+    }
     runtime.delete(id);
     const status = aborted ? 'stopped' : code !== 0 || stopReason === 'error' || stopReason === 'aborted' ? 'error' : 'done';
     const error =
       status === 'error'
-        ? errorMessage || tail(stderr, 1200) || `pi завершился с кодом ${code}.`
+        ? errorMessage || spawnError?.message || tail(stderr, 1200) || `pi завершился с кодом ${code}.`
         : undefined;
     finish(entry, { status, error, output: lastText || entry.output || (status === 'error' ? error : '') });
     return {
@@ -562,10 +590,9 @@ export function createSubagentService({
     return entry.error || (entry.status === 'stopped' ? 'Остановлено.' : 'Ошибка.');
   }
 
-  function notify(onUpdate, mode) {
+  function notify(onUpdate, mode, list = snapshot()) {
     if (!onUpdate) return;
     try {
-      const list = snapshot();
       const running = list.filter((entry) => entry.status === 'running').length;
       const text = list.length === 1 ? currentText(list[0]) : `Субагенты: ${list.length - running} из ${list.length} готовы.`;
       onUpdate({ content: [{ type: 'text', text }], details: { mode, subagents: list } });
@@ -591,9 +618,10 @@ export function createSubagentService({
 
     const findAgent = (name) => agents.find((agent) => agent.name === name);
     const unknown = (name) => ({ content: [{ type: 'text', text: `Неизвестный агент: «${name}». Доступно: ${available}` }] });
+    const group = randomUUID().slice(0, 8);
+    const own = () => snapshot().filter((entry) => entry.group === group);
 
     if (chain.length) {
-      const group = randomUUID().slice(0, 8);
       const results = [];
       let previous = '';
       for (let index = 0; index < chain.length; index += 1) {
@@ -601,25 +629,24 @@ export function createSubagentService({
         const agent = findAgent(step.agent);
         if (!agent) return unknown(step.agent);
         const task = String(step.task || '').replace(/\{previous\}/g, previous);
-        const result = await runChild(agent, task, { cwd, inheritedModel: model, thinkingLevel, signal, group, step: index + 1, progress: () => notify(onUpdate, 'chain') });
+        const result = await runChild(agent, task, { cwd, inheritedModel: model, thinkingLevel, signal, group, step: index + 1, progress: () => notify(onUpdate, 'chain', own()) });
         results.push(result);
-        notify(onUpdate, 'chain');
+        notify(onUpdate, 'chain', own());
         if (result.status !== 'done') {
           return {
             content: [{ type: 'text', text: `Цепочка остановлена на шаге ${index + 1} (${step.agent}): ${currentText(result)}` }],
-            details: { mode: 'chain', subagents: snapshot() },
+            details: { mode: 'chain', subagents: own() },
           };
         }
         previous = result.output || '';
       }
       return {
         content: [{ type: 'text', text: results.at(-1)?.output || '(нет вывода)' }],
-        details: { mode: 'chain', subagents: snapshot() },
+        details: { mode: 'chain', subagents: own() },
       };
     }
 
     if (tasks.length) {
-      const group = randomUUID().slice(0, 8);
       for (const task of tasks) if (!findAgent(task.agent)) return unknown(task.agent);
       const results = await mapWithConcurrency(tasks, MAX_CONCURRENCY, async (task, index) => {
         const agent = findAgent(task.agent);
@@ -630,9 +657,9 @@ export function createSubagentService({
           signal,
           group,
           step: index + 1,
-          progress: () => notify(onUpdate, 'parallel'),
+          progress: () => notify(onUpdate, 'parallel', own()),
         });
-        notify(onUpdate, 'parallel');
+        notify(onUpdate, 'parallel', own());
         return result;
       });
       const succeeded = results.filter((result) => result.status === 'done').length;
@@ -644,7 +671,7 @@ export function createSubagentService({
         .join('\n\n---\n\n');
       return {
         content: [{ type: 'text', text: `Параллельно: ${succeeded}/${results.length} успешно\n\n${summary}` }],
-        details: { mode: 'parallel', subagents: snapshot() },
+        details: { mode: 'parallel', subagents: own() },
       };
     }
 
@@ -655,20 +682,20 @@ export function createSubagentService({
       inheritedModel: model,
       thinkingLevel,
       signal,
-      group: undefined,
+      group,
       step: undefined,
-      progress: () => notify(onUpdate, 'single'),
+      progress: () => notify(onUpdate, 'single', own()),
     });
-    notify(onUpdate, 'single');
+    notify(onUpdate, 'single', own());
     if (result.status !== 'done') {
       return {
         content: [{ type: 'text', text: `Агент ${agent.name} не справился: ${currentText(result)}` }],
-        details: { mode: 'single', subagents: snapshot() },
+        details: { mode: 'single', subagents: own() },
       };
     }
     return {
       content: [{ type: 'text', text: result.output || '(нет вывода)' }],
-      details: { mode: 'single', subagents: snapshot() },
+      details: { mode: 'single', subagents: own() },
     };
   }
 
@@ -720,30 +747,54 @@ export function createSubagentService({
       content: [
         {
           type: 'text',
-          text: `Субагент запущен в фоне. Результат придёт отдельным сообщением; если он нужен сразу, вызовите subagent_wait.`,
+          text: `Субагент запущен в фоне: ${ids.join(', ')}. Результат придёт отдельным сообщением. Статус — subagent_status, ждать — subagent_wait, остановить — subagent_cancel.`,
         },
       ],
       details: { background: true, subagents: snapshot().filter((entry) => ids.includes(entry.id)) },
     };
   }
 
-  async function waitFor({ ids, timeoutMs = 120000, pollMs = 150 } = {}) {
-    const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+  function wantedSet(ids) {
+    if (!Array.isArray(ids) || !ids.length) return null;
+    const known = [...entries.keys()];
+    return new Set(
+      ids.map((id) => {
+        const text = String(id);
+        return known.find((key) => key === text) || known.find((key) => key.startsWith(text)) || text;
+      }),
+    );
+  }
+
+  async function waitFor({ ids, timeoutMs = 120000, pollMs = 150, signal } = {}) {
+    const wanted = wantedSet(ids);
     const started = now();
     const pending = () =>
-      backgroundJobs > 0 ||
-      [...entries.values()].some(
-        (entry) => entry.status === 'running' && (!wanted || wanted.has(entry.id)),
-      );
+      wanted
+        ? [...entries.values()].some((entry) => entry.status === 'running' && wanted.has(entry.id))
+        : backgroundJobs > 0 || [...entries.values()].some((entry) => entry.status === 'running');
     while (pending()) {
+      if (signal?.aborted) break;
       if (now() - started > timeoutMs) break;
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      await new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener?.('abort', done);
+          resolve();
+        };
+        const timer = setTimeout(done, pollMs);
+        signal?.addEventListener?.('abort', done, { once: true });
+      });
     }
-    return [...entries.values()].filter((entry) => !wanted || wanted.has(entry.id));
+    return [...entries.values()].filter((entry) => !wanted || wanted.has(entry.id)).map(publicEntry);
+  }
+
+  function status({ ids } = {}) {
+    const wanted = wantedSet(ids);
+    return [...entries.values()].filter((entry) => !wanted || wanted.has(entry.id)).map(publicEntry);
   }
 
   function cancel({ ids } = {}) {
-    const wanted = Array.isArray(ids) && ids.length ? new Set(ids) : null;
+    const wanted = wantedSet(ids);
     let stopped = 0;
     for (const [id, { stop }] of runtime) {
       if (wanted && !wanted.has(id)) continue;
@@ -755,7 +806,7 @@ export function createSubagentService({
     return stopped;
   }
 
-  return { run, waitFor, cancel, snapshot, dispose, discover: discoverAgents };
+  return { run, waitFor, cancel, status, snapshot, dispose, discover: discoverAgents };
 }
 
 /* ============================== pi registration ============================== */
@@ -789,8 +840,9 @@ export function installSubagents(pi, { Type, cli, builtinDir = BUILTIN_AGENTS_DI
     description: [
       'Delegate a task to an isolated subagent process with its own context window.',
       'Modes: single (agent + task), parallel (tasks array), chain (sequential steps with {previous} placeholder).',
-      'By default the subagent runs in the background: the tool returns a receipt immediately and the result arrives later as a follow-up message, so you can keep working.',
-      'If you need the result before continuing, pass background:false, or call subagent_wait with the ids.',
+      'By default the subagent runs in the background: the tool returns a receipt with ids immediately and the result arrives later as a follow-up message, so you can keep working.',
+      'If you need the result before continuing, pass background:false, or call subagent_wait with the ids. Stopping a wait does not stop the subagents.',
+      'Use subagent_status to check progress of background subagents without waiting, and subagent_cancel to stop them.',
       'Default agents: scout (fast code recon), planner (implementation plan), worker (full capabilities), reviewer (code review).',
       'Use for research, planning, parallel exploration or review. The live progress is visible in the web panel.',
     ].join(' '),
@@ -846,23 +898,64 @@ export function installSubagents(pi, { Type, cli, builtinDir = BUILTIN_AGENTS_DI
   pi.registerTool({
     name: 'subagent_wait',
     label: 'Ждать субагента',
-    description: 'Wait for background subagents to finish and return their results. Optionally pass ids from the subagent receipt.',
+    description:
+      'Wait for background subagents to finish and return their results. Optionally pass ids from the receipt. Interrupting this wait does not stop the subagents; use subagent_cancel for that.',
     parameters: Type.Object({
       ids: Type.Optional(Type.Array(Type.String({ description: 'Subagent ids to wait for; all running subagents when omitted' }))),
       timeoutMs: Type.Optional(Type.Number({ description: 'Maximum wait in milliseconds (default 120000)' })),
     }),
-    async execute(_id, params) {
-      const list = await service.waitFor({ ids: params.ids, timeoutMs: Number(params.timeoutMs) || 120000 });
+    async execute(_id, params, signal) {
+      const list = await service.waitFor({ ids: params.ids, timeoutMs: Number(params.timeoutMs) || 120000, signal });
       const finished = list.filter((entry) => entry.status !== 'running');
-      if (!finished.length) {
-        return { content: [{ type: 'text', text: 'Субагенты ещё работают. Результат придёт отдельным сообщением.' }], details: { subagents: service.snapshot() } };
+      const running = list.filter((entry) => entry.status === 'running');
+      const parts = [];
+      if (finished.length) {
+        parts.push(
+          finished
+            .map(
+              (entry) =>
+                `### ${entry.agent} — ${entry.status === 'done' ? 'готово' : entry.status === 'stopped' ? 'остановлен' : 'ошибка'}\n\n${entry.output || entry.error || '(нет вывода)'}`,
+            )
+            .join('\n\n---\n\n'),
+        );
       }
-      const text = finished
-        .map((entry) => `### ${entry.agent} — ${entry.status === 'done' ? 'готово' : entry.status === 'stopped' ? 'остановлен' : 'ошибка'}\n\n${entry.output || entry.error || '(нет вывода)'}`)
-        .join('\n\n---\n\n');
+      if (running.length) {
+        const lead = signal?.aborted
+          ? 'Ожидание прервано. Субагенты продолжают работать в фоне:'
+          : 'Субагенты ещё работают в фоне:';
+        parts.push(
+          `${lead}\n${running.map((entry) => formatSubagentStatus(entry)).join('\n')}\nПроверить статус: subagent_status. Остановить: subagent_cancel с нужными id.`,
+        );
+      }
+      if (!parts.length) {
+        return { content: [{ type: 'text', text: 'Активных субагентов нет.' }], details: { subagents: list } };
+      }
       return {
-        content: [{ type: 'text', text: capBytes(text, 12000) }],
-        details: { subagents: service.snapshot() },
+        content: [{ type: 'text', text: capBytes(parts.join('\n\n'), 12000) }],
+        details: { subagents: list, runningIds: running.map((entry) => entry.id), aborted: Boolean(signal?.aborted) },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: 'subagent_status',
+    label: 'Статус субагентов',
+    description:
+      'Show ids, agents and current status of background subagents without waiting for them or stopping them.',
+    parameters: Type.Object({
+      ids: Type.Optional(Type.Array(Type.String({ description: 'Subagent ids to show; all known subagents when omitted' }))),
+    }),
+    async execute(_id, params) {
+      const list = service.status({ ids: params.ids });
+      if (!list.length) {
+        return { content: [{ type: 'text', text: 'Активных субагентов нет.' }], details: { subagents: [] } };
+      }
+      const text = list.map((entry) => formatSubagentStatus(entry)).join('\n');
+      return {
+        content: [
+          { type: 'text', text: capBytes(`${text}\n\nОстановить: subagent_cancel с нужными id.`, 12000) },
+        ],
+        details: { subagents: list },
       };
     },
   });

@@ -166,6 +166,12 @@ let searchValue = "";
 let searchOpen = false;
 let renderedSignature = "";
 let queueSignature = "";
+// The server sends only the tail of a long chat; these track which older pages are already on
+// screen so that a fresh snapshot never drops content the user has scrolled to.
+let messagesFloor = null;
+let messagesTotal = null;
+let loadingHistory = false;
+const HISTORY_PAGE = 40;
 let lastChat;
 let questionId;
 let dictationId;
@@ -925,6 +931,15 @@ async function boot() {
 /* ============================== chrome ============================== */
 
 function wireChrome() {
+  $("messages").addEventListener(
+    "scroll",
+    () => {
+      const area = $("messages");
+      if (!area || area.scrollTop > 160) return;
+      void loadOlderMessages();
+    },
+    { passive: true },
+  );
   $("nav-projects").onclick = () => {
     if (page !== "chat" && state.active) returnToChat();
     else navigate("projects");
@@ -1458,6 +1473,8 @@ function openBranch(chat) {
   page = "chat";
   editingIndex = null;
   renderedSignature = "";
+  messagesFloor = null;
+  messagesTotal = null;
   state = {
     ...state,
     active: {
@@ -1473,6 +1490,7 @@ function openBranch(chat) {
     },
     loading: true,
     messages: [],
+    messagesOffset: 0,
     error: null,
   };
   $("draft").value = saved(chat.id);
@@ -1484,7 +1502,9 @@ function openBranch(chat) {
   api("history", { chat: chat.id }, 15000)
     .then((result) => {
       if (token !== openToken) return;
-      state = { ...state, loading: false, messages: result.messages || [], ready: false };
+      messagesFloor = null;
+      messagesTotal = null;
+      state = { ...state, loading: false, messages: result.messages || [], messagesOffset: 0, ready: false };
       renderChat();
     })
     .catch(() => {});
@@ -2794,6 +2814,59 @@ function renderMessages() {
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }
   }
+  // A window shorter than the viewport cannot be scrolled up, so older pages fill the gap.
+  if ((state.messagesOffset || 0) > 0 && area.scrollHeight <= area.clientHeight + 8) void loadOlderMessages();
+}
+
+async function loadOlderMessages() {
+  if (loadingHistory || page !== "chat") return;
+  const chat = state.active?.id;
+  const area = $("messages");
+  if (!chat || !area) return;
+  const before = Number.isFinite(state.messagesOffset) ? state.messagesOffset : 0;
+  if (before <= 0) return;
+  loadingHistory = true;
+  const heightBefore = area.scrollHeight;
+  try {
+    const result = await api("history", { chat, before, limit: HISTORY_PAGE }, 20000);
+    if (chat !== state.active?.id || page !== "chat") return;
+    const older = Array.isArray(result.messages) ? result.messages : [];
+    const start = Number.isFinite(result.offset) ? result.offset : Math.max(0, before - older.length);
+    const currentOffset = Number.isFinite(state.messagesOffset) ? state.messagesOffset : before;
+    const missing = older.slice(0, Math.max(0, currentOffset - start));
+    if (!missing.length) return;
+    if (messagesFloor != null && start >= messagesFloor) return;
+    state = { ...state, messages: missing.concat(state.messages), messagesOffset: start };
+    messagesFloor = start;
+    if (editingIndex != null) editingIndex += missing.length;
+    renderedSignature = "";
+    renderMessages();
+    const after = $("messages");
+    if (after) after.scrollTop += after.scrollHeight - heightBefore;
+  } catch {}
+  finally {
+    loadingHistory = false;
+  }
+}
+
+// Older pages stay in front of the newest window: a streaming snapshot must not drop them.
+function withLoadedHistory(next) {
+  const incoming = Array.isArray(next.messages) ? next.messages : null;
+  if (!incoming) return next;
+  const offset = Number.isFinite(next.messagesOffset) ? next.messagesOffset : 0;
+  const total = Number.isFinite(next.messagesTotal) ? next.messagesTotal : offset + incoming.length;
+  const previous = state.messages || [];
+  const previousOffset = Number.isFinite(state.messagesOffset) ? state.messagesOffset : 0;
+  const sameChat = Boolean(state.active?.id) && state.active.id === next.active?.id;
+  const shrunk = messagesTotal != null && total < messagesTotal;
+  messagesTotal = total;
+  if (!shrunk && sameChat && messagesFloor != null && messagesFloor < offset && previousOffset === messagesFloor) {
+    const keep = previous.slice(0, offset - messagesFloor);
+    if (keep.length === offset - messagesFloor)
+      return { ...next, messages: keep.concat(incoming), messagesOffset: messagesFloor, messagesTotal: total };
+  }
+  if (shrunk || !sameChat) messagesFloor = null;
+  return { ...next, messagesOffset: offset, messagesTotal: total };
 }
 
 function summaryCard(message, key) {
@@ -4266,9 +4339,11 @@ function forkMessage(index, text) {
   if (!state.active) return;
   if (!canSwitch()) return;
   const chat = state.active.id;
+  // Visible indexes are relative to the loaded window; the server counts from the chat start.
+  const absolute = (Number.isFinite(state.messagesOffset) ? state.messagesOffset : 0) + index;
   const label = text ? "Создаю чат и отправляю…" : "Создаю чат…";
   run(label, async () => {
-    const next = await api("fork", { chat, index, text: text || "" }, 90000);
+    const next = await api("fork", { chat, index: absolute, text: text || "" }, 90000);
     applyState(next);
     page = "chat";
     editingIndex = null;
@@ -5186,10 +5261,11 @@ function applyState(next) {
   const previous = state.active?.id;
   const wasBusy = Boolean(state.busy);
   const previousName = state.active?.id && state.active.id === next.active?.id ? state.active.name : null;
-  state = next;
+  const merged = withLoadedHistory(next);
+  state = merged;
   if (next.busy) clearDone();
   else if (wasBusy && !next.error && previous === next.active?.id) {
-    const lastAssistant = [...(next.messages || [])].reverse().find((message) => message.role === "assistant");
+    const lastAssistant = [...(merged.messages || [])].reverse().find((message) => message.role === "assistant");
     if (lastAssistant && lastAssistant.status !== "stopped" && !lastAssistant.error) {
       // The chime is a background signal: keep quiet while the chat is being watched.
       if (document.hidden || !document.hasFocus()) playDoneChime();

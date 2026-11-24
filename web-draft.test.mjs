@@ -70,6 +70,8 @@ test('reload does not replay already consumed dictation',()=>{
     renderWindowChrome(){},clearDone(){},playDoneChime(){},markDone(){},
     document:{hidden:false,hasFocus:()=>true},
     projectOf:()=>undefined,
+    // The window merge is exercised separately; here it only passes snapshots through.
+    withLoadedHistory:next=>next,
   };
   runInNewContext(between('function applyState(','function autoGrow('),context);
   const snapshot={active:{id:'chat'},messages:[],dictation:{id:'voice-1',chat:'chat',text:'Голосовой вопрос'}};

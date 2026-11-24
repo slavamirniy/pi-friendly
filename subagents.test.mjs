@@ -375,3 +375,40 @@ test('cancel stops a running background subagent', async (t) => {
   assert.equal(list[0].status, 'stopped');
   assert.ok(receipt.details.subagents.length);
 });
+
+test('wait can be interrupted without stopping the background subagent', async (t) => {
+  const {builtin, user} = await workspace(t);
+  let child;
+  const service = createSubagentService({
+    cli: '/pi/cli.js',
+    emit: () => {},
+    spawnProcess: () => {
+      child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.killed = false;
+      child.kill = () => {
+        child.killed = true;
+        child.emit('close', 143);
+      };
+      return child;
+    },
+  });
+  t.after(() => service.dispose());
+  const receipt = await service.run(
+    {agent: 'scout', task: 'Долгая фоновая задача', background: true},
+    {cwd: builtin, userDir: user, builtinDir: builtin},
+  );
+  const ids = receipt.details.subagents.map((entry) => entry.id);
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 20);
+  const started = Date.now();
+  const list = await service.waitFor({ids, timeoutMs: 5000, pollMs: 50, signal: controller.signal});
+  assert.ok(Date.now() - started < 1000, 'wait должен прерваться по signal');
+  assert.equal(list[0].status, 'running');
+  assert.equal(child.killed, false, 'прерывание ожидания не должно убивать субагента');
+  const current = service.status({ids});
+  assert.equal(current.length, 1);
+  assert.equal(current[0].agent, 'scout');
+  assert.equal(current[0].status, 'running');
+});

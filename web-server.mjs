@@ -66,7 +66,11 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  const messageVersions=new Map();
  const currentVersionIndex=new Map();
  const titleRequests=new Set();
- const snapshot=()=>({...state,billing:billing?.snapshot(),statuses:{...state.statuses,...(active?.host?Object.fromEntries(getHostStatuses().map((s,i)=>['host-'+i,clean(s)])):{})},loading,active,messageVersions:active?Object.fromEntries([...messageVersions.entries()].filter(([key])=>key.startsWith(active.id+'-')).map(([key,versions])=>{const idx=currentVersionIndex.get(key)??versions.length-1;return[key,{versions,currentIndex:idx}];})):{}});
+ // Only the tail of a long chat travels over SSE: the rest is requested page by page when the
+ // user scrolls up. The full list stays here, so fork/version indexes keep working unchanged.
+ const MESSAGE_WINDOW=Math.max(10,Number(process.env.PI_FRIENDLY_MESSAGE_WINDOW)||40);
+ const windowed=messages=>{const list=messages||[],offset=Math.max(0,list.length-MESSAGE_WINDOW);return {messages:list.slice(offset),messagesOffset:offset,messagesTotal:list.length};};
+ const snapshot=()=>({...state,...windowed(state.messages),billing:billing?.snapshot(),statuses:{...state.statuses,...(active?.host?Object.fromEntries(getHostStatuses().map((s,i)=>['host-'+i,clean(s)])):{})},loading,active,messageVersions:active?Object.fromEntries([...messageVersions.entries()].filter(([key])=>key.startsWith(active.id+'-')).map(([key,versions])=>{const idx=currentVersionIndex.get(key)??versions.length-1;return[key,{versions,currentIndex:idx}];})):{}});
  const broadcast=()=>{clearTimeout(publishTimer);publishTimer=undefined;const data='data: '+JSON.stringify(snapshot())+'\n\n';for(const client of clients){if(client.writableLength>2*1024*1024){client.destroy();clients.delete(client);}else client.write(data);}};
  const changed=()=>{if(!publishTimer)publishTimer=setTimeout(broadcast,35);};
  const unsubBilling=billing?.subscribe(()=>changed());
@@ -221,10 +225,9 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   }
   if(event.type==='friendly_router_progress'){state.routerProgress=event.progress||null;}
   if(event.type==='friendly_subagents'&&Array.isArray(event.subagents))state.subagents=event.subagents.slice(0,24);
-  if(event.type==='process_error')state.subagents=(state.subagents||[]).map(item=>item.status==='running'?{...item,status:'stopped',current:'',finishedAt:Date.now()}:item);
   if(event.type==='agent_end'){
    const replace=contextReplaced;contextReplaced=false;
-   rpc?.request('get_messages').then(data=>{if(epoch===generation){const next=publicMessages(data?.messages||[]);state.messages=replace?replaceMessages(state.messages,next):reconcileMessages(state.messages,next);changed();}}).catch(()=>{});
+   readMessages().then(messages=>{if(epoch===generation&&messages){const next=publicMessages(messages);state.messages=replace?replaceMessages(state.messages,next):reconcileMessages(state.messages,next);changed();}}).catch(()=>{});
    void refreshContextUsage();
   }
   if(event.type==='queue_update')state.queue={steering:Array.isArray(event.steering)?event.steering:[],followUp:Array.isArray(event.followUp)?event.followUp:[]};
@@ -269,10 +272,29 @@ export async function startWebServer({billing,projects,listSessions,readSession,
  async function reloadContextMessages(){
   if(!rpc)return;
   try{
-   const data=await rpc.request('get_messages',{},20000);
-   state.messages=replaceMessages(state.messages,publicMessages(data?.messages||[]));
+   const messages=await readMessages();
+   if(!messages)return;
+   state.messages=replaceMessages(state.messages,publicMessages(messages));
    changed();
   }catch{}
+ }
+ // pi serializes the whole history into one RPC frame. For a long chat that frame is tens of
+ // megabytes: a 38 MB chat needed ~20 s over RPC against ~0.8 s from the session file, and
+ // such frames used to kill the connection. Big sessions are therefore read from disk.
+ const LARGE_SESSION_BYTES=4*1024*1024;
+ async function readMessages(target=rpc){
+  const path=active?.file||active?.path;
+  if(path){
+   let size=0;try{size=(await stat(path)).size;}catch{}
+   if(size>LARGE_SESSION_BYTES){try{return readSession(path)||[];}catch{}}
+  }
+  if(!target)return path?[]:null;
+  try{return (await target.request('get_messages',{},20000))?.messages||[];}
+  catch(error){
+   // An oversized or rejected frame must not hide the chat: the session file still has it.
+   if(path){try{return readSession(path)||[];}catch{}}
+   throw error;
+  }
  }
  async function openSession(session,{notify=true,waitForReady=false}={}){
   loading=true;state.error=null;if(notify)changed();const epoch=++generation;
@@ -283,7 +305,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
    const previousRpc=rpc;rpc=undefined;if(previousRpc)void previousRpc.dispose();
    const p=allProjects.find(p=>folderKey(p.cwd)===folderKey(session.cwd));if(!p||!projects.isProject(p.cwd))throw new Error('Выберите существующий проект.');
    projects.markOpened?.(p.cwd);
-   active={id:key(session.path),sessionId:session.id,projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
+   active={id:key(session.path),sessionId:session.id,path:session.path,projectId:key(folderKey(p.cwd)),projectName:p.name,name:session.name||(session.firstMessage&&session.firstMessage!=='(no messages)'?session.firstMessage.slice(0,80):'Новый чат'),host:session.path===hostSession(),readOnly:session.path===hostSession()&&!makeHostRpc,named:Boolean(session.name),ready:false};
    state={...state,routerProgress:null,messages:publicMessages(readSession(session.path)),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},ready:false,subagents:[],compacting:null,contextUsage:null};
    loading=false;
    if(active.readOnly){
@@ -298,7 +320,10 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      nextRpc=(session.path===hostSession()&&makeHostRpc?makeHostRpc:makeRpc)({cwd:p.cwd,path:session.path,onEvent:e=>eventHandler(e,epoch)});
      if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
      rpc=nextRpc;
-     const [current,messages]=await Promise.all([nextRpc.request('get_state',{},20000),nextRpc.request('get_messages',{},20000)]);
+     // get_messages goes first: a huge history can reject pending RPC requests, so nothing
+     // else may be in flight while it is being read.
+     const messages=await readMessages(nextRpc);
+     const current=await nextRpc.request('get_state',{},20000);
      if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
      active={...active,model:current?.model?{id:current.model.id,provider:current.model.provider,name:current.model.name}:null,file:current?.sessionFile||session.path,sessionId:current?.sessionId||active.sessionId};
      state={...state,busy:Boolean(current?.isStreaming),queue:{steering:[],followUp:[]}};
@@ -308,7 +333,7 @@ export async function startWebServer({billing,projects,listSessions,readSession,
       if(epoch===generation)active={...active,model:{id:preferred.id,provider:preferred.provider,name:preferred.name}};
      }
      if(epoch!==generation){await nextRpc.dispose();settle(false);return;}
-     state={...state,messages:reconcileMessages(state.messages,publicMessages(messages?.messages||[])),ready:true,loading:false};
+     state={...state,messages:reconcileMessages(state.messages,publicMessages(messages||[])),ready:true,loading:false};
      active={...active,ready:true};
      if(notify){changed();broadcast();}
      void refreshContextUsage();
@@ -366,8 +391,8 @@ export async function startWebServer({billing,projects,listSessions,readSession,
   try{await rpc.request('set_session_name',{name:label},10000);}catch{}
   const previousFile=active.file;
   active={...active,id:key(current.sessionFile),name:label,file:current.sessionFile,parent:previousFile?key(previousFile):null,host:false,readOnly:false,named:true};
-  const messages=await rpc.request('get_messages',{},20000);
-  state={...state,messages:publicMessages(messages?.messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},subagents:[]};
+  const messages=await readMessages();
+  state={...state,messages:publicMessages(messages||[]),busy:false,error:null,notice:'',questions:[],queue:{steering:[],followUp:[]},statuses:{},widgets:{},subagents:[]};
   await catalog();
   if(text){
    state.busy=true;changed();
@@ -592,7 +617,12 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      if(!allProjects.length||!allSessions.length)await catalog();
      const session=allSessions.find(s=>key(s.path)===data.chat);
      if(!session)throw new Error('Чат не найден. Обновите список.');
-     reply(200,{chat:key(session.path),messages:publicMessages(readSession(session.path))});return;
+     const all=active&&key(session.path)===active.id?state.messages:publicMessages(readSession(session.path));
+     if(data.before===undefined){reply(200,{chat:key(session.path),messages:all,offset:0,total:all.length});return;}
+     const limit=Math.min(200,Math.max(1,Number(data.limit)||MESSAGE_WINDOW));
+     const before=Math.min(all.length,Math.max(0,Number(data.before)||0));
+     const offset=Math.max(0,before-limit);
+     reply(200,{chat:key(session.path),messages:all.slice(offset,before),offset,total:all.length});return;
     }
     if(action==='delete-chat'||action==='archive-chat'){
      const session=allSessions.find(s=>key(s.path)===data.chat);
@@ -717,8 +747,8 @@ export async function startWebServer({billing,projects,listSessions,readSession,
      state.compacting={reason:'manual',startedAt:Date.now()};state.notice='Сжимаю историю разговора…';state.error=null;changed();
      try{
       const result=await rpc.request('compact',{},300000);
-      const messages=await rpc.request('get_messages',{},20000);
-      state.messages=replaceMessages(state.messages,publicMessages(messages?.messages||[]));
+      const messages=await readMessages();
+      state.messages=replaceMessages(state.messages,publicMessages(messages||[]));
       state.compacting=null;flashNotice(compactionNotice(result),10000);changed();
       void refreshContextUsage();
       reply(200,{ok:true,notice:state.notice,result:result||null});

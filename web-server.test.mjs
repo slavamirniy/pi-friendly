@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {startWebServer,publicMessage} from './web-server.mjs';
 async function fixture(t,{host=false,options={}}={}){
- const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
+ const projectsList=[{cwd:process.cwd(),name:'Проект'}],sessions=options.sessionList||[{cwd:process.cwd(),path:'/test/chat.jsonl',firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}];
  const conversation=options.messages||[{role:'user',content:'Привет'}];
  const calls=[];let emit;
  const projects={list:()=>projectsList,isProject:()=>true,create:name=>{if(!name?.trim())throw new Error('Введите название');const p={cwd:process.cwd()+'/new',name};projectsList.push(p);return p;},createChat:cwd=>{const s={cwd,path:'/test/new.jsonl'};sessions.push(s);return s.path;},attach:value=>{const p={cwd:value,name:'Attached'};projectsList.push(p);return p;}};
@@ -115,7 +115,7 @@ test('subagent snapshots reach the web state',async t=>{
  h.emit({type:'friendly_subagents',subagents:[base,{...base,id:'b',status:'done',output:'Готово'}]});
  const live=await h.state();assert.equal(live.subagents.length,2);assert.equal(live.subagents[1].output,'Готово');
  h.emit({type:'process_error',message:'Процесс упал'});
- const stopped=await h.state();assert.equal(stopped.subagents[0].status,'stopped');assert.equal(stopped.subagents[0].current,'');
+ const after=await h.state();assert.equal(after.subagents[0].status,'running');assert.equal(after.subagents[0].current,undefined);
 });
 
 test('web entry and its local module dependencies are served as JavaScript',async t=>{
@@ -597,4 +597,64 @@ test('brand icons, chrome helpers and the completion sound are served locally',a
   assert.match(response.headers.get('content-type')||'',new RegExp(type.replace('/','\/')),path);
   assert.ok((await response.arrayBuffer()).byteLength>0,path);
  }
+});
+test('a chat too big for one RPC frame opens from the session file',async t=>{
+ const conversation=[{role:'user',content:'Привет'},{role:'assistant',content:'Очень длинная история'}];
+ const makeRpc=()=>({request:async type=>{
+  if(type==='get_state')return{model:{id:'test',provider:'local'}};
+  if(type==='get_messages')throw new Error('Ответ pi слишком большой (больше 256 МБ).');
+ },respond(){},dispose:async()=>{}});
+ const h=await fixture(t,{options:{messages:conversation,makeRpc}});
+ const p=(await h.request('catalog')).data.projects[0];
+ const opened=await h.request('open',{id:p.chats[0].id});
+ assert.equal(opened.status,200);
+ assert.equal(opened.data.error,null);
+ assert.equal(opened.data.ready,true);
+ assert.equal(opened.data.messages.length,2);
+ assert.equal(opened.data.messages[1].text,'Очень длинная история');
+ const state=await h.state();
+ assert.equal(state.error,null);
+ assert.equal(state.ready,true);
+ assert.equal(state.messages[1].text,'Очень длинная история');
+});
+test('a huge chat is read from the session file instead of a giant RPC frame',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'pf-big-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const path=join(dir,'big.jsonl');
+ await writeFile(path,'x'.repeat(5*1024*1024));
+ const conversation=[{role:'user',content:'Привет'},{role:'assistant',content:'Длинная история'}];
+ const h=await fixture(t,{options:{sessionList:[{cwd:process.cwd(),path,firstMessage:'Привет',modified:new Date().toISOString(),messageCount:2}],readSession:()=>conversation}});
+ const p=(await h.request('catalog')).data.projects[0];
+ const opened=await h.request('open',{id:p.chats[0].id});
+ assert.equal(opened.status,200);
+ assert.equal(opened.data.messages.length,2);
+ assert.equal(opened.data.messages[1].text,'Длинная история');
+ assert.equal(h.calls.filter(c=>c.type==='get_messages').length,0);
+});
+test('a long chat is sent as a window and older pages load on demand',async t=>{
+ const conversation=Array.from({length:120},(_,i)=>({role:i%2?'assistant':'user',content:`Сообщение ${i}`}));
+ const h=await fixture(t,{options:{messages:conversation}});
+ const p=(await h.request('catalog')).data.projects[0];
+ const opened=await h.request('open',{id:p.chats[0].id});
+ assert.equal(opened.status,200);
+ assert.equal(opened.data.messagesTotal,120);
+ assert.equal(opened.data.messagesOffset,80);
+ assert.equal(opened.data.messages.length,40);
+ assert.equal(opened.data.messages[0].text,'Сообщение 80');
+ const page=await h.request('history',{chat:p.chats[0].id,before:80,limit:40});
+ assert.equal(page.status,200);
+ assert.equal(page.data.offset,40);
+ assert.equal(page.data.total,120);
+ assert.equal(page.data.messages[0].text,'Сообщение 40');
+ assert.equal(page.data.messages.at(-1).text,'Сообщение 79');
+ const first=await h.request('history',{chat:p.chats[0].id,before:40,limit:40});
+ assert.equal(first.data.offset,0);
+ assert.equal(first.data.messages[0].text,'Сообщение 0');
+ const empty=await h.request('history',{chat:p.chats[0].id,before:0,limit:40});
+ assert.equal(empty.data.offset,0);
+ assert.equal(empty.data.messages.length,0);
+ // The fast path still returns the whole chat without starting pi.
+ const all=await h.request('history',{chat:p.chats[0].id});
+ assert.equal(all.data.offset,0);
+ assert.equal(all.data.messages.length,120);
 });

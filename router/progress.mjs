@@ -121,7 +121,7 @@ export function installRouterProgress(pi, options = {}) {
     clearInterval(run.accountTimer);
   }
   function apply(run, value) {
-    if (current !== run || !value || value.request_id !== run.id || !Number.isSafeInteger(value.version) || value.version <= run.version || !Object.hasOwn(STATES, value.state)) return;
+    if (current !== run || TERMINAL.has(run.snapshot.state) || !value || value.request_id !== run.id || !Number.isSafeInteger(value.version) || value.version <= run.version || !Object.hasOwn(STATES, value.state)) return;
     const attempt = Number.isSafeInteger(value.attempt) && value.attempt >= 0 ? value.attempt : 0;
     const reset = value.reset || attempt !== run.snapshot.attempt;
     const coefficient = v => typeof v === "string" && /^\d{1,5}(?:\.\d{1,6})?$/.test(v) ? v : undefined;
@@ -210,7 +210,10 @@ export function installRouterProgress(pi, options = {}) {
   pi.on("message_end", async (event) => {
     const m = event.message;
     const run = current;
-    if (m?.role !== "assistant" || !run || m.provider !== run.provider || m.model !== run.model) return;
+    // Pi can normalize provider/model metadata after a fallback. The active
+    // request ID already identifies this run, so an exact metadata match can
+    // incorrectly leave a completed response marked as cancelled.
+    if (m?.role !== "assistant" || !run) return;
     {
       stop(run);
       const bad = m.stopReason === "error" || m.stopReason === "aborted";

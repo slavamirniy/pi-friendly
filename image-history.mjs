@@ -1,9 +1,11 @@
 // Keep request payloads small: images from old turns are not sent again.
 // The LLM still sees that an image was there and keeps the surrounding text.
-// The newest user message is never torn apart, even if it has more images than
-// the limit: those are the references for the request that is being answered.
+// The current turn is never torn apart, however many images it has: those are the
+// references for the work that is being done right now.
 
-export const DEFAULT_IMAGE_HISTORY_LIMIT = 2;
+import { currentTurnStart } from "./turn-history.mjs";
+
+export const DEFAULT_IMAGE_HISTORY_LIMIT = 4;
 export const IMAGE_PLACEHOLDER =
   "[Изображение не отправлено повторно: в истории остаются только последние изображения.]";
 export const DUPLICATE_IMAGE_PLACEHOLDER =
@@ -24,18 +26,10 @@ function countImages(message) {
   return count;
 }
 
-function newestUserIndex(messages) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === "user") return index;
-  }
-  return -1;
-}
-
 export function pruneOldImages(messages, keep = DEFAULT_IMAGE_HISTORY_LIMIT) {
   if (!Array.isArray(messages)) return messages;
   const limit = Number.isInteger(keep) && keep >= 0 ? keep : DEFAULT_IMAGE_HISTORY_LIMIT;
-  const current = newestUserIndex(messages);
-  if (current < 0) return messages;
+  const current = currentTurnStart(messages);
   let budget = limit;
   let changedAny = false;
   const kept = new Set();
@@ -50,9 +44,10 @@ export function pruneOldImages(messages, keep = DEFAULT_IMAGE_HISTORY_LIMIT) {
       if (next[block]?.type !== "image") continue;
       const data = next[block].data;
       const duplicate = typeof data === "string" && kept.has(data);
-      if (!duplicate && (index === current || budget > 0)) {
+      // Images of the running turn always travel with the request.
+      if (!duplicate && (index >= current || budget > 0)) {
         if (typeof data === "string") kept.add(data);
-        if (index !== current) budget -= 1;
+        if (index < current) budget -= 1;
         continue;
       }
       next[block] = { type: "text", text: duplicate ? DUPLICATE_IMAGE_PLACEHOLDER : IMAGE_PLACEHOLDER };

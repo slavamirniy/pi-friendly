@@ -1,9 +1,11 @@
 // Old tool output is the other half of oversized requests: a single `read` or a
 // chatty console command can carry hundreds of kilobytes and then travel with
-// every later request. Keep the newest long outputs intact and shorten older
-// ones to their first characters plus a short note about where they came from.
+// every later request. The current turn is always sent intact; before older turns,
+// the newest long outputs are kept whole and earlier ones are shortened to their
+// first characters plus a short note about where they came from.
 
 import { resolve } from "node:path";
+import { currentTurnStart, shortenHead } from "./turn-history.mjs";
 
 export const DEFAULT_TEXT_HISTORY_LIMIT = 15;
 export const DEFAULT_TEXT_HEAD_CHARS = 1000;
@@ -70,8 +72,7 @@ function noteFor(message, args, cwd) {
 }
 
 function shorten(text, note, headChars) {
-  const head = Array.from(text).slice(0, headChars).join("");
-  return `${head.trimEnd()}\n\n${note}`;
+  return shortenHead(text, headChars, note);
 }
 
 export function pruneOldToolTexts(messages, limit = DEFAULT_TEXT_HISTORY_LIMIT, headChars = DEFAULT_TEXT_HEAD_CHARS, cwd = "") {
@@ -79,10 +80,12 @@ export function pruneOldToolTexts(messages, limit = DEFAULT_TEXT_HISTORY_LIMIT, 
   const keep = Number.isInteger(limit) && limit >= 0 ? limit : DEFAULT_TEXT_HISTORY_LIMIT;
   const head = Number.isInteger(headChars) && headChars > 0 ? headChars : DEFAULT_TEXT_HEAD_CHARS;
   const calls = toolArguments(messages);
+  const turnStart = currentTurnStart(messages);
   let budget = keep;
   let changed = false;
   const result = messages.slice();
   for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (index >= turnStart) continue;
     const message = messages[index];
     if (!message) continue;
     if (message.role === "bashExecution") {

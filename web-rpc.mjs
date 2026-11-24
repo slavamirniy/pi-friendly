@@ -1,19 +1,29 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
+// pi sends one JSON message per line, so a whole chat history (get_messages) arrives as a
+// single line. Long chats with big tool outputs easily reach tens of megabytes, so the cap
+// must be generous, configurable and must never tear the child down: killing the process
+// left the user with an unopenable chat. An oversized line is dropped and the connection
+// stays usable.
+export const DEFAULT_MAX_RESPONSE_BYTES=Number(process.env.PI_FRIENDLY_MAX_RESPONSE_BYTES)>0?Number(process.env.PI_FRIENDLY_MAX_RESPONSE_BYTES):256*1024*1024;
+const tooLarge=limit=>new Error(`Ответ pi слишком большой (больше ${Math.max(1,Math.round(limit/1024/1024))} МБ).`);
 // The installed pi CLI owns credentials, tools, extensions and project cwd.
-export function createRpc({cli,cwd,path,model,onEvent=()=>{},spawnProcess=spawn}){
+export function createRpc({cli,cwd,path,model,onEvent=()=>{},spawnProcess=spawn,maxResponseBytes=DEFAULT_MAX_RESPONSE_BYTES}={}){
  const args=[cli,'--mode','rpc','--session',path];
  if(model?.id&&model?.provider)args.push('--provider',model.provider,'--model',model.id);
  const child=spawnProcess(process.execPath,args,{cwd,windowsHide:true,stdio:['pipe','pipe','pipe'],env:{...process.env,PI_FRIENDLY_WEB_CHILD:'1'}});
- const pending=new Map();let buffer='',stderr='',stderrBuffer='',closed=false;
+ const limit=Number.isFinite(maxResponseBytes)&&maxResponseBytes>0?maxResponseBytes:DEFAULT_MAX_RESPONSE_BYTES;
+ const pending=new Map();let buffer='',stderr='',stderrBuffer='',closed=false,skipping=false;
  const fail=error=>{for(const p of pending.values()){clearTimeout(p.timer);p.reject(error);}pending.clear();};
  child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{
+  // Discard the rest of a line that already exceeded the cap instead of buffering it.
+  if(skipping){const end=chunk.indexOf('\n');if(end<0)return;skipping=false;chunk=chunk.slice(end+1);if(!chunk)return;}
   buffer+=chunk;
-  if(buffer.length>32*1024*1024){fail(new Error('Ответ pi слишком большой.'));child.kill();return;}
   let i;while((i=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,i);buffer=buffer.slice(i+1);let event;try{event=JSON.parse(line);}catch{continue;}
    if(event.type==='response'&&pending.has(event.id)){const p=pending.get(event.id);pending.delete(event.id);clearTimeout(p.timer);event.success?p.resolve(event.data):p.reject(new Error(event.error||'pi не выполнил действие.'));}
    else onEvent(event);
   }
+  if(buffer.length>limit){buffer='';skipping=true;fail(tooLarge(limit));}
  });
  child.stderr.setEncoding('utf8');
  child.stderr.on('data',chunk=>{

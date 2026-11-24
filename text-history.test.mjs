@@ -117,3 +117,17 @@ test("limits come from the environment and preferences", () => {
   if (saved.head === undefined) delete process.env.PI_FRIENDLY_TEXT_HEAD;
   else process.env.PI_FRIENDLY_TEXT_HEAD = saved.head;
 });
+test("tool output of the running turn is never shortened", () => {
+  const messages = [
+    ...history(20),
+    { role: "user", content: [{ type: "text", text: "Продолжай" }] },
+    toolCall("call-fresh", "read", { path: "fresh.js" }),
+    toolResult("call-fresh", "read", long("СВЕЖИЙ")),
+  ];
+  const pruned = pruneOldToolTexts(messages, 1, 1000, process.cwd());
+  const results = pruned.filter((message) => message.role === "toolResult");
+  // The running turn keeps its full output, and so does the newest finished one.
+  assert.equal(results.at(-1).content[0].text, long("СВЕЖИЙ"));
+  assert.equal(results.at(-2).content[0].text, long("ФАЙЛ-19"));
+  assert.match(results.at(-3).content[0].text, /выдача была сокращена/);
+});
